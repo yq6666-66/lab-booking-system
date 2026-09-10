@@ -7,6 +7,7 @@
 #include <signal.h>
 #include <windows.h>
 static volatile sig_atomic_t stopping=0;
+static unsigned long long app_boot=0;
 static void on_stop(int sig){(void)sig;stopping=1;}
 static Result invalid(void){return result(400,"INVALID_INPUT","请求参数不正确",NULL);}
 static int origin_ok(struct mg_connection *c,const Config *cfg){
@@ -144,7 +145,7 @@ static int api(struct mg_connection *c,void *userdata){
  if(!host_ok(c,cfg)){r=result(403,"FORBIDDEN","Host 不被允许",NULL);goto send;}
  int post=!strcmp(ri->request_method,"POST");
  if(!post&&strcmp(ri->request_method,"GET")){r=result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);goto send;}
- if(!post&&!strcmp(ri->local_uri,"/api/health")){cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"status","ok");r=result(200,"OK","服务运行中",j);goto send;}
+ if(!post&&!strcmp(ri->local_uri,"/api/health")){cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"status","ok");cJSON_AddStringToObject(j,"version",LAB_VERSION);cJSON_AddNumberToObject(j,"uptime_s",(double)((GetTickCount64()-app_boot)/1000));r=result(200,"OK","服务运行中",j);goto send;}
  if(post){
   if(!origin_ok(c,cfg)){r=result(403,"FORBIDDEN","来源不被允许",NULL);goto send;}
   if(ri->content_length>16384){r=result(413,"TOO_LARGE","请求体过大",NULL);goto send;}
@@ -163,8 +164,10 @@ send:
  serialized=r.body?cJSON_PrintUnformatted(r.body):NULL;
  if(!serialized){r.status=500;cookie[0]=0;}
  const char *out=serialized?serialized:"{\"code\":\"INTERNAL_ERROR\",\"message\":\"Memory error\",\"data\":{}}";
- mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
- {LARGE_INTEGER mt1;QueryPerformanceCounter(&mt1);metrics_record_request(r.status,(double)(mt1.QuadPart-mt0.QuadPart)*1000.0/(double)mfreq.QuadPart);}
+ mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'self'\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
+ {LARGE_INTEGER mt1;QueryPerformanceCounter(&mt1);double ms=(double)(mt1.QuadPart-mt0.QuadPart)*1000.0/(double)mfreq.QuadPart;metrics_record_request(r.status,ms);
+  int lvl=ms>=(double)cfg->slow_ms?2:1;if(r.status>=500)lvl=3;
+  log_write(lvl,"ACCESS %s %s %d %.1fms",ri->request_method,ri->local_uri,r.status,ms);}
  return 1;
 }
 /* 后台扫描：定期释放超过签到时限仍未签到的预约，并按 FIFO 补位。 */
@@ -184,6 +187,7 @@ int serve(const Config *cfg){
  char port[48];snprintf(port,sizeof port,"127.0.0.1:%d",cfg->port);
  const char *opts[]={"listening_ports",port,"document_root",cfg->web_path,"num_threads","8","enable_directory_listing","no","request_timeout_ms","5000","enable_keep_alive","no",NULL};
  struct mg_callbacks callbacks;memset(&callbacks,0,sizeof callbacks);mg_init_library(0);
+ rl_configure(cfg);log_init("data/logs/app.log",5*1024*1024);app_boot=GetTickCount64();
  rl_configure(cfg);
  struct mg_context *ctx=mg_start(&callbacks,NULL,opts);if(!ctx){fprintf(stderr,"HTTP server startup failed. Check port and web directory.\n");mg_exit_library();return 1;}
  mg_set_request_handler(ctx,"/api",api,(void*)cfg);signal(SIGINT,on_stop);signal(SIGTERM,on_stop);

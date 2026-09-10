@@ -6,7 +6,8 @@
 #include "cJSON.h"
 typedef sqlite3_int64 Id;
 typedef struct { sqlite3 *sql; int error; void *cache; } DB;
-typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; const char *fault; const char *fault_request; } Config;
+typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *fault; const char *fault_request; } Config;
+#define LAB_VERSION "1.1.0"
 typedef struct { Id id; int admin; char username[65]; char csrf[65]; } User;
 typedef struct { int status; cJSON *body; } Result;
 int db_open(DB *db,const char *path);
@@ -64,4 +65,8 @@ void metrics_init(void);
 void metrics_record_request(int status,double elapsed_ms);
 void metrics_inc_login(void);
 cJSON *metrics_snapshot(void);
+/* r6/L3 日志；r6/L5 在线备份 */
+int log_init(const char *path,long max_bytes);
+void log_write(int level,const char *fmt,...);
+int db_backup(const char *src,const char *dest);
 #endif

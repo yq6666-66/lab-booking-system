@@ -322,5 +322,5 @@ int sweep_once(const Config *config){
  fault(config,"sweep-mid",NULL); /* 事务已写未提交：崩溃后应整体回滚（exit 88） */
  if(d.error){sqlite3_exec(d.sql,"ROLLBACK",NULL,NULL,NULL);db_close(&d);return count;}
  if(!db_run(&d,"COMMIT","")){db_close(&d);return count;}
- db_close(&d);return count;
+ log_write(1,"SWEEP released=%d",count);db_close(&d);return count;
 }

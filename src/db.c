@@ -212,3 +212,14 @@ void db_thread_bad(DB *d){
  int e=d->error&255;
  if(e==SQLITE_CORRUPT||e==SQLITE_IOERR||e==SQLITE_CANTOPEN||e==SQLITE_NOMEM){db_close(d);memset(d,0,sizeof *d);tls_alive=0;}
 }
+/* r6/L5 在线备份：SQLite Backup API，不阻塞业务连接 */
+int db_backup(const char *src,const char *dest){
+ sqlite3 *s=NULL,*d=NULL;
+ if(sqlite3_open_v2(src,&s,SQLITE_OPEN_READONLY,NULL)!=SQLITE_OK){if(s)sqlite3_close(s);return 0;}
+ if(sqlite3_open(dest,&d)!=SQLITE_OK){sqlite3_close(s);if(d)sqlite3_close(d);return 0;}
+ int rc=1;sqlite3_backup *b=sqlite3_backup_init(d,"main",s,"main");
+ if(!b)rc=0;
+ else if(sqlite3_backup_step(b,-1)!=SQLITE_DONE)rc=0;
+ if(b)sqlite3_backup_finish(b);
+ sqlite3_close(s);sqlite3_close(d);return rc;
+}
