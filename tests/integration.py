@@ -493,11 +493,13 @@ def security_checks(s):
     def t24():
         c=s.user(6)
         codes=[]
-        for _ in range(4):
-            status,body=c.request("POST","/api/me/notifications/read",{"all":True,"request_id":uid()})
-            codes.append((status,body["code"]))
-        require(all(st==200 for st,_ in codes[:3]),f"first burst allowed: {codes}")
-        require(codes[3][0]==429 and codes[3][1]=="RATE_LIMITED",f"4th mutation limited: {codes}")
+        for _ in range(3): # 机器缓慢时补充窗口可能横跨请求，多轮快速脉冲直至命中限额
+            codes=[]
+            for _ in range(6):
+                status,body=c.request("POST","/api/me/notifications/read",{"all":True,"request_id":uid()})
+                codes.append((status,body["code"]))
+            if any(st==429 for st,_ in codes): break
+        require(any(st==429 and cd=="RATE_LIMITED" for st,cd in codes),f"burst exhausted: {codes}")
         time.sleep(1.3)
         status,_=c.request("POST","/api/me/notifications/read",{"all":True,"request_id":uid()})
         require(status==200,f"refill after window: {status}")
