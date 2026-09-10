@@ -61,4 +61,4 @@ Result result(int status,const char *code,const char *message,cJSON *data){
  cJSON *b=cJSON_CreateObject();if(!b){cJSON_Delete(data);return (Result){500,NULL};}
  cJSON_AddStringToObject(b,"code",code);cJSON_AddStringToObject(b,"message",message);cJSON_AddItemToObject(b,"data",data?data:cJSON_CreateObject());return (Result){status,b};
 }
-Result db_failure(DB *d){int e=d->error&255;return result(e==SQLITE_BUSY||e==SQLITE_LOCKED?503:500,e==SQLITE_BUSY||e==SQLITE_LOCKED?"DATABASE_BUSY":"INTERNAL_ERROR",e==SQLITE_BUSY||e==SQLITE_LOCKED?"数据库忙碌，请使用原请求编号重试":"服务处理失败，请稍后重试",NULL);}
+Result db_failure(DB *d){int e=d->error&255;return result(e==SQLITE_BUSY||e==SQLITE_LOCKED||e==SQLITE_INTERRUPT?503:500,e==SQLITE_BUSY||e==SQLITE_LOCKED||e==SQLITE_INTERRUPT?"DATABASE_BUSY":"INTERNAL_ERROR",e==SQLITE_INTERRUPT?"查询超时被看门狗打断，请稍后重试":e==SQLITE_BUSY||e==SQLITE_LOCKED?"数据库忙碌，请使用原请求编号重试":"服务处理失败，请稍后重试",NULL);}

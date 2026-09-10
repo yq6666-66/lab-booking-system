@@ -20,7 +20,7 @@ try {
  if($LASTEXITCODE -ne 0){throw 'Release build failed'}
  & gcc @flags @checks -municode -DTEST_FAULTS @own @objects @libs -o ("build/lab-booking-test"+$suffix+".exe")
  if($LASTEXITCODE -ne 0){throw 'Test build failed'}
- & gcc @flags @checks -Ivendor/unity/src vendor/unity/src/unity.c src/util.c src/db.c src/service.c src/ratelimit.c tests/unit.c @objects @libs -o ("build/unit-tests"+$suffix+".exe")
+ & gcc @flags @checks -Ivendor/unity/src -DWATCHDOG_MS=50 vendor/unity/src/unity.c src/util.c src/db.c src/service.c src/ratelimit.c tests/unit.c @objects @libs -o ("build/unit-tests"+$suffix+".exe")
  if($LASTEXITCODE -ne 0){throw 'Unit test build failed'}
  Copy-Item -Path 'vendor/sodium/libsodium-win64/bin/*.dll' -Destination build -Force
  if(-not $Harden){ & ($root+'\build\unit-tests'+'.exe'); if($LASTEXITCODE -ne 0){throw 'Unit tests failed'} }

@@ -368,6 +368,13 @@ static void test_capacity_fill_and_promotion(void){
  TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
 }
 /* -- r6 语句缓存与线程连接复用 */
+static void test_statement_watchdog(void){
+ /* 单测构建以 -DWATCHDOG_MS=50 收紧阈值：无限递归 CTE 在 50ms 后被打断（SQLITE_INTERRUPT → 503 语义） */
+ TEST_ASSERT_EQUAL_INT64(0,db_run(&db,"WITH RECURSIVE c(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM c) SELECT count(*) FROM c",""));
+ TEST_ASSERT_EQUAL_INT(SQLITE_INTERRUPT,db.error&255);
+ db.error=0;
+ TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT 1","")); /* 看门狗不影响常规查询 */
+}
 static void test_stmt_cache_and_eviction(void){
  /* 命中路径：同一 SQL 反复执行结果一致（第二次调用走缓存 reset 分支） */
  Id a1=db_num(&db,"SELECT count(*) FROM slots",""),a2=db_num(&db,"SELECT count(*) FROM slots","");
@@ -456,6 +463,7 @@ int main(void){
  RUN_TEST(test_v2_to_v3_migration);
  RUN_TEST(test_stmt_cache_and_eviction);
  RUN_TEST(test_thread_connection_reuse);
+ RUN_TEST(test_statement_watchdog);
  db_close(&db);remove_files(DBPATH);
  return UnityEnd();
 }
