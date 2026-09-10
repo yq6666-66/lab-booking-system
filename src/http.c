@@ -41,7 +41,16 @@ static int path_id(const char *path,const char *prefix,const char *suffix,Id *id
  size_t a=strlen(prefix),b=strlen(suffix),n=strlen(path);if(n<=a+b||strncmp(path,prefix,a)||strcmp(path+n-b,suffix))return 0;
  size_t len=n-a-b;if(len>18)return 0;char tmp[32];memcpy(tmp,path+a,len);tmp[len]=0;return parse_id(tmp,id);
 }
+static int path_hex(const char *path,const char *prefix,const char *suffix,char *out,size_t n){
+ size_t a=strlen(prefix),b=strlen(suffix),len=strlen(path);if(len<=a+b||strncmp(path,prefix,a)||strcmp(path+len-b,suffix))return 0;
+ size_t need=len-a-b;if(need!=64||need+1>n)return 0;
+ memcpy(out,path+a,need);out[need]=0;return 1;
+}
 static int query(const struct mg_request_info *ri,const char *key,char *out,size_t n){if(!ri->query_string){out[0]=0;return 0;}return mg_get_var(ri->query_string,strlen(ri->query_string),key,out,n)>0;}
+static int pager(const struct mg_request_info *ri,int *page,int *size){
+ char a[16]={0},b[16]={0};query(ri,"page",a,sizeof a);query(ri,"page_size",b,sizeof b);
+ int p=page_arg(a,1,1,1000000),s=page_arg(b,20,1,200);if(p<0||s<0)return 0;*page=p;*size=s;return 1;
+}
 static Result admin(DB *d,const char *path,const cJSON *body){
  Id target=0;
  if(!strcmp(path,"/api/admin/slots/publish")){
@@ -75,11 +84,20 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   if(!strcmp(path,"/api/slots")){
    char a[40],dt[32];Id lab=0;query(ri,"lab_id",a,sizeof a);query(ri,"date",dt,sizeof dt);Id start=date_start(dt);if(!parse_id(a,&lab)||start<0)return invalid();
    cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"slots",db_rows(d,
-    "SELECT s.id,s.lab_id,s.start_at,s.end_at,s.enabled,l.enabled AS lab_enabled,EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') AS occupied,(SELECT count(*) FROM waitlist w JOIN users wu ON wu.id=w.user_id WHERE w.slot_id=s.id AND w.status='WAITING' AND wu.enabled=1) AS waiting_count,(SELECT id FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_reservation_id,(SELECT id FROM waitlist w WHERE w.slot_id=s.id AND w.status='WAITING' AND w.user_id=?) AS my_waitlist_id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.lab_id=? AND s.start_at>=? AND s.start_at<? ORDER BY s.start_at",
-    "iiiii",u.id,u.id,lab,start,start+86400));return result(200,"OK","查询成功",j);
+    "SELECT s.id,s.lab_id,s.start_at,s.end_at,s.enabled,l.enabled AS lab_enabled,EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') AS occupied,(SELECT count(*) FROM waitlist w JOIN users wu ON wu.id=w.user_id WHERE w.slot_id=s.id AND w.status='WAITING' AND wu.enabled=1) AS waiting_count,(SELECT id FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_reservation_id,(SELECT checked_in_at FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_checked_in_at,(SELECT id FROM waitlist w WHERE w.slot_id=s.id AND w.status='WAITING' AND w.user_id=?) AS my_waitlist_id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.lab_id=? AND s.start_at>=? AND s.start_at<? ORDER BY s.start_at",
+    "iiiiii",u.id,u.id,u.id,lab,start,start+86400));
+   cJSON_AddNumberToObject(j,"checkin_window",(double)cfg->checkin_window);return result(200,"OK","查询成功",j);
   }
-  if(!strcmp(path,"/api/me/records"))return records(d,&u,0,0);
-  if(!strcmp(path,"/api/admin/records")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);char dt[32];Id date=0;if(query(ri,"date",dt,sizeof dt)){date=date_start(dt);if(date<0)return invalid();}return records(d,&u,1,date);}
+  if(!strcmp(path,"/api/me/records")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();return records(d,&u,0,0,pg,ps);}
+  if(!strcmp(path,"/api/me/notifications")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char uf[8]={0};query(ri,"unread",uf,sizeof uf);return notifications(d,&u,!strcmp(uf,"1")||!strcmp(uf,"true"),pg,ps);}
+  if(!strcmp(path,"/api/me/sessions"))return sessions_list(d,&u,tokenhash);
+  if(!strcmp(path,"/api/admin/records")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);char dt[32];Id date=0;if(query(ri,"date",dt,sizeof dt)){date=date_start(dt);if(date<0)return invalid();}int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();return records(d,&u,1,date,pg,ps);}
+  if(!strcmp(path,"/api/admin/stats/export")){
+   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
+   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+   return stats_export(d,a,b);
+  }
   if(!strcmp(path,"/api/admin/stats")){
    if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
    char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
@@ -89,11 +107,17 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   return result(404,"NOT_FOUND","接口不存在",NULL);
  }
  if(!strcmp(path,"/api/logout")){db_run(d,"DELETE FROM sessions WHERE token_hash=?","s",tokenhash);strcpy(cookie,"Set-Cookie: lab_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n");return result(200,"OK","已退出",NULL);}
+ {char sh[65];const char *k=jstr(body,"request_id");
+  if(!strcmp(path,"/api/me/password")){if(!uuid_valid(k))return invalid();return password_change(d,&u,jstr(body,"old_password"),jstr(body,"new_password"),tokenhash,k);}
+  if(!strcmp(path,"/api/me/notifications/read")){if(!uuid_valid(k))return invalid();return notifications_read(d,&u,body,k);}
+  if(path_hex(path,"/api/me/sessions/","/revoke",sh,sizeof sh)){if(!uuid_valid(k))return invalid();return session_revoke(d,&u,sh,k);}
+ }
  if(!strncmp(path,"/api/admin/",11)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return admin(d,path,body);}
  const char *action=NULL;Id target=0;
  if(!strcmp(path,"/api/reservations")){action="reserve";parse_id(jstr(body,"slot_id"),&target);}
  else if(!strcmp(path,"/api/waitlist")){action="wait";parse_id(jstr(body,"slot_id"),&target);}
  else if(path_id(path,"/api/reservations/","/cancel",&target))action="cancel";
+ else if(path_id(path,"/api/reservations/","/checkin",&target))action="checkin";
  else if(path_id(path,"/api/waitlist/","/withdraw",&target))action="withdraw";
  else return result(404,"NOT_FOUND","接口不存在",NULL);
  const char *key=jstr(body,"request_id");if(!target||!uuid_valid(key))return invalid();
@@ -126,12 +150,26 @@ send:
  const char *out=serialized?serialized:"{\"code\":\"INTERNAL_ERROR\",\"message\":\"Memory error\",\"data\":{}}";
  mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);return 1;
 }
+/* 后台扫描：定期释放超过签到时限仍未签到的预约，并按 FIFO 补位。 */
+static void *sweeper(void *arg){
+ const Config *cfg=arg;int waited=0;
+ while(!stopping){
+  Sleep(200);waited+=200;
+  if(waited>=cfg->sweep_interval*1000){waited=0;sweep_once(cfg);}
+ }
+ return NULL;
+}
+void sweep_start(const Config *config){
+ if(config->sweep_interval<=0)return;
+ mg_start_thread(sweeper,(void*)config);
+}
 int serve(const Config *cfg){
  char port[48];snprintf(port,sizeof port,"127.0.0.1:%d",cfg->port);
  const char *opts[]={"listening_ports",port,"document_root",cfg->web_path,"num_threads","8","enable_directory_listing","no","request_timeout_ms","5000","enable_keep_alive","no",NULL};
  struct mg_callbacks callbacks;memset(&callbacks,0,sizeof callbacks);mg_init_library(0);
  struct mg_context *ctx=mg_start(&callbacks,NULL,opts);if(!ctx){fprintf(stderr,"HTTP server startup failed. Check port and web directory.\n");mg_exit_library();return 1;}
  mg_set_request_handler(ctx,"/api",api,(void*)cfg);signal(SIGINT,on_stop);signal(SIGTERM,on_stop);
+ sweep_start(cfg);
  printf("Lab Booking ready: http://127.0.0.1:%d\n",cfg->port);fflush(stdout);
  while(!stopping)Sleep(100);
  mg_stop(ctx);mg_exit_library();return 0;

@@ -6,7 +6,7 @@
 #include "cJSON.h"
 typedef sqlite3_int64 Id;
 typedef struct { sqlite3 *sql; int error; } DB;
-typedef struct { const char *db_path; const char *web_path; int port; const char *fault; const char *fault_request; } Config;
+typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; const char *fault; const char *fault_request; } Config;
 typedef struct { Id id; int admin; char username[65]; char csrf[65]; } User;
 typedef struct { int status; cJSON *body; } Result;
 int db_open(DB *db,const char *path);
@@ -24,6 +24,8 @@ Id date_start(const char *date);
 void date_text(Id day,char out[11]);
 int parse_id(const char *s,Id *out);
 int uuid_valid(const char *s);
+int hex_token(const char *s,size_t len);
+int page_arg(const char *s,int fallback,int min,int max);
 const char *jstr(const cJSON *j,const char *key);
 void jid(cJSON *j,const char *key,Id id);
 void hash_text(const char *s,char out[65]);
@@ -31,7 +33,16 @@ void random_hex(char out[65]);
 Result result(int status,const char *code,const char *message,cJSON *data);
 Result db_failure(DB *db);
 Result booking(DB *db,const Config *cfg,const User *u,const char *action,Id target,const char *request_id);
-Result records(DB *db,const User *u,int all,Id date);
+Result records(DB *db,const User *u,int all,Id date,int page,int size);
 Result stats(DB *db,Id start,Id end);
+Result stats_export(DB *db,Id start,Id end);
+Result notifications(DB *db,const User *u,int unread,int page,int size);
+Result notifications_read(DB *db,const User *u,const cJSON *body,const char *request_id);
+Result sessions_list(DB *db,const User *u,const char *current_hash);
+Result session_revoke(DB *db,const User *u,const char *token_hash,const char *request_id);
+Result password_change(DB *db,const User *u,const char *old_password,const char *new_password,const char *current_hash,const char *request_id);
+void notify(DB *db,Id user,const char *kind,const char *title,const char *body,Id slot,Id reservation);
+int sweep_once(const Config *config);
+void sweep_start(const Config *config);
 int serve(const Config *config);
 #endif

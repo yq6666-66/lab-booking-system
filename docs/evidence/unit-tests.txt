@@ -1,17 +1,20 @@
-tests/unit.c:241:test_parse_id:PASS
-tests/unit.c:242:test_uuid_valid:PASS
-tests/unit.c:243:test_date_start:PASS
-tests/unit.c:244:test_date_text_roundtrip:PASS
-tests/unit.c:245:test_hash_and_random:PASS
-tests/unit.c:246:test_result_envelope:PASS
-tests/unit.c:247:test_seed_shape_and_invariants:PASS
-tests/unit.c:248:test_unique_booking_index:PASS
-tests/unit.c:249:test_wait_guards:PASS
-tests/unit.c:250:test_reserve_conflict_and_alternatives:PASS
-tests/unit.c:251:test_wait_queue_idempotent_reentry:PASS
-tests/unit.c:252:test_stats_totals_match_sql:PASS
-tests/unit.c:253:test_db_check_rejects_coexistence:PASS
+tests/unit.c:306:test_parse_id:PASS
+tests/unit.c:307:test_uuid_valid:PASS
+tests/unit.c:308:test_date_start:PASS
+tests/unit.c:309:test_date_text_roundtrip:PASS
+tests/unit.c:310:test_hash_and_random:PASS
+tests/unit.c:311:test_result_envelope:PASS
+tests/unit.c:312:test_seed_shape_and_invariants:PASS
+tests/unit.c:313:test_unique_booking_index:PASS
+tests/unit.c:314:test_wait_guards:PASS
+tests/unit.c:315:test_reserve_conflict_and_alternatives:PASS
+tests/unit.c:316:test_wait_queue_idempotent_reentry:PASS
+tests/unit.c:317:test_stats_totals_match_sql:PASS
+tests/unit.c:318:test_hex_and_page_args:PASS
+tests/unit.c:319:test_checkin_business:PASS
+tests/unit.c:320:test_notify_sessions_and_password:PASS
+tests/unit.c:321:test_db_check_rejects_coexistence:PASS
 
 -----------------------
-13 Tests 0 Failures 0 Ignored 
+16 Tests 0 Failures 0 Ignored 
 OK

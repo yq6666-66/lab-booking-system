@@ -17,9 +17,9 @@ python tests/integration.py --full --exe build/lab-booking-harden.exe --test-exe
 
 `--exe`、`--test-exe` 可以指定不同的已构建程序。输出目录请每次采用新的名字以保留既有实验；默认 `tests/results`。测试口令不入库：运行前设置环境变量 `LAB_TEST_PASSWORD`（至少 8 位，脚本启动时校验），该口令经 `LAB_SEED_PASSWORD` 传给初始化子进程。脚本不会把测试登录口令写入证据。`scripts/fetch_dependencies.py` 仅允许访问 `docs/dependencies.lock.json` 固定域名的 HTTPS 地址（下载前校验 scheme 与主机白名单，并核对 SHA256）。
 
-单元测试（`build/unit-tests.exe`，随 `build.ps1` 自动构建运行）基于 Unity 框架，覆盖纯函数（ID/UUID/日期/哈希）、数据库唯一索引与启动检查，以及不经 HTTP 直接调用业务层 `booking()` 的 13 个用例；证据输出在 `docs/evidence/unit-tests.txt`。本 MinGW 工具链不含 libasan/libubsan 运行库，动态内存检查不可用，改以 `-fanalyzer` 静态分析加 `_FORTIFY_SOURCE=3`、栈保护、自动变量零初始化的加固构建跑全量实验替代，并在报告中如实说明。
+单元测试（`build/unit-tests.exe`，随 `build.ps1` 自动构建运行）基于 Unity 框架，覆盖纯函数（ID/UUID/日期/哈希/十六进制令牌/分页参数）、数据库唯一索引与启动检查，以及不经 HTTP 直接调用业务层 `booking()`、`notify()`、`sessions_list()`、`session_revoke()`、`password_change()`、`sweep_once()` 的 16 个用例；证据输出在 `docs/evidence/unit-tests.txt`。本 MinGW 工具链不含 libasan/libubsan 运行库，动态内存检查不可用，改以 `-fanalyzer` 静态分析加 `_FORTIFY_SOURCE=3`、栈保护、自动变量零初始化的加固构建跑全量实验替代，并在报告中如实说明。
 
-`--quick`：每个并发档位一轮，每种故障一轮；`--full`：1、5、10、20 个并发用户各 20 轮，共 720 次预约请求；两个故障点各 10 轮，共 20 次中断恢复实验。所有实验使用固定请求数量而非固定时间压测。每轮并发使用一个未预约场次；每次故障采用全新数据库。
+`--quick`：每个并发档位一轮，每种故障一轮；`--full`：1、5、10、20 个并发用户各 20 轮，共 720 次预约请求；两个故障点各 10 轮，共 20 次中断恢复实验。所有实验使用固定请求数量而非固定时间压测。每轮并发使用一个未预约场次；每次故障采用全新数据库。签到、通知、会话、分页与导出（T16–T22）在独立服务器实例上执行：签到与爽约实验使用 `--checkin-window 1 --sweep-interval 1` 以获得确定性，其余使用默认窗口。
 
 ## 断言范围
 
@@ -40,6 +40,13 @@ python tests/integration.py --full --exe build/lab-booking-harden.exe --test-exe
 | T13 | 预约已满返回替代时段：同实验室、7 天内、升序、≤3 个、与 SQL 对账一致，且首个替代可直接预约 |
 | T14 | 管理统计总额与逐日数据同 SQL 对账；非管理员 403、非法日期/超 31 天/缺参数 400 |
 | T15 | 会话过期后请求 401；重新登录触发过期会话清理 |
+| T16 | 签到成功、同编号重放与重复签到均返回首次签到时间、非本人签到被拒、已签到不被判爽约 |
+| T17 | 场次尚未开始与签到窗口已过均返回 409 STATE_CONFLICT，不允许补签 |
+| T18 | 我的记录与管理记录分页（page/page_size/has_more），非法 page=0 与超大 page_size 返回 400 |
+| T19 | 统计含爽约/已签到计数；CSV 导出带 BOM、中文表头与合计行；缺参数 400、非管理员 403 |
+| T20 | 改密：旧密码错误 401、过短或与原密码相同 400；成功后其他会话立即失效、当前会话保留、新密码可登录 |
+| T21 | 在线会话列表与强制下线；非法会话编号与重复下线返回 404 |
+| T22 | 签到超时自动释放为 NO_SHOW、名额按 FIFO 补位给候补、预约人与候补人各收到通知、通知可单条或全部标记已读 |
 
 此外检查 `--check` 和正常程序拒绝故障参数。测试中对时间及用户启用状态直接修改**测试数据库**，目的是构造确定边界；并发预约与候补操作均通过实际 HTTP 接口。
 

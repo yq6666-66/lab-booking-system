@@ -19,6 +19,17 @@ int uuid_valid(const char *s){
  for(int i=0;i<36;i++){ if(i==8||i==13||i==18||i==23){if(s[i]!='-')return 0;}else if(!isxdigit((unsigned char)s[i]))return 0; }
  return 1;
 }
+int hex_token(const char *s,size_t len){
+ if(!s||strlen(s)!=len) return 0;
+ for(size_t i=0;i<len;i++) if(!isxdigit((unsigned char)s[i])) return 0;
+ return 1;
+}
+int page_arg(const char *s,int fallback,int min,int max){
+ Id n=0;
+ if(!s||!*s) return fallback;
+ if(!parse_id(s,&n)||n<(Id)min||n>(Id)max) return -1;
+ return (int)n;
+}
 Id date_start(const char *s){
  if(!s||strlen(s)!=10||s[4]!='-'||s[7]!='-') return -1;
  for(int i=0;i<10;i++) if(i!=4&&i!=7&&(s[i]<'0'||s[i]>'9')) return -1;

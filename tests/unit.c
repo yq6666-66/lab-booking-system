@@ -235,7 +235,72 @@ static void test_stats_totals_match_sql(void){
  drop(r);
 }
 
+/* ---------- 新增功能：签到、通知、会话、改密 ---------- */
+static void test_hex_and_page_args(void){
+ TEST_ASSERT_TRUE(hex_token("0123456789abcdef",16));
+ TEST_ASSERT_TRUE(hex_token("ABCDEF0123456789",16));
+ TEST_ASSERT_FALSE(hex_token("0123456789abcde",16));
+ TEST_ASSERT_FALSE(hex_token("0123456789abcdeg",16));
+ TEST_ASSERT_FALSE(hex_token(NULL,16));
+ TEST_ASSERT_FALSE(hex_token("",16));
+ TEST_ASSERT_EQUAL_INT(7,page_arg("7",1,1,100));
+ TEST_ASSERT_EQUAL_INT(1,page_arg(NULL,1,1,100));
+ TEST_ASSERT_EQUAL_INT(1,page_arg("",1,1,100));
+ TEST_ASSERT_EQUAL_INT(-1,page_arg("0",1,1,100));
+ TEST_ASSERT_EQUAL_INT(-1,page_arg("101",1,1,100));
+ TEST_ASSERT_EQUAL_INT(-1,page_arg("abc",1,1,100));
+}
+static void test_checkin_business(void){
+ User u1=make_user("user01"),u2=make_user("user02");
+ Id s=free_slot();char k[40];
+ new_key(k);Result r=booking(&db,NULL,&u1,"reserve",s,k);TEST_ASSERT_EQUAL_INT(200,r.status);
+ Id rid=rid_of(r,"reservation_id");drop(r);
+ new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(409,r.status);drop(r); /* 未开始 */
+ db_run(&db,"UPDATE slots SET start_at=?,end_at=? WHERE id=?","iii",now_sec()-1,now_sec()+3599,s);
+ new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(200,r.status);
+ cJSON *ci=cJSON_GetObjectItemCaseSensitive(rdata(r),"checked_in_at");
+ TEST_ASSERT_TRUE(cJSON_IsNumber(ci));Id when=(Id)ci->valuedouble;TEST_ASSERT_TRUE(when>0);drop(r);
+ TEST_ASSERT_EQUAL_INT64(when,db_num(&db,"SELECT checked_in_at FROM reservations WHERE id=?","i",rid));
+ new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(200,r.status); /* 重复签到幂等 */
+ cJSON *ci2=cJSON_GetObjectItemCaseSensitive(rdata(r),"checked_in_at");TEST_ASSERT_TRUE(cJSON_IsNumber(ci2));TEST_ASSERT_EQUAL_INT64(when,(Id)ci2->valuedouble);drop(r);
+ new_key(k);r=booking(&db,NULL,&u2,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(403,r.status);drop(r); /* 非本人 */
+ Config cfg={"build/unit-test.db",NULL,0,900,30,NULL,NULL};
+ TEST_ASSERT_EQUAL_INT(0,sweep_once(&cfg)); /* 已签到不被判爽约 */
+ TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE id=? AND status='CONFIRMED' AND checked_in_at IS NOT NULL","i",rid));
+}
+static void test_notify_sessions_and_password(void){
+ User u1=make_user("user01");char k[40];
+ Id s=free_slot();
+ new_key(k);Result rr=booking(&db,NULL,&u1,"reserve",s,k);TEST_ASSERT_EQUAL_INT(200,rr.status);
+ Id rid=rid_of(rr,"reservation_id");drop(rr);
+ notify(&db,u1.id,"PROMOTED","候补补位成功","你的候补已补位，请按时签到。",s,rid);
+ Result r=notifications(&db,&u1,1,1,20);TEST_ASSERT_EQUAL_INT(200,r.status);
+ TEST_ASSERT_EQUAL_INT(1,cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(rdata(r),"notifications")));
+ TEST_ASSERT_EQUAL_INT(1,(int)cJSON_GetObjectItemCaseSensitive(rdata(r),"unread_count")->valuedouble);drop(r);
+ cJSON *body=cJSON_CreateObject();cJSON_AddBoolToObject(body,"all",1);
+ new_key(k);r=notifications_read(&db,&u1,body,k);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);cJSON_Delete(body);
+ r=notifications(&db,&u1,1,1,20);TEST_ASSERT_EQUAL_INT(0,(int)cJSON_GetObjectItemCaseSensitive(rdata(r),"unread_count")->valuedouble);drop(r);
+ /* 会话列表：曾因绑定格式串与占位符不匹配而崩溃，此处保留回归保护 */
+ TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,created_at) VALUES(?,?,?,?,?)","sisii","unit-token",u1.id,"unit-csrf",now_sec()+3600,now_sec()));
+ r=sessions_list(&db,&u1,"unit-token");TEST_ASSERT_EQUAL_INT(200,r.status);
+ cJSON *list=cJSON_GetObjectItemCaseSensitive(rdata(r),"sessions");TEST_ASSERT_EQUAL_INT(1,cJSON_GetArraySize(list));
+ TEST_ASSERT_EQUAL_STRING("unit-token",jstr(list->child,"id"));
+ TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(list->child,"current")));drop(r);
+ new_key(k);r=session_revoke(&db,&u1,"unit-token",k);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+ new_key(k);r=session_revoke(&db,&u1,"unit-token",k);TEST_ASSERT_EQUAL_INT(404,r.status);drop(r);
+ new_key(k);r=password_change(&db,&u1,"wrong-password","NewPassword123!",NULL,k);TEST_ASSERT_EQUAL_INT(401,r.status);drop(r);
+ new_key(k);r=password_change(&db,&u1,"UnitPassword123!","short",NULL,k);TEST_ASSERT_EQUAL_INT(400,r.status);drop(r);
+ new_key(k);r=password_change(&db,&u1,"UnitPassword123!","UnitPassword123!",NULL,k);TEST_ASSERT_EQUAL_INT(400,r.status);drop(r);
+ TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,created_at) VALUES(?,?,?,?,?)","sisii","keep-me",u1.id,"c2",now_sec()+3600,now_sec()));
+ TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,created_at) VALUES(?,?,?,?,?)","sisii","drop-me",u1.id,"c3",now_sec()+3600,now_sec()));
+ new_key(k);r=password_change(&db,&u1,"UnitPassword123!","NewPassword123!","keep-me",k);TEST_ASSERT_EQUAL_INT(200,r.status);
+ TEST_ASSERT_EQUAL_INT(1,(int)cJSON_GetObjectItemCaseSensitive(rdata(r),"revoked_sessions")->valuedouble);drop(r);
+ TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM sessions WHERE token_hash='drop-me'",""));
+ TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM sessions WHERE token_hash='keep-me'",""));
+ new_key(k);r=password_change(&db,&u1,"NewPassword123!","UnitPassword123!","keep-me",k);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r); /* 复原口令 */
+}
 int main(void){
+ setvbuf(stdout,NULL,_IONBF,0); /* 崩溃时也能看到已完成用例，便于定位 */
  UnityBegin("tests/unit.c");
  fresh_seed();
  RUN_TEST(test_parse_id);
@@ -250,6 +315,9 @@ int main(void){
  RUN_TEST(test_reserve_conflict_and_alternatives);
  RUN_TEST(test_wait_queue_idempotent_reentry);
  RUN_TEST(test_stats_totals_match_sql);
+ RUN_TEST(test_hex_and_page_args);
+ RUN_TEST(test_checkin_business);
+ RUN_TEST(test_notify_sessions_and_password);
  RUN_TEST(test_db_check_rejects_coexistence);
  db_close(&db);remove_files(DBPATH);
  return UnityEnd();

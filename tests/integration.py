@@ -53,12 +53,13 @@ class Client:
         return data
 
 class Server:
-    def __init__(self, executable, directory, baseline, fault=None, fault_request=None):
+    def __init__(self, executable, directory, baseline, fault=None, fault_request=None, extra=None):
         self.directory = pathlib.Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.db = self.directory / "test.db"
         shutil.copy2(baseline, self.db)
         self.executable, self.fault, self.fault_request = executable, fault, fault_request
+        self.extra = list(extra or [])
         self.process = None
 
     def start(self):
@@ -66,7 +67,7 @@ class Server:
             sock.bind(("127.0.0.1", 0))
             self.port = sock.getsockname()[1]
         self.log = open(self.directory / "server.log", "ab")
-        cmd = [str(self.executable), "--db", str(self.db), "--web", str(ROOT / "web"), "--port", str(self.port)]
+        cmd = [str(self.executable), "--db", str(self.db), "--web", str(ROOT / "web"), "--port", str(self.port)] + self.extra
         if self.fault: cmd += ["--fault", self.fault, "--fault-request", self.fault_request]
         self.process = subprocess.Popen(cmd, stdout=self.log, stderr=subprocess.STDOUT)
         end = time.monotonic() + 12
@@ -298,6 +299,142 @@ def fault_case(exe, directory, baseline, fault, rounds):
             s.integrity(); outcomes.append({"iteration":iteration+1,"exit_code":code,"recovery":"passed"})
     return outcomes
 
+def bj_today():
+    return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).strftime("%Y-%m-%d")
+
+def feature_checks(s):
+    """T16-T19：签到、签到边界、记录分页、统计导出（使用较宽的签到窗口）。"""
+    admin=s.user(0); a=s.user(1); b=s.user(2)
+    pools=iter(s.slots())
+    def reserve(client,slot): return client.post("/api/reservations",{"slot_id":slot,"request_id":uid()})["data"]["reservation_id"]
+    def rewind(slot,offset=-1):
+        now=int(time.time()); s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(now+offset,now+offset+3600,slot))
+    def slot_row(client,slot):
+        lab=s.sql("SELECT lab_id FROM slots WHERE id=?",(slot,))[0][0]
+        data=client.request("GET",f"/api/slots?lab_id={lab}&date={bj_today()}")[1]["data"]
+        return data,[x for x in data["slots"] if x["id"]==slot][0]
+    def t16():
+        slot=next(pools); rid=reserve(a,slot); rewind(slot,-1)
+        data,row=slot_row(a,slot)
+        require(data["checkin_window"]>0,"check-in window exposed to the page")
+        require(row["my_checked_in_at"] is None,"not checked in yet")
+        key=uid()
+        first=a.post(f"/api/reservations/{rid}/checkin",{"request_id":key})["data"]
+        require(first["checked_in_at"]>0,"check-in recorded")
+        replay=a.post(f"/api/reservations/{rid}/checkin",{"request_id":key})["data"]
+        require(replay["checked_in_at"]==first["checked_in_at"],"same-key replay returns stored result")
+        again=a.post(f"/api/reservations/{rid}/checkin",{"request_id":uid()})["data"]
+        require(again["checked_in_at"]==first["checked_in_at"],"repeat check-in is idempotent")
+        require(s.sql("SELECT checked_in_at FROM reservations WHERE id=?",(rid,))==[(first["checked_in_at"],)],"check-in persisted")
+        require(b.request("POST",f"/api/reservations/{rid}/checkin",{"request_id":uid()})[0]==403,"other user cannot check in")
+        return {"checked_in_at":first["checked_in_at"]}
+    record("T16 check-in success, replay and idempotency",t16)
+    def t17():
+        slot=next(pools); rid=reserve(a,slot); rewind(slot,-400)
+        status,body=a.request("POST",f"/api/reservations/{rid}/checkin",{"request_id":uid()})
+        require(status==409 and body["code"]=="STATE_CONFLICT",f"expired window rejected: {status},{body}")
+        slot2=next(pools); rid2=reserve(a,slot2)
+        status,body=a.request("POST",f"/api/reservations/{rid2}/checkin",{"request_id":uid()})
+        require(status==409 and body["code"]=="STATE_CONFLICT",f"future slot rejected: {status},{body}")
+        return None
+    record("T17 check-in window and state guards",t17)
+    def t18():
+        for _ in range(22):
+            try: reserve(a,next(pools))
+            except AssertionError: pass
+        page1=a.request("GET","/api/me/records?page=1&page_size=10")[1]["data"]
+        require(len(page1["reservations"])==10,f"page1 size: {len(page1['reservations'])}")
+        require(page1["has_more"] is True,"page1 reports more")
+        page2=a.request("GET","/api/me/records?page=2&page_size=10")[1]["data"]
+        require(len(page2["reservations"])==10,"page2 full")
+        page3=a.request("GET","/api/me/records?page=3&page_size=10")[1]["data"]
+        require(0<len(page3["reservations"])<=10,"page3 remainder")
+        require(page3["has_more"] is False,"page3 reports end")
+        require(a.request("GET","/api/me/records?page=0")[0]==400,"page 0 rejected")
+        require(a.request("GET","/api/me/records?page_size=999")[0]==400,"oversized page rejected")
+        admin_page=admin.request("GET",f"/api/admin/records?date={bj_today()}&page=1&page_size=5")[1]["data"]
+        require(len(admin_page["reservations"])<=5,"admin paging honoured")
+        return {"paged":True}
+    record("T18 records paging and validation",t18)
+    def t19():
+        require(a.request("GET",f"/api/admin/stats/export?start_date={bj_today()}&end_date={bj_today()}")[0]==403,"non-admin export rejected")
+        status,body=admin.request("GET",f"/api/admin/stats/export?start_date={bj_today()}&end_date={bj_today()}")
+        require(status==200 and body["code"]=="OK",f"export ok: {status},{body}")
+        content=body["data"]["content"]
+        require(content.startswith("\ufeff"),"csv carries UTF-8 BOM")
+        require("日期" in content and "合计" in content,"csv header and totals row")
+        require("no_show" not in content,"csv exposes chinese headers only")
+        require(body["data"]["filename"].endswith(".csv"),"csv filename")
+        require(admin.request("GET",f"/api/admin/stats/export?start_date={bj_today()}")[0]==400,"missing end date rejected")
+        stats=admin.request("GET",f"/api/admin/stats?start_date={bj_today()}&end_date={bj_today()}")[1]["data"]
+        require("no_show" in stats["totals"] and "checked_in" in stats["totals"],"totals carry no_show and checked_in")
+        return {"csv_bytes":len(content)}
+    record("T19 statistics export and counters",t19)
+
+def account_checks(s):
+    """T20-T21：改密（其他会话失效）与在线会话管理。"""
+    def t20():
+        client=Client(s.port).login("user03"); other=Client(s.port).login("user03")
+        sessions=client.request("GET","/api/me/sessions")[1]["data"]["sessions"]
+        require(len(sessions)==2,f"two sessions before change: {len(sessions)}")
+        require(sum(1 for x in sessions if x["current"])==1,"exactly one current session")
+        require(client.request("POST","/api/me/password",{"old_password":"definitely-wrong","new_password":"NewPassword123!","request_id":uid()})[0]==401,"wrong old password rejected")
+        require(client.request("POST","/api/me/password",{"old_password":PASSWORD,"new_password":"short","request_id":uid()})[0]==400,"short new password rejected")
+        require(client.request("POST","/api/me/password",{"old_password":PASSWORD,"new_password":PASSWORD,"request_id":uid()})[0]==400,"unchanged password rejected")
+        data=client.post("/api/me/password",{"old_password":PASSWORD,"new_password":"NewPassword123!","request_id":uid()})["data"]
+        require(data["revoked_sessions"]==1,f"other session revoked: {data}")
+        require(other.request("GET","/api/me")[0]==401,"other session invalidated")
+        require(client.request("GET","/api/me")[0]==200,"current session preserved")
+        require(Client(s.port).request("POST","/api/login",{"username":"user03","password":PASSWORD})[0]==401,"old password retired")
+        require(Client(s.port).request("POST","/api/login",{"username":"user03","password":"NewPassword123!"})[0]==200,"new password accepted")
+        client.post("/api/me/password",{"old_password":"NewPassword123!","new_password":PASSWORD,"request_id":uid()})
+        return {"password_rotated":True}
+    record("T20 password change revokes other sessions",t20)
+    def t21():
+        one=Client(s.port).login("user04"); two=Client(s.port).login("user04")
+        sessions=one.request("GET","/api/me/sessions")[1]["data"]["sessions"]
+        require(len(sessions)==2,"two sessions before revoke")
+        target=[x for x in sessions if not x["current"]][0]
+        one.post(f"/api/me/sessions/{target['id']}/revoke",{"request_id":uid()})
+        require(two.request("GET","/api/me")[0]==401,"revoked session rejected")
+        require(one.request("GET","/api/me")[0]==200,"current session kept")
+        require(one.request("POST","/api/me/sessions/not-a-valid-token/revoke",{"request_id":uid()})[0]==404,"invalid session id rejected")
+        require(one.request("POST",f"/api/me/sessions/{target['id']}/revoke",{"request_id":uid()})[0]==404,"repeated revoke rejected")
+        return {"sessions":2}
+    record("T21 online session listing and revoke",t21)
+
+def noshow_checks(s):
+    """T22：签到超时自动释放，名额按 FIFO 补位并记入通知（极短签到窗口）。"""
+    def t22():
+        a=s.user(1); b=s.user(2)
+        slot=s.slots()[0]
+        rid=a.post("/api/reservations",{"slot_id":slot,"request_id":uid()})["data"]["reservation_id"]
+        wid=b.post("/api/waitlist",{"slot_id":slot,"request_id":uid()})["data"]["waitlist_id"]
+        now=int(time.time()); s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(now-1,now+3599,slot))
+        rows=[]; deadline=time.monotonic()+25
+        while time.monotonic()<deadline:
+            rows=s.sql("SELECT status,cancel_reason FROM reservations WHERE id=?",(rid,))
+            if rows and rows[0][0]=="CANCELLED": break
+            time.sleep(.4)
+        require(rows==[("CANCELLED","NO_SHOW")],f"no-show release: {rows}")
+        require(s.sql("SELECT status,source FROM reservations WHERE slot_id=? AND status='CONFIRMED'",(slot,))==[("CONFIRMED","WAITLIST")],"waiter promoted after release")
+        require(s.sql("SELECT status FROM waitlist WHERE id=?",(wid,))==[("PROMOTED",)],"waitlist row promoted")
+        require(s.sql("SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'",(slot,))==[(1,)],"single occupation preserved")
+        owner=a.request("GET","/api/me/notifications")[1]["data"]
+        require(any(n["kind"]=="NO_SHOW" for n in owner["notifications"]),"owner notified about release")
+        waiter=b.request("GET","/api/me/notifications")[1]["data"]
+        require(any(n["kind"]=="PROMOTED" for n in waiter["notifications"]),"waiter notified about promotion")
+        require(owner["unread_count"]>=1,"unread count present")
+        target=waiter["notifications"][0]["id"]
+        require(b.request("POST","/api/me/notifications/read",{"ids":[target],"request_id":uid()})[0]==200,"mark single notification read")
+        before=waiter["unread_count"]
+        b.post("/api/me/notifications/read",{"all":True,"request_id":uid()})
+        after=b.request("GET","/api/me/notifications")[1]["data"]["unread_count"]
+        require(after==0,f"all notifications read: {after}")
+        require(b.request("POST","/api/me/notifications/read",{"request_id":uid()})[0]==400,"missing ids rejected")
+        return {"unread_before":before}
+    record("T22 no-show release, promotion and notifications",t22)
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     mode=parser.add_mutually_exclusive_group()
@@ -322,6 +459,9 @@ def main():
         seed=subprocess.run([str(args.exe),"--db",str(baseline),"--seed","--init-only"],env=env,capture_output=True,text=True,timeout=30)
         require(seed.returncode==0,f"seed failed: {seed.returncode}: {seed.stdout} {seed.stderr}")
         with running(args.exe,pathlib.Path(temp)/"regression",baseline) as s: regression(s)
+        with running(args.exe,pathlib.Path(temp)/"features",baseline,extra=["--checkin-window","60","--sweep-interval","1"]) as s: feature_checks(s)
+        with running(args.exe,pathlib.Path(temp)/"accounts",baseline) as s: account_checks(s)
+        with running(args.exe,pathlib.Path(temp)/"noshow",baseline,extra=["--checkin-window","1","--sweep-interval","1"]) as s: noshow_checks(s)
         with running(args.exe,pathlib.Path(temp)/"races",baseline) as s: record("T10 concurrent unique occupation",lambda:races(s,rounds))
         for fault in ("cancel-before-promote","after-commit"):
             record("T11 recovery "+fault,lambda f=fault:fault_case(args.test_exe,temp,baseline,f,fault_rounds))
