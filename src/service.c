@@ -20,6 +20,12 @@ static Id promote(DB *d,Id slot,Id actor,const char *key){
  db_run(d,"UPDATE waitlist SET status='PROMOTED',promoted_reservation_id=? WHERE id=?","ii",rid,wid);event(d,actor,"PROMOTE",rid,key);return rid;
 }
 static Result ok_id(const char *field,Id value){cJSON *j=cJSON_CreateObject();jid(j,field,value);return result(200,"OK","操作成功",j);}
+static Result slot_full(DB *d,Id slot,const char *message){
+ cJSON *list=db_rows(d,"SELECT s.id,s.start_at,s.end_at FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.lab_id=(SELECT lab_id FROM slots WHERE id=?) AND s.start_at>(SELECT start_at FROM slots WHERE id=?) AND s.start_at<=(SELECT start_at FROM slots WHERE id=?)+604800 AND s.enabled=1 AND l.enabled=1 AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') ORDER BY s.start_at LIMIT 3","iii",slot,slot,slot);
+ if(d->error)return db_failure(d);
+ cJSON *data=cJSON_CreateObject();if(!data){cJSON_Delete(list);d->error=SQLITE_NOMEM;return db_failure(d);}
+ cJSON_AddItemToObject(data,"alternatives",list);return result(409,"SLOT_FULL",message,data);
+}
 Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id target,const char *key){
  Result r={500,NULL};cJSON *old=NULL,*row=NULL,*slot=NULL;char canonical[128],digest[65];Id sid=target;
  snprintf(canonical,sizeof canonical,"%s:%lld",action,(long long)target);hash_text(canonical,digest);
@@ -47,9 +53,9 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
   r=result(409,"STATE_CONFLICT","场次未开放",NULL);goto save;
  }
  if(!strcmp(action,"reserve")){
-  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid)) {r=result(409,"SLOT_FULL","该场次已被预约，可加入候补",NULL);goto save;}
+  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid)) {r=slot_full(d,sid,"该场次已被预约，可加入候补或选择替代时段");goto save;}
   Id promoted=promote(d,sid,u->id,key);if(d->error)goto failed;
-  if(promoted){r=result(409,"SLOT_FULL","名额已按顺序分配给候补用户",NULL);goto save;}
+  if(promoted){r=slot_full(d,sid,"名额已按顺序分配给候补用户，可选择替代时段");goto save;}
   if(!db_run(d,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?,'CONFIRMED','DIRECT',?)","iii",u->id,sid,now_sec()))goto failed;
   Id rid=sqlite3_last_insert_rowid(d->sql);event(d,u->id,"RESERVE",rid,key);r=ok_id("reservation_id",rid);
  }else if(!strcmp(action,"wait")){
@@ -95,4 +101,26 @@ Result records(DB *d,const User *u,int all,Id date){
  cJSON *e=all?db_rows(d,"SELECT e.id,u.username AS actor,e.action,e.entity_id,e.request_id,e.created_at FROM operation_events e JOIN users u ON u.id=e.actor_id ORDER BY e.id DESC LIMIT 200",""):cJSON_CreateArray();
  if(d->error){cJSON_Delete(a);cJSON_Delete(b);cJSON_Delete(e);return db_failure(d);}
  cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"reservations",a);cJSON_AddItemToObject(j,"waitlist",b);cJSON_AddItemToObject(j,"events",e);return result(200,"OK","查询成功",j);
+}
+Result stats(DB *d,Id start,Id end){
+ cJSON *days=db_rows(d,"SELECT (s.start_at+28800)/86400 AS day,count(DISTINCT s.id) AS slots,count(DISTINCT CASE WHEN r.status='CONFIRMED' THEN r.id END) AS confirmed,count(DISTINCT CASE WHEN r.status='CANCELLED' THEN r.id END) AS cancelled FROM slots s LEFT JOIN reservations r ON r.slot_id=s.id WHERE s.start_at>=? AND s.start_at<? GROUP BY day ORDER BY day","ii",start,end+86400);
+ if(d->error)return db_failure(d);
+ cJSON *waiting=db_rows(d,"SELECT (s.start_at+28800)/86400 AS day,count(*) AS waiting FROM waitlist w JOIN slots s ON s.id=w.slot_id JOIN users u ON u.id=w.user_id WHERE s.start_at>=? AND s.start_at<? AND w.status='WAITING' AND u.enabled=1 GROUP BY day ORDER BY day","ii",start,end+86400);
+ if(d->error){cJSON_Delete(days);return db_failure(d);}
+ cJSON *rows=cJSON_CreateArray(),*totals=cJSON_CreateObject();
+ if(rows&&totals){
+  double ts=0,tc=0,tx=0,tw=0;cJSON *it;
+  cJSON_ArrayForEach(it,days){
+   cJSON *row=cJSON_CreateObject();if(!row)break;
+   char date[11];date_text((Id)cJSON_GetObjectItemCaseSensitive(it,"day")->valuedouble,date);
+   double w=0;cJSON *jt;cJSON_ArrayForEach(jt,waiting)if((Id)cJSON_GetObjectItemCaseSensitive(jt,"day")->valuedouble==(Id)cJSON_GetObjectItemCaseSensitive(it,"day")->valuedouble){w=cJSON_GetObjectItemCaseSensitive(jt,"waiting")->valuedouble;break;}
+   double s=cJSON_GetObjectItemCaseSensitive(it,"slots")->valuedouble,c=cJSON_GetObjectItemCaseSensitive(it,"confirmed")->valuedouble,x=cJSON_GetObjectItemCaseSensitive(it,"cancelled")->valuedouble;
+   cJSON_AddStringToObject(row,"date",date);cJSON_AddNumberToObject(row,"slots",s);cJSON_AddNumberToObject(row,"confirmed",c);cJSON_AddNumberToObject(row,"cancelled",x);cJSON_AddNumberToObject(row,"waiting",w);
+   cJSON_AddItemToArray(rows,row);ts+=s;tc+=c;tx+=x;tw+=w;
+  }
+  cJSON_AddNumberToObject(totals,"slots",ts);cJSON_AddNumberToObject(totals,"confirmed",tc);cJSON_AddNumberToObject(totals,"cancelled",tx);cJSON_AddNumberToObject(totals,"waiting",tw);
+ }
+ cJSON_Delete(days);cJSON_Delete(waiting);
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"stats",rows);cJSON_AddItemToObject(j,"totals",totals);
+ return result(200,"OK","查询成功",j);
 }

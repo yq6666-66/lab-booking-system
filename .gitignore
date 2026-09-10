@@ -11,3 +11,4 @@ __pycache__/
 *.exe
 *.o
 *.dll
+/.playwright-mcp/

@@ -4,9 +4,9 @@
 
 ## 功能概览
 
-**普通用户**：登录、按实验室和日期查询开放场次、预约整间实验室、取消自己的预约、加入/退出候补、查看本人预约与候补记录。
+**普通用户**：登录、按实验室和日期查询开放场次、预约整间实验室、取消自己的预约、加入/退出候补、查看本人预约与候补记录；预约撞满时系统返回同实验室 7 天内最多 3 个空闲替代时段，页面可直接一键改约。
 
-**管理员**（admin）：新增与维护实验室、按日期区间批量发布开放场次（每日 08:00–12:00、14:00–18:00，单次最多 14 天）、查看全体预约、候补与操作日志。
+**管理员**（admin）：新增与维护实验室、按日期区间批量发布开放场次（每日 08:00–12:00、14:00–18:00，单次最多 14 天）、查看全体预约、候补与操作日志、按日期区间（最多 31 天）查看逐日预约统计（开放场次、有效预约、已取消、候补人数及合计）。
 
 **核心业务规则**：
 
@@ -16,6 +16,7 @@
 - 候补者账号被禁用时自动跳过，补位给下一位有效候补；
 - 每次操作携带请求编号（UUID），同编号同参数重复提交返回已保存的原结果；同编号换参数返回冲突；网络失败可用原编号安全重试；
 - 场次开始后停止一切新操作，历史记录保留；
+- 会话有效期 2 小时，登录与服务启动时自动清理过期会话；
 - 有预约或候补历史约束的规则详见 [docs/CONTRACT.md](docs/CONTRACT.md)。
 
 ## 技术架构
@@ -58,8 +59,8 @@ artifacts/ 测试原始证据与备份（不入库）
 # 1. 首次获取依赖（或按 docs/dependencies.lock.json 手动放置）
 python scripts/fetch_dependencies.py
 
-# 2. 编译正式版与测试版（测试版额外支持故障注入参数）
-powershell -File scripts/build.ps1          # 加 -Analyze 启用 gcc 静态分析
+# 2. 编译正式版与测试版（测试版额外支持故障注入参数），随后自动运行 13 个单元测试
+powershell -File scripts/build.ps1          # 加 -Analyze 启用 gcc 静态分析；加 -Harden 输出 FORTIFY+SSP 加固版
 
 # 3. 初始化演示数据库（密码经环境变量传入，至少 8 位）
 $env:LAB_SEED_PASSWORD = '你的密码'
@@ -77,14 +78,21 @@ Remove-Item Env:\LAB_SEED_PASSWORD
 ## 测试
 
 ```powershell
+# 单元测试随构建自动运行；也可单独执行
+./build/unit-tests.exe
+
 # 快速验证（约 30 秒）
 python tests/integration.py --quick --output tests/results-quick
 
-# 完整实验：1/5/10/20 并发各 20 轮共 720 次请求 + 两类中断点各 10 次恢复实验
+# 完整实验：1/5/10/20 并发各 20 轮共 720 次请求 + 两类中断点各 10 次恢复实验 + 替代时段/统计/会话测试
 python tests/integration.py --full --output tests/results-full
+
+# 加固构建（FORTIFY+SSP）全量复验
+powershell -File scripts/build.ps1 -Harden
+python tests/integration.py --full --exe build/lab-booking-harden.exe --test-exe build/lab-booking-test-harden.exe --output tests/results-full-harden
 ```
 
-最近一次完整实验全部通过，数据与证据说明见 [docs/TEST_REPORT.md](docs/TEST_REPORT.md)，断言范围见 [tests/README.md](tests/README.md)。
+最近一轮完整实验全部通过，数据与证据说明见 [docs/TEST_REPORT.md](docs/TEST_REPORT.md)，断言范围见 [tests/README.md](tests/README.md)。
 
 ## 文档索引
 

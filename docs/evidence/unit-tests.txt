@@ -1,0 +1,17 @@
+tests/unit.c:241:test_parse_id:PASS
+tests/unit.c:242:test_uuid_valid:PASS
+tests/unit.c:243:test_date_start:PASS
+tests/unit.c:244:test_date_text_roundtrip:PASS
+tests/unit.c:245:test_hash_and_random:PASS
+tests/unit.c:246:test_result_envelope:PASS
+tests/unit.c:247:test_seed_shape_and_invariants:PASS
+tests/unit.c:248:test_unique_booking_index:PASS
+tests/unit.c:249:test_wait_guards:PASS
+tests/unit.c:250:test_reserve_conflict_and_alternatives:PASS
+tests/unit.c:251:test_wait_queue_idempotent_reentry:PASS
+tests/unit.c:252:test_stats_totals_match_sql:PASS
+tests/unit.c:253:test_db_check_rejects_coexistence:PASS
+
+-----------------------
+13 Tests 0 Failures 0 Ignored 
+OK

@@ -32,6 +32,7 @@ static Result login(DB *d,const cJSON *body,char cookie[256]){
  if(!r||crypto_pwhash_str_verify(jstr(r,"password_hash"),pw,strlen(pw))){cJSON_Delete(r);return result(401,"UNAUTHORIZED","用户名或密码不正确",NULL);}
  User u={0};parse_id(jstr(r,"id"),&u.id);u.admin=!strcmp(jstr(r,"role"),"ADMIN");snprintf(u.username,sizeof u.username,"%s",name);cJSON_Delete(r);
  char token[65],hash[65];random_hex(token);hash_text(token,hash);random_hex(u.csrf);
+ db_run(d,"DELETE FROM sessions WHERE expires_at<?","i",now_sec());
  if(!db_run(d,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES(?,?,?,?)","sisi",hash,u.id,u.csrf,now_sec()+7200))return db_failure(d);
  snprintf(cookie,256,"Set-Cookie: lab_session=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=7200\r\n",token);sodium_memzero(token,sizeof token);
  return result(200,"OK","登录成功",user_data(&u));
@@ -79,6 +80,12 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   }
   if(!strcmp(path,"/api/me/records"))return records(d,&u,0,0);
   if(!strcmp(path,"/api/admin/records")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);char dt[32];Id date=0;if(query(ri,"date",dt,sizeof dt)){date=date_start(dt);if(date<0)return invalid();}return records(d,&u,1,date);}
+  if(!strcmp(path,"/api/admin/stats")){
+   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
+   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+   return stats(d,a,b);
+  }
   return result(404,"NOT_FOUND","接口不存在",NULL);
  }
  if(!strcmp(path,"/api/logout")){db_run(d,"DELETE FROM sessions WHERE token_hash=?","s",tokenhash);strcpy(cookie,"Set-Cookie: lab_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n");return result(200,"OK","已退出",NULL);}

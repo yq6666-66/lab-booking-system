@@ -7,11 +7,17 @@
 先完成主程序和启用 `TEST_FAULTS` 的测试程序构建，再在项目根目录执行：
 
 ```powershell
-& 'C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' tests/integration.py --quick --output tests/results-quick
-& 'C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' tests/integration.py --full --output tests/results-full
+powershell -File scripts/build.ps1                     # 构建正式版/测试版并运行单元测试
+python tests/integration.py --quick --output tests/results-quick
+python tests/integration.py --full --output tests/results-full
+powershell -File scripts/build.ps1 -Analyze            # 追加 gcc -fanalyzer 静态分析
+powershell -File scripts/build.ps1 -Harden             # FORTIFY+SSP 加固构建（*-harden.exe）
+python tests/integration.py --full --exe build/lab-booking-harden.exe --test-exe build/lab-booking-test-harden.exe --output tests/results-full-harden
 ```
 
 `--exe`、`--test-exe` 可以指定不同的已构建程序。输出目录请每次采用新的名字以保留既有实验；默认 `tests/results`。初始化仅使用测试密码，通过 `LAB_SEED_PASSWORD` 环境变量传给初始化子进程。脚本不会把测试登录口令写入证据。
+
+单元测试（`build/unit-tests.exe`，随 `build.ps1` 自动构建运行）基于 Unity 框架，覆盖纯函数（ID/UUID/日期/哈希）、数据库唯一索引与启动检查，以及不经 HTTP 直接调用业务层 `booking()` 的 13 个用例；证据输出在 `docs/evidence/unit-tests.txt`。本 MinGW 工具链不含 libasan/libubsan 运行库，动态内存检查不可用，改以 `-fanalyzer` 静态分析加 `_FORTIFY_SOURCE=3`、栈保护、自动变量零初始化的加固构建跑全量实验替代，并在报告中如实说明。
 
 `--quick`：每个并发档位一轮，每种故障一轮；`--full`：1、5、10、20 个并发用户各 20 轮，共 720 次预约请求；两个故障点各 10 轮，共 20 次中断恢复实验。所有实验使用固定请求数量而非固定时间压测。每轮并发使用一个未预约场次；每次故障采用全新数据库。
 
@@ -31,6 +37,9 @@
 | T10 | 并发独立连接抢占同场次，HTTP 成功与数据库占用均为 1 |
 | T11 | 事务提交前退出 86、提交后响应前退出 87；重启状态、重试与补位 |
 | T12 | SQLite 完整性、外键、有效占用与有效候补唯一性 |
+| T13 | 预约已满返回替代时段：同实验室、7 天内、升序、≤3 个、与 SQL 对账一致，且首个替代可直接预约 |
+| T14 | 管理统计总额与逐日数据同 SQL 对账；非管理员 403、非法日期/超 31 天/缺参数 400 |
+| T15 | 会话过期后请求 401；重新登录触发过期会话清理 |
 
 此外检查 `--check` 和正常程序拒绝故障参数。测试中对时间及用户启用状态直接修改**测试数据库**，目的是构造确定边界；并发预约与候补操作均通过实际 HTTP 接口。
 

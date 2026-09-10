@@ -12,6 +12,7 @@
 - GET /api/slots?lab_id=1&date=YYYY-MM-DD -> data `{slots:[{id,lab_id,start_at,end_at,enabled,lab_enabled,occupied,waiting_count,my_reservation_id,my_waitlist_id}]}`。后两项可null。
 - GET /api/me/records -> data `{reservations:[{id,slot_id,lab_name,start_at,end_at,status,source}],waitlist:[{id,slot_id,lab_name,start_at,end_at,status,position}],events:[]}`。
 - GET /api/admin/records?date=YYYY-MM-DD -> 同上但所有用户，记录附username，events含actor/action/entity_id/created_at/request_id。
+- GET /api/admin/stats?start_date=&end_date=（最多31个日期）-> data `{stats:[{date,slots,confirmed,cancelled,waiting}],totals:{slots,confirmed,cancelled,waiting}}`。按北京日聚合；仅返回有场次的日期。slots为开放场次数，confirmed/cancelled为该日场次的预约状态计数，waiting为有效候补人数。
 - POST /api/reservations `{slot_id,request_id}` -> data `{reservation_id}`。
 - POST /api/reservations/{id}/cancel `{request_id}` -> data `{reservation_id,promoted_reservation_id}`（无补位null）。
 - POST /api/waitlist `{slot_id,request_id}` -> data `{waitlist_id}`。
@@ -22,10 +23,12 @@
 
 错误：400 INVALID_INPUT；401 UNAUTHORIZED；403 FORBIDDEN/CSRF；404 NOT_FOUND；409 SLOT_FULL/SLOT_AVAILABLE/STATE_CONFLICT/REQUEST_ID_CONFLICT/ALREADY_RESERVED；413 TOO_LARGE；503 DATABASE_BUSY；500 INTERNAL_ERROR。遇网络错误/503沿用原UUID重试，终态结果后新操作新UUID。日期严格校验。
 
+预约返回409 SLOT_FULL时（已满或名额刚被候补取得），data附带`{alternatives:[{id,start_at,end_at}]}`：同实验室、所选场次之后7天内、按开始时间升序的空闲场次，最多3个。该列表与失败结果一同存入请求回执，同编号重放返回原列表（可能已过期，前端点击时以新请求编号重新校验）。
+
 ## 数据与事务
 users(id,username,password_hash,role,enabled)，sessions(token_hash,user_id,csrf_token,expires_at)，labs(id,name,location,description,enabled)，slots(id,lab_id,start_at,end_at,enabled)，reservations(id,user_id,slot_id,status,source,created_at,cancelled_at)，waitlist(id,user_id,slot_id,status,created_at,promoted_reservation_id)，request_receipts(user_id,request_id,action,payload_digest,http_status,result_json,created_at)，operation_events(id,actor_id,action,entity_id,request_id,created_at)。
 CONFIRMED/CANCELLED；WAITING/WITHDRAWN/PROMOTED/SKIPPED。SQLite局部唯一索引：每slot一个CONFIRMED、每(user,slot)一个WAITING。所有业务写在BEGIN IMMEDIATE中，每请求独立连接，WAL/FULL/foreign_keys=ON/busy_timeout=3000。
-查去重结果早于新操作时间校验，相同key参数返回原结果，不同内容409；业务结果、状态变更和事件同事务提交，500/503不保存永久结果。取消具体预约ID，补位FIFO按递增waitlist.id。无效账号跳过。实验室停用阻止新预约/新候补但允许原记录取消与补位。场次开始后禁止新操作，历史重试仍返回原结果。
+查去重结果早于新操作时间校验，相同key参数返回原结果，不同内容409；业务结果、状态变更和事件同事务提交，500/503不保存永久结果。取消具体预约ID，补位FIFO按递增waitlist.id。无效账号跳过。实验室停用阻止新预约/新候补但允许原记录取消与补位。场次开始后禁止新操作，历史重试仍返回原结果。会话有效期7200秒，登录时与服务启动时清理已过期会话行。
 
 ## CLI 和故障测试
 `build/lab-booking.exe --db <file> --web <dir> --port 8080`，默认data/lab.db和web。`--seed --init-only`初始化3实验室+14天场次+admin/user01...user20，从环境LAB_SEED_PASSWORD读取密码（至少8位），不输出密码。--check仅检查数据库。

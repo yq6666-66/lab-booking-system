@@ -32,6 +32,16 @@ Id date_start(const char *s){
  for(int a=0;a<m-1;a++) n+=days[a];
  return n*86400-28800;
 }
+void date_text(Id day,char out[11]){
+ if(day<0)day=0;
+ if(day>2932895)day=2932895; /* 防御性钳制，正常输入来自 SQL 日分组 */
+ Id y=1970;
+ while(y<9999&&day>=365+(y%4==0&&(y%100!=0||y%400==0))){day-=365+(y%4==0&&(y%100!=0||y%400==0));y++;}
+ int mdays[]={31,(int)(y%4==0&&(y%100!=0||y%400==0)?29:28),31,30,31,30,31,31,30,31,30,31},m=1;
+ while(m<12&&day>=mdays[m-1]){day-=mdays[m-1];m++;}
+ if(day>30)day=30;
+ snprintf(out,11,"%04d-%02d-%02d",(int)y,m,(int)day+1);
+}
 const char *jstr(const cJSON *j,const char *key){ cJSON *v=cJSON_GetObjectItemCaseSensitive(j,key);return cJSON_IsString(v)?v->valuestring:NULL; }
 void jid(cJSON *j,const char *key,Id id){char buf[32];snprintf(buf,sizeof buf,"%lld",(long long)id);cJSON_AddStringToObject(j,key,buf);}
 void hash_text(const char *s,char out[65]){unsigned char h[32];crypto_generichash(h,sizeof h,(const unsigned char*)s,strlen(s),NULL,0);sodium_bin2hex(out,65,h,sizeof h);}

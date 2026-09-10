@@ -21,6 +21,7 @@ int db_seed(DB *db,const char *password);
 int publish_slots(DB *db,Id lab,Id start,Id end);
 Id now_sec(void);
 Id date_start(const char *date);
+void date_text(Id day,char out[11]);
 int parse_id(const char *s,Id *out);
 int uuid_valid(const char *s);
 const char *jstr(const cJSON *j,const char *key);
@@ -31,5 +32,6 @@ Result result(int status,const char *code,const char *message,cJSON *data);
 Result db_failure(DB *db);
 Result booking(DB *db,const Config *cfg,const User *u,const char *action,Id target,const char *request_id);
 Result records(DB *db,const User *u,int all,Id date);
+Result stats(DB *db,Id start,Id end);
 int serve(const Config *config);
 #endif

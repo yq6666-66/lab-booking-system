@@ -207,7 +207,47 @@ def regression(s):
             require(s.sql("SELECT status FROM waitlist WHERE id=?",(wc,))==[("PROMOTED",)],"valid next candidate not promoted")
         finally: s.sql("UPDATE users SET enabled=1 WHERE username='user02'")
     record("T09 disabled candidate skip",t09)
+    def t13():
+        slot=next(slots); rid=reserve(a,slot)
+        lab,start=s.sql("SELECT lab_id,start_at FROM slots WHERE id=?",(slot,))[0]
+        body=b.post("/api/reservations",{"slot_id":slot,"request_id":uid()},409)
+        expected=[str(r[0]) for r in s.sql("SELECT id FROM slots WHERE lab_id=? AND start_at>? AND start_at<=? AND enabled=1 AND id NOT IN(SELECT slot_id FROM reservations WHERE status='CONFIRMED') ORDER BY start_at LIMIT 3",(lab,start,start+7*86400))]
+        alts=body["data"]["alternatives"]
+        require(isinstance(alts,list) and [str(x["id"]) for x in alts]==expected,f"alternatives {alts} != {expected}")
+        if alts: require(reserve(b,alts[0]["id"]),"alternative slot not bookable")
+        cancel(a,rid)
+    record("T13 alternatives after full slot",t13)
+    def t14():
+        fmt=lambda t:datetime.datetime.fromtimestamp(t+28800,datetime.timezone.utc).strftime("%Y-%m-%d")
+        lo,hi=s.sql("SELECT min(start_at),max(start_at) FROM slots")[0]
+        d1=(lo+28800)//86400*86400-28800; d2=(hi+28800)//86400*86400-28800
+        status,body=admin.request("GET",f"/api/admin/stats?start_date={fmt(d1)}&end_date={fmt(d2)}")
+        require(status==200 and body["code"]=="OK",f"stats {status}: {body}")
+        totals=body["data"]["totals"]
+        span=(d1,d2+86400)
+        exp_slots=s.sql("SELECT count(*) FROM slots WHERE start_at>=? AND start_at<?",span)[0][0]
+        exp_conf=s.sql("SELECT count(*) FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE s.start_at>=? AND s.start_at<? AND r.status='CONFIRMED'",span)[0][0]
+        exp_wait=s.sql("SELECT count(*) FROM waitlist w JOIN slots s ON s.id=w.slot_id JOIN users u ON u.id=w.user_id WHERE s.start_at>=? AND s.start_at<? AND w.status='WAITING' AND u.enabled=1",span)[0][0]
+        require(totals["slots"]==exp_slots and totals["confirmed"]==exp_conf and totals["waiting"]==exp_wait,f"totals {totals} vs {(exp_slots,exp_conf,exp_wait)}")
+        for row in body["data"]["stats"]:
+            epoch=int(datetime.datetime.strptime(row["date"],"%Y-%m-%d").replace(tzinfo=datetime.timezone.utc).timestamp())
+            day=(epoch+28800)//86400*86400-28800
+            require(d1<=day<=d2,f"stats date {row['date']} outside range")
+            require(row["slots"]==s.sql("SELECT count(*) FROM slots WHERE start_at>=? AND start_at<?",(day,day+86400))[0][0],"per-day slots mismatch")
+        require(a.request("GET",f"/api/admin/stats?start_date={fmt(d1)}&end_date={fmt(d2)}")[0]==403,"non-admin stats")
+        require(admin.request("GET","/api/admin/stats?start_date=2026-02-30&end_date=2026-03-01")[0]==400,"invalid calendar date")
+        require(admin.request("GET","/api/admin/stats?start_date=2026-01-01&end_date=2026-03-01")[0]==400,"range too long")
+        require(admin.request("GET","/api/admin/stats")[0]==400,"missing params")
+    record("T14 admin statistics totals and validation",t14)
     record("T12 SQLite integrity and relational invariants",s.integrity)
+    def t15():
+        c=s.user(4)
+        s.sql("UPDATE sessions SET expires_at=1")
+        require(c.request("GET","/api/me")[0]==401,"expired session accepted")
+        s.user(4)
+        total,valid=s.sql("SELECT (SELECT count(*) FROM sessions),(SELECT count(*) FROM sessions WHERE expires_at>?)",(int(time.time()),))[0]
+        require(total==valid and valid>=1,"expired sessions pruned after login")
+    record("T15 expired session rejected and pruned",t15)
 
 def races(s, rounds):
     users=[s.user(i) for i in range(1,21)]
