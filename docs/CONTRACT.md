@@ -45,3 +45,6 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 
 ## 分工
 主Agent：src、依赖、构建、集成。页面Agent仅修改web。测试Agent仅修改tests。任何修改已有文件先在本任务work/backups留备份；不要修改其他Agent拥有的文件。
+
+## 限流与防爆破（r5/security）
+登录按用户名防爆破：连续失败达 `--login-max-fails`（默认 5）次后锁定 `--login-lockout` 秒（默认 900），期间正确密码同样返回 429 `LOGIN_LOCKED`；成功登录清零计数；失败事件仅对已存在用户写入 operation_events（action=LOGIN_FAILED，不泄露用户名是否存在）。已登录用户的全部 POST 写操作经每用户令牌桶限速：`--rate-burst`（默认 30）个突发、每 `--rate-refill-sec`（默认 1）秒补充 1 个，超限返回 429 `RATE_LIMITED`。限流状态为进程内存态，重启清零；服务仅回环部署，不区分来源 IP。

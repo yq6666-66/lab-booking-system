@@ -436,6 +436,34 @@ def noshow_checks(s):
         return {"unread_before":before}
     record("T22 no-show release, promotion and notifications",t22)
 
+def security_checks(s):
+    """T23-T24：登录防爆破与写操作限流（独立实例，小阈值获得确定性）。"""
+    def t23():
+        c=Client(s.port)  # 未登录客户端
+        for i in range(3):
+            status,_=c.request("POST","/api/login",{"username":"user05","password":PASSWORD+"-wrong"})
+            require(status==401,f"wrong login {i+1}: {status}")
+        status,body=c.request("POST","/api/login",{"username":"user05","password":PASSWORD})
+        require(status==429 and body["code"]=="LOGIN_LOCKED",f"locked after max fails: {status} {body}")
+        status,_=Client(s.port).request("POST","/api/login",{"username":"admin","password":PASSWORD})
+        require(status==200,"other username unaffected")
+        time.sleep(1.3)
+        status,_=c.request("POST","/api/login",{"username":"user05","password":PASSWORD})
+        require(status==200,f"unlock after lockout window: {status}")
+    record("T23 login brute force lockout and unlock",t23)
+    def t24():
+        c=s.user(6)
+        codes=[]
+        for _ in range(4):
+            status,body=c.request("POST","/api/me/notifications/read",{"all":True,"request_id":uid()})
+            codes.append((status,body["code"]))
+        require(all(st==200 for st,_ in codes[:3]),f"first burst allowed: {codes}")
+        require(codes[3][0]==429 and codes[3][1]=="RATE_LIMITED",f"4th mutation limited: {codes}")
+        time.sleep(1.3)
+        status,_=c.request("POST","/api/me/notifications/read",{"all":True,"request_id":uid()})
+        require(status==200,f"refill after window: {status}")
+    record("T24 mutation rate limit burst and refill",t24)
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     mode=parser.add_mutually_exclusive_group()
@@ -463,6 +491,7 @@ def main():
         with running(args.exe,pathlib.Path(temp)/"features",baseline,extra=["--checkin-window","60","--sweep-interval","1"]) as s: feature_checks(s)
         with running(args.exe,pathlib.Path(temp)/"accounts",baseline) as s: account_checks(s)
         with running(args.exe,pathlib.Path(temp)/"noshow",baseline,extra=["--checkin-window","1","--sweep-interval","1"]) as s: noshow_checks(s)
+        with running(args.exe,pathlib.Path(temp)/"security",baseline,extra=["--login-max-fails","3","--login-lockout","1","--rate-burst","3","--rate-refill-sec","1"]) as s: security_checks(s)
         with running(args.exe,pathlib.Path(temp)/"races",baseline) as s: record("T10 concurrent unique occupation",lambda:races(s,rounds))
         for fault in ("cancel-before-promote","after-commit"):
             record("T11 recovery "+fault,lambda f=fault:fault_case(args.test_exe,temp,baseline,f,fault_rounds))

@@ -11,7 +11,7 @@ try {
  $sources=@('vendor/civetweb/src/civetweb.c','vendor/cjson/cJSON.c','vendor/sqlite/sqlite3.c')
  $objects=@()
  foreach($s in $sources){$o='build/'+[IO.Path]::GetFileNameWithoutExtension($s)+'.o'; if(-not (Test-Path -LiteralPath $o) -or (Get-Item -LiteralPath $s).LastWriteTimeUtc -gt (Get-Item -LiteralPath $o).LastWriteTimeUtc){ & gcc @flags -c $s -o $o; if($LASTEXITCODE -ne 0){throw "Compile failed: $s"} }; $objects+=$o}
- $own=@('src/main.c','src/util.c','src/db.c','src/service.c','src/http.c')
+ $own=@('src/main.c','src/util.c','src/db.c','src/service.c','src/http.c','src/ratelimit.c')
  $checks=@('-Wall','-Wextra','-Wformat=2','-Wshadow','-Wstrict-prototypes')
  if($Analyze){$checks+='-fanalyzer'}
  $libs=@('-Lvendor/sodium/libsodium-win64/lib','-lsodium','-lws2_32','-ladvapi32')
@@ -20,7 +20,7 @@ try {
  if($LASTEXITCODE -ne 0){throw 'Release build failed'}
  & gcc @flags @checks -municode -DTEST_FAULTS @own @objects @libs -o ("build/lab-booking-test"+$suffix+".exe")
  if($LASTEXITCODE -ne 0){throw 'Test build failed'}
- & gcc @flags @checks -Ivendor/unity/src vendor/unity/src/unity.c src/util.c src/db.c src/service.c tests/unit.c @objects @libs -o ("build/unit-tests"+$suffix+".exe")
+ & gcc @flags @checks -Ivendor/unity/src vendor/unity/src/unity.c src/util.c src/db.c src/service.c src/ratelimit.c tests/unit.c @objects @libs -o ("build/unit-tests"+$suffix+".exe")
  if($LASTEXITCODE -ne 0){throw 'Unit test build failed'}
  Copy-Item -Path 'vendor/sodium/libsodium-win64/bin/*.dll' -Destination build -Force
  if(-not $Harden){ & ($root+'\build\unit-tests'+'.exe'); if($LASTEXITCODE -ne 0){throw 'Unit tests failed'} }
