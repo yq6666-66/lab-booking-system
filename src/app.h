@@ -18,7 +18,7 @@ cJSON *db_first(DB *db,const char *sql,const char *fmt,...);
 int db_init(DB *db);
 int db_check(DB *db);
 int db_seed(DB *db,const char *password);
-int publish_slots(DB *db,Id lab,Id start,Id end);
+int publish_slots(DB *db,Id lab,Id start,Id end,Id capacity);
 Id now_sec(void);
 Id date_start(const char *date);
 void date_text(Id day,char out[11]);

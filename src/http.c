@@ -61,11 +61,15 @@ static int pager(const struct mg_request_info *ri,int *page,int *size){
 static Result admin(DB *d,const char *path,const cJSON *body){
  Id target=0;
  if(!strcmp(path,"/api/admin/slots/publish")){
-  Id lab=0,start=date_start(jstr(body,"start_date")),end=date_start(jstr(body,"end_date"));
+  Id lab=0,start=date_start(jstr(body,"start_date")),end=date_start(jstr(body,"end_date")),capacity=1;
+  cJSON *cap=cJSON_GetObjectItemCaseSensitive(body,"capacity");
+  if(cap&&cJSON_IsString(cap)&&!parse_id(cap->valuestring,&capacity))return invalid();
+  if(cap&&cJSON_IsNumber(cap))capacity=(Id)cap->valuedouble;
+  if(capacity<1||capacity>200)return invalid();
   if(!parse_id(jstr(body,"lab_id"),&lab)||start<0||end<start||end-start>13*86400)return invalid();
   if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
   if(!db_num(d,"SELECT count(*) FROM labs WHERE id=? AND enabled=1","i",lab)){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return d->error?db_failure(d):result(409,"STATE_CONFLICT","实验室不存在或已停用",NULL);}
-  int n=publish_slots(d,lab,start,end);
+  int n=publish_slots(d,lab,start,end,capacity);
   if(d->error||!db_run(d,"COMMIT","")){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
   cJSON *j=cJSON_CreateObject();cJSON_AddNumberToObject(j,"created",n);return result(200,"OK","场次发布完成",j);
  }
@@ -92,7 +96,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   if(!strcmp(path,"/api/slots")){
    char a[40],dt[32];Id lab=0;query(ri,"lab_id",a,sizeof a);query(ri,"date",dt,sizeof dt);Id start=date_start(dt);if(!parse_id(a,&lab)||start<0)return invalid();
    cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"slots",db_rows(d,
-    "SELECT s.id,s.lab_id,s.start_at,s.end_at,s.enabled,l.enabled AS lab_enabled,EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') AS occupied,(SELECT count(*) FROM waitlist w JOIN users wu ON wu.id=w.user_id WHERE w.slot_id=s.id AND w.status='WAITING' AND wu.enabled=1) AS waiting_count,(SELECT id FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_reservation_id,(SELECT checked_in_at FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_checked_in_at,(SELECT id FROM waitlist w WHERE w.slot_id=s.id AND w.status='WAITING' AND w.user_id=?) AS my_waitlist_id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.lab_id=? AND s.start_at>=? AND s.start_at<? ORDER BY s.start_at",
+    "SELECT s.id,s.lab_id,s.start_at,s.end_at,s.enabled,s.capacity,l.enabled AS lab_enabled,(SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') AS confirmed_count,(SELECT count(*) FROM waitlist w JOIN users wu ON wu.id=w.user_id WHERE w.slot_id=s.id AND w.status='WAITING' AND wu.enabled=1) AS waiting_count,(SELECT id FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_reservation_id,(SELECT checked_in_at FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_checked_in_at,(SELECT id FROM waitlist w WHERE w.slot_id=s.id AND w.status='WAITING' AND w.user_id=?) AS my_waitlist_id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.lab_id=? AND s.start_at>=? AND s.start_at<? ORDER BY s.start_at",
     "iiiiii",u.id,u.id,u.id,lab,start,start+86400));
    cJSON_AddNumberToObject(j,"checkin_window",(double)cfg->checkin_window);return result(200,"OK","查询成功",j);
   }

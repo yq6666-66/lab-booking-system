@@ -28,7 +28,7 @@
  if(sodium_init()<0){fprintf(stderr,"Crypto initialization failed\n");return 1;}
  _mkdir("data");DB db={0};
  if(!db_open(&db,c.db_path)){fprintf(stderr,"Cannot open database\n");db_close(&db);return 1;}
- if(db_num(&db,"PRAGMA user_version","")>2){fprintf(stderr,"Unsupported schema version\n");db_close(&db);return 1;}
+ if(db_num(&db,"PRAGMA user_version","")>3){fprintf(stderr,"Unsupported schema version\n");db_close(&db);return 1;}
  if(!db_init(&db)||(seed&&!db_seed(&db,getenv("LAB_SEED_PASSWORD")))||!db_check(&db)){fprintf(stderr,"Database initialization/integrity check failed (code %d).\n",db.error);db_close(&db);return 1;}
  if(!init&&!check&&!db_run(&db,"DELETE FROM sessions WHERE expires_at<?","i",now_sec())){fprintf(stderr,"Session cleanup failed (code %d).\n",db.error);db_close(&db);return 1;}
  db_close(&db);if(init||check){puts("Database ready; integrity checks passed.");return 0;}return serve(&c);

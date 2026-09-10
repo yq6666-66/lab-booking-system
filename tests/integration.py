@@ -104,7 +104,7 @@ class Server:
     def integrity(self):
         require(self.sql("PRAGMA integrity_check") == [("ok",)], "SQLite integrity_check failed")
         require(not self.sql("PRAGMA foreign_key_check"), "Foreign key violation")
-        require(not self.sql("SELECT slot_id FROM reservations WHERE status='CONFIRMED' GROUP BY slot_id HAVING count(*)>1"), "Duplicate occupation")
+        require(not self.sql("SELECT s.id FROM slots s WHERE (SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED')>s.capacity"), "Over-capacity occupation")
         require(not self.sql("SELECT user_id,slot_id FROM waitlist WHERE status='WAITING' GROUP BY user_id,slot_id HAVING count(*)>1"), "Duplicate waiting")
 
 @contextlib.contextmanager
@@ -240,6 +240,30 @@ def regression(s):
         require(admin.request("GET","/api/admin/stats?start_date=2026-01-01&end_date=2026-03-01")[0]==400,"range too long")
         require(admin.request("GET","/api/admin/stats")[0]==400,"missing params")
     record("T14 admin statistics totals and validation",t14)
+    def t26():
+        # 容量制：新建实验室发布 capacity=3 场次，验证满员拒绝、候补与取消补位
+        day=(datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(hours=32)).strftime("%Y-%m-%d")
+        lab=admin.post("/api/admin/labs",{"name":f"容量制验收实验室{uid()[:8]}","location":"信息楼","description":"T26"})["data"]["lab_id"]
+        admin.post("/api/admin/slots/publish",{"lab_id":lab,"start_date":day,"end_date":day,"capacity":"3"})
+        listing=a.request("GET","/api/slots?lab_id="+lab+"&date="+day)[1]["data"]["slots"]
+        require(len(listing)==8 and all(int(x["capacity"])==3 for x in listing),f"capacity published: {listing[:1]}")
+        slot=listing[0]["id"]
+        u11,u12,u13,u14,u15=[Client(s.port).login(f"user{n:02d}") for n in range(11,16)]
+        rids=[u.post("/api/reservations",{"slot_id":slot,"request_id":uid()})["data"]["reservation_id"] for u in (u11,u12,u13)]
+        st,body=u14.request("POST","/api/reservations",{"slot_id":slot,"request_id":uid()})
+        require(st==409 and body["code"]=="SLOT_FULL",f"4th beyond capacity: {st} {body}")
+        row=[x for x in a.request("GET","/api/slots?lab_id="+lab+"&date="+day)[1]["data"]["slots"] if x["id"]==slot][0]
+        require(int(row["confirmed_count"])==3 and int(row["capacity"])==3,f"listing counters: {row}")
+        wid=u15.post("/api/waitlist",{"slot_id":slot,"request_id":uid()})["data"]["waitlist_id"]
+        result=u11.post(f"/api/reservations/{rids[0]}/cancel",{"request_id":uid()})
+        require(result["data"]["promoted_reservation_id"],f"promotion on cancel: {result}")
+        require(s.sql("SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'",(slot,))==[(3,)],"capacity refilled after cancel")
+        require(s.sql("SELECT status FROM waitlist WHERE id=?",(wid,))==[("PROMOTED",)],"waiter promoted")
+        st,body=u12.request("POST","/api/reservations",{"slot_id":slot,"request_id":uid()})
+        require(st==409 and body["code"]=="ALREADY_RESERVED",f"duplicate booking: {st} {body}")
+        st,body=u14.request("POST","/api/waitlist",{"slot_id":slot,"request_id":uid()})
+        require(st==200,f"waitlist accepted on full slot: {st} {body}")
+    record("T26 capacity slots, fill and FIFO promotion",t26)
     record("T12 SQLite integrity and relational invariants",s.integrity)
     def t15():
         c=s.user(4)
@@ -492,7 +516,7 @@ def main():
         with running(args.exe,pathlib.Path(temp)/"accounts",baseline) as s: account_checks(s)
         with running(args.exe,pathlib.Path(temp)/"noshow",baseline,extra=["--checkin-window","1","--sweep-interval","1"]) as s: noshow_checks(s)
         with running(args.exe,pathlib.Path(temp)/"security",baseline,extra=["--login-max-fails","3","--login-lockout","1","--rate-burst","3","--rate-refill-sec","1"]) as s: security_checks(s)
-        with running(args.exe,pathlib.Path(temp)/"races",baseline) as s: record("T10 concurrent unique occupation",lambda:races(s,rounds))
+        with running(args.exe,pathlib.Path(temp)/"races",baseline,extra=["--rate-burst","100000"]) as s: record("T10 concurrent unique occupation",lambda:races(s,rounds))
         for fault in ("cancel-before-promote","after-commit"):
             record("T11 recovery "+fault,lambda f=fault:fault_case(args.test_exe,temp,baseline,f,fault_rounds))
         check=subprocess.run([str(args.exe),"--db",str(baseline),"--check"],capture_output=True,text=True,timeout=15)

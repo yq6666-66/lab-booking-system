@@ -48,3 +48,8 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 
 ## 限流与防爆破（r5/security）
 登录按用户名防爆破：连续失败达 `--login-max-fails`（默认 5）次后锁定 `--login-lockout` 秒（默认 900），期间正确密码同样返回 429 `LOGIN_LOCKED`；成功登录清零计数；失败事件仅对已存在用户写入 operation_events（action=LOGIN_FAILED，不泄露用户名是否存在）。已登录用户的全部 POST 写操作经每用户令牌桶限速：`--rate-burst`（默认 30）个突发、每 `--rate-refill-sec`（默认 1）秒补充 1 个，超限返回 429 `RATE_LIMITED`。限流状态为进程内存态，重启清零；服务仅回环部署，不区分来源 IP。
+
+## 容量制（r5/capacity，schema v3）
+slots 增加 capacity 列（1..200，默认 1），schema user_version=3；v2 库启动时幂等迁移：追加列、DROP INDEX one_booking（单占用唯一索引退役，容量约束改由 BEGIN IMMEDIATE 单写者事务内校验保证）。种子数据容量保持 1。
+预约：事务内校验 `CONFIRMED 数 < capacity` 才可预约；同一用户同场次仅一条有效预约（409 ALREADY_RESERVED 优先于满员判定）。候补补位改为 promote_fill 循环：取消/爽约释放后连续按 FIFO 补位直至满员或队列空；取消响应 promoted_reservation_id 报告首个补位。候补守卫：尚有余位时返回 409 SLOT_AVAILABLE 引导直约；满员才可入队。替代时段查询按 `CONFIRMED 数 < capacity` 判空闲。
+`GET /api/slots` 每项新增 `capacity` 与 `confirmed_count`（移除 occupied，前端以 confirmed_count>=capacity 判满）。`POST /api/admin/slots/publish` 增加可选 `capacity`（数字或字符串，1..200，默认 1；已存在场次不受影响）。统计口径不变。

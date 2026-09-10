@@ -123,11 +123,11 @@ static void test_seed_shape_and_invariants(void){
  TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM (SELECT lab_id,start_at FROM slots GROUP BY lab_id,start_at HAVING count(*)>1)",""));
  TEST_ASSERT_TRUE(db_check(&db));
 }
-static void test_unique_booking_index(void){
+static void test_over_capacity_detected(void){
  Id s=free_slot();User u1=make_user("user01"),u2=make_user("user02");
  TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?,'CONFIRMED','DIRECT',?)","iii",u1.id,s,now_sec()));
- TEST_ASSERT_FALSE(db_run(&db,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?,'CONFIRMED','DIRECT',?)","iii",u2.id,s,now_sec()));
- TEST_ASSERT_EQUAL_INT(SQLITE_CONSTRAINT,db.error&255); /* 唯一占用索引拦截重复预约 */
+ TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?,'CONFIRMED','DIRECT',?)","iii",u2.id,s,now_sec())); /* 容量约束由事务层校验，超卖可落库但必须被检查发现 */
+ TEST_ASSERT_FALSE(db_check(&db)); /* capacity=1 场次出现两条 CONFIRMED：启动检查必须拦截 */
  db_run(&db,"DELETE FROM reservations WHERE slot_id=?","i",s);db.error=0;
  TEST_ASSERT_TRUE(db_check(&db));
 }
@@ -339,6 +339,64 @@ static void test_login_guard(void){
  TEST_ASSERT_TRUE(login_allow(&g,2000001)); /* 成功登录清零后重新计数 */
  TEST_ASSERT_TRUE(login_allow(NULL,0));
 }
+/* -- r5/capacity：容量制补位循环与 v2 迁移 */
+static void test_capacity_fill_and_promotion(void){
+ User u1=make_user("user01"),u2=make_user("user02"),u3=make_user("user03"),u4=make_user("user04");
+ Id s=free_slot();
+ TEST_ASSERT_TRUE(db_run(&db,"UPDATE slots SET capacity=3 WHERE id=?","i",s));
+ char k[6][40];for(int i=0;i<6;i++)new_key(k[i]);
+ Result r=booking(&db,NULL,&u1,"reserve",s,k[0]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+ /* 注入两名候补：正常路径下有空位时接口会引导直约（SLOT_AVAILABLE），候补只能在满员后产生 */
+ TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO waitlist(user_id,slot_id,status,created_at) VALUES(?,?,'WAITING',?)","iii",u2.id,s,now_sec()));
+ TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO waitlist(user_id,slot_id,status,created_at) VALUES(?,?,'WAITING',?)","iii",u3.id,s,now_sec()));
+ Id w2=db_num(&db,"SELECT id FROM waitlist WHERE user_id=? AND slot_id=? AND status='WAITING'","ii",u2.id,s),w3=db_num(&db,"SELECT id FROM waitlist WHERE user_id=? AND slot_id=? AND status='WAITING'","ii",u3.id,s);
+ r=booking(&db,NULL,&u4,"reserve",s,k[1]); /* 有余位：先按 FIFO 补满 u2/u3，再满员拒绝 u4 */
+ TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("SLOT_FULL",rcode(r));drop(r);
+ TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
+ TEST_ASSERT_EQUAL_STRING("PROMOTED",wait_status(w2));
+ TEST_ASSERT_EQUAL_STRING("PROMOTED",wait_status(w3));
+ TEST_ASSERT_EQUAL_INT64(2,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND source='WAITLIST' AND status='CONFIRMED'","i",s));
+ r=booking(&db,NULL,&u2,"reserve",s,k[2]); /* 已持席位再约 */
+ TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("ALREADY_RESERVED",rcode(r));drop(r);
+ Id u1rid=db_num(&db,"SELECT id FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",s,u1.id);
+ r=booking(&db,NULL,&u1,"cancel",u1rid,k[3]); /* 队列已空：取消后不再补位 */
+ TEST_ASSERT_EQUAL_INT(200,r.status);
+ TEST_ASSERT_FALSE(cJSON_IsString(cJSON_GetObjectItemCaseSensitive(rdata(r),"promoted_reservation_id")));drop(r);
+ TEST_ASSERT_EQUAL_INT64(2,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
+ r=booking(&db,NULL,&u4,"reserve",s,k[4]); /* 余位释放后可直接预约 */
+ TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+ TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
+}
+static void test_v2_to_v3_migration(void){
+ const char *path="build/unit-v2.db";DB d;remove_files(path);
+ TEST_ASSERT_TRUE(db_open(&d,path));
+ const char *v2=
+  "BEGIN;"
+  "CREATE TABLE users(id INTEGER PRIMARY KEY,username TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1);"
+  "CREATE TABLE sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL,csrf_token TEXT NOT NULL,expires_at INTEGER NOT NULL);"
+  "CREATE TABLE labs(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,location TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',enabled INTEGER NOT NULL DEFAULT 1);"
+  "CREATE TABLE slots(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL,start_at INTEGER NOT NULL,end_at INTEGER NOT NULL,enabled INTEGER NOT NULL DEFAULT 1,UNIQUE(lab_id,start_at));"
+  "CREATE TABLE reservations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,slot_id INTEGER NOT NULL,status TEXT NOT NULL,source TEXT NOT NULL,created_at INTEGER NOT NULL,cancelled_at INTEGER);"
+  "CREATE UNIQUE INDEX one_booking ON reservations(slot_id) WHERE status='CONFIRMED';"
+  "CREATE TABLE waitlist(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,slot_id INTEGER NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,promoted_reservation_id INTEGER);"
+  "CREATE TABLE request_receipts(user_id INTEGER NOT NULL,request_id TEXT NOT NULL,action TEXT NOT NULL,payload_digest TEXT NOT NULL,http_status INTEGER NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(user_id,request_id));"
+  "CREATE TABLE operation_events(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL,action TEXT NOT NULL,entity_id INTEGER NOT NULL,request_id TEXT,created_at INTEGER NOT NULL);"
+  "INSERT INTO labs(id,name,location) VALUES(1,'迁移实验室','信息楼');"
+  "INSERT INTO slots(id,lab_id,start_at,end_at) VALUES(1,1,(strftime('%s','now')+172800)/3600*3600,(strftime('%s','now')+172800)/3600*3600+3600);"
+  "PRAGMA user_version=2;COMMIT;";
+ int rc=sqlite3_exec(d.sql,v2,NULL,NULL,NULL);TEST_ASSERT_EQUAL_INT(SQLITE_OK,rc);
+ db_close(&d); /* 以 v2 落盘后用新代码重新打开，触发迁移 */
+ db_close(&db); /* 先释放主测试库，避免句柄泄漏与文件占用 */
+ TEST_ASSERT_TRUE(db_open(&db,path));
+ TEST_ASSERT_TRUE(db_init(&db));
+ TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"PRAGMA user_version",""));
+ cJSON *cap=db_first(&db,"SELECT capacity FROM slots WHERE id=1",""); /* 旧行以默认容量 1 迁移 */
+ TEST_ASSERT_NOT_NULL(cap);TEST_ASSERT_EQUAL_INT(1,(int)cJSON_GetObjectItemCaseSensitive(cap,"capacity")->valuedouble);cJSON_Delete(cap);
+ TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM sqlite_master WHERE type='index' AND name='one_booking'","")); /* 单占用索引退役 */
+ TEST_ASSERT_TRUE(db_check(&db)); /* 迁移后完整性检查通过 */
+ db_close(&db);remove_files(path);
+ fresh_seed(); /* 恢复主测试库，保证后续/全局状态干净 */
+}
 int main(void){
  setvbuf(stdout,NULL,_IONBF,0); /* 崩溃时也能看到已完成用例，便于定位 */
  UnityBegin("tests/unit.c");
@@ -350,7 +408,7 @@ int main(void){
  RUN_TEST(test_hash_and_random);
  RUN_TEST(test_result_envelope);
  RUN_TEST(test_seed_shape_and_invariants);
- RUN_TEST(test_unique_booking_index);
+ RUN_TEST(test_over_capacity_detected);
  RUN_TEST(test_wait_guards);
  RUN_TEST(test_reserve_conflict_and_alternatives);
  RUN_TEST(test_wait_queue_idempotent_reentry);
@@ -361,6 +419,8 @@ int main(void){
  RUN_TEST(test_db_check_rejects_coexistence);
  RUN_TEST(test_bucket_allow);
  RUN_TEST(test_login_guard);
+ RUN_TEST(test_capacity_fill_and_promotion);
+ RUN_TEST(test_v2_to_v3_migration);
  db_close(&db);remove_files(DBPATH);
  return UnityEnd();
 }
