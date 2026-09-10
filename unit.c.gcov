@@ -1,0 +1,1439 @@
+        -:    0:Source:tests/unit.c
+        -:    0:Graph:C:\Users\admin\Desktop\��ҵ���\build\cov_unit.gcno
+        -:    0:Data:C:\Users\admin\Desktop\��ҵ���\build\cov_unit.gcda
+        -:    0:Runs:1
+        -:    1:/* Unity 单元测试：纯函数、数据库不变量与预约业务层（不经 HTTP） */
+        -:    2:#include "app.h"
+        -:    3:#include "unity.h"
+        -:    4:#include <ctype.h>
+        -:    5:#include <stdio.h>
+        -:    6:#include <stdlib.h>
+        -:    7:#include <string.h>
+        -:    8:
+        -:    9:static DB db;
+        -:   10:static const char *DBPATH = "build/unit-test.db";
+        -:   11:
+function remove_files called 9 returned 100% blocks executed 100%
+        9:   12:static void remove_files(const char *base){
+        -:   13: char buf[128];
+        9:   14: const char *suffixes[]={"","-wal","-shm"};
+       36:   15: for(size_t i=0;i<sizeof suffixes/sizeof *suffixes;i++){snprintf(buf,sizeof buf,"%s%s",base,suffixes[i]);remove(buf);}
+call    0 returned 100%
+branch  1 taken 75%
+branch  2 taken 25% (fallthrough)
+        9:   16:}
+function fresh_seed called 2 returned 100% blocks executed 73%
+        2:   17:static void fresh_seed(void){
+        2:   18: remove_files(DBPATH);
+call    0 returned 100%
+       2*:   19: TEST_ASSERT_TRUE(db_open(&db,DBPATH));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       2*:   20: TEST_ASSERT_TRUE(db_init(&db));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       2*:   21: TEST_ASSERT_TRUE(db_seed(&db,"UnitPassword123!"));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        2:   22:}
+function make_user called 15 returned 100% blocks executed 90%
+       15:   23:static User make_user(const char *name){
+       15:   24: User u={0};cJSON *r=db_first(&db,"SELECT id,username,role FROM users WHERE username=?","s",name);
+call    0 returned 100%
+      15*:   25: TEST_ASSERT_NOT_NULL(r);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       15:   26: parse_id(jstr(r,"id"),&u.id);u.admin=!strcmp(jstr(r,"role"),"ADMIN");
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+       15:   27: snprintf(u.username,sizeof u.username,"%s",name);cJSON_Delete(r);return u;
+call    0 returned 100%
+        -:   28:}
+function free_slot called 7 returned 100% blocks executed 90%
+        7:   29:static Id free_slot(void){ /* 最早一个尚无任何预约记录的未来场次 */
+        7:   30: cJSON *r=db_first(&db,"SELECT id FROM slots s WHERE s.start_at>? AND NOT EXISTS(SELECT 1 FROM reservations x WHERE x.slot_id=s.id) ORDER BY s.start_at LIMIT 1","i",now_sec()+3600);
+call    0 returned 100%
+call    1 returned 100%
+       7*:   31: TEST_ASSERT_NOT_NULL(r);Id id=0;parse_id(jstr(r,"id"),&id);cJSON_Delete(r);return id;
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+call    3 returned 100%
+call    4 returned 100%
+call    5 returned 100%
+        -:   32:}
+function slot_field called 8 returned 100% blocks executed 100%
+        8:   33:static Id slot_field(Id slot,const char *column){
+        8:   34: char sql[128];snprintf(sql,sizeof sql,"SELECT %s FROM slots WHERE id=?",column);
+        8:   35: return db_num(&db,sql,"i",slot);
+call    0 returned 100%
+        -:   36:}
+function wait_status called 5 returned 100% blocks executed 88%
+        5:   37:static const char *wait_status(Id id){
+        5:   38: static char buf[16];cJSON *r=db_first(&db,"SELECT status FROM waitlist WHERE id=?","i",id);
+call    0 returned 100%
+       5*:   39: const char *s=jstr(r,"status");snprintf(buf,sizeof buf,"%s",s?s:"?");cJSON_Delete(r);return buf;
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+        -:   40:}
+function rcode called 8 returned 100% blocks executed 88%
+       8*:   41:static const char *rcode(Result r){cJSON *c=cJSON_GetObjectItemCaseSensitive(r.body,"code");return c&&cJSON_IsString(c)?c->valuestring:"";}
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+function rdata called 18 returned 100% blocks executed 100%
+       18:   42:static cJSON *rdata(Result r){return cJSON_GetObjectItemCaseSensitive(r.body,"data");}
+call    0 returned 100%
+function rid_of called 8 returned 100% blocks executed 90%
+        8:   43:static Id rid_of(Result r,const char *key){
+       8*:   44: Id v=0;cJSON *d=rdata(r);cJSON *c=d?cJSON_GetObjectItemCaseSensitive(d,key):NULL;
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+        8:   45: if(c&&cJSON_IsString(c))parse_id(c->valuestring,&v);
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+call    2 returned 100%
+branch  3 taken 100% (fallthrough)
+branch  4 taken 0%
+call    5 returned 100%
+        8:   46: return v;
+        -:   47:}
+function drop called 39 returned 100% blocks executed 100%
+       39:   48:static void drop(Result r){cJSON_Delete(r.body);}
+call    0 returned 100%
+function new_key called 33 returned 100% blocks executed 100%
+       33:   49:static void new_key(char out[40]){static int n=0;snprintf(out,40,"%08d-0000-4000-8000-000000000000",++n);}
+function setUp called 23 returned 100% blocks executed 100%
+       23:   50:void setUp(void){}
+function tearDown called 23 returned 100% blocks executed 100%
+       23:   51:void tearDown(void){}
+        -:   52:
+        -:   53:/* ---------- 纯函数 ---------- */
+function test_parse_id called 1 returned 100% blocks executed 70%
+        1:   54:static void test_parse_id(void){
+        1:   55: Id v=0;
+       1*:   56: TEST_ASSERT_TRUE(parse_id("42",&v));TEST_ASSERT_EQUAL_INT64(42,v);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+call    4 returned 100%
+       1*:   57: TEST_ASSERT_TRUE(parse_id("999999999999999999",&v));TEST_ASSERT_EQUAL_INT64(999999999999999999LL,v);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+call    4 returned 100%
+       1*:   58: TEST_ASSERT_FALSE(parse_id("0",&v));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   59: TEST_ASSERT_FALSE(parse_id("",&v));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   60: TEST_ASSERT_FALSE(parse_id(NULL,&v));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   61: TEST_ASSERT_FALSE(parse_id("12x",&v));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   62: TEST_ASSERT_FALSE(parse_id("-3",&v));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   63: TEST_ASSERT_FALSE(parse_id(" 1",&v));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   64: TEST_ASSERT_FALSE(parse_id("1234567890123456789",&v)); /* 19 位拒绝 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:   65:}
+function test_uuid_valid called 1 returned 100% blocks executed 68%
+        1:   66:static void test_uuid_valid(void){
+       1*:   67: TEST_ASSERT_TRUE(uuid_valid("2dd1ab34-26ab-4cf0-a529-7c1f52b4e5d6"));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   68: TEST_ASSERT_TRUE(uuid_valid("2DD1AB34-26AB-4CF0-A529-7C1F52B4E5D6"));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   69: TEST_ASSERT_FALSE(uuid_valid("2dd1ab3426ab4cf0a5297c1f52b4e5d6"));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   70: TEST_ASSERT_FALSE(uuid_valid("2dd1ab34-26ab-4cf0a529-7c1f52b4e5d6"));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   71: TEST_ASSERT_FALSE(uuid_valid("2dd1ab34-26ab-4cf0-a529-7c1f52b4e5ddd")); /* 37 位 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   72: TEST_ASSERT_FALSE(uuid_valid("2dd1ab34-26ab-4cf0-a529-7c1f52b4e5g"));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   73: TEST_ASSERT_FALSE(uuid_valid(NULL));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:   74:}
+function test_date_start called 1 returned 100% blocks executed 100%
+        1:   75:static void test_date_start(void){
+        1:   76: TEST_ASSERT_EQUAL_INT64(1789056000,date_start("2026-09-11"));
+call    0 returned 100%
+call    1 returned 100%
+        1:   77: TEST_ASSERT_EQUAL_INT64(1709136000,date_start("2024-02-29"));
+call    0 returned 100%
+call    1 returned 100%
+        1:   78: TEST_ASSERT_EQUAL_INT64(951840000,date_start("2000-03-01"));
+call    0 returned 100%
+call    1 returned 100%
+        1:   79: TEST_ASSERT_EQUAL_INT64(-28800,date_start("1970-01-01"));
+call    0 returned 100%
+call    1 returned 100%
+        1:   80: TEST_ASSERT_EQUAL_INT64(-1,date_start("2023-02-29"));
+call    0 returned 100%
+call    1 returned 100%
+        1:   81: TEST_ASSERT_EQUAL_INT64(-1,date_start("2026-13-01"));
+call    0 returned 100%
+call    1 returned 100%
+        1:   82: TEST_ASSERT_EQUAL_INT64(-1,date_start("2026-00-10"));
+call    0 returned 100%
+call    1 returned 100%
+        1:   83: TEST_ASSERT_EQUAL_INT64(-1,date_start("2026-09-00"));
+call    0 returned 100%
+call    1 returned 100%
+        1:   84: TEST_ASSERT_EQUAL_INT64(-1,date_start("2026/09/11"));
+call    0 returned 100%
+call    1 returned 100%
+        1:   85: TEST_ASSERT_EQUAL_INT64(-1,date_start("20260911"));
+call    0 returned 100%
+call    1 returned 100%
+        1:   86: TEST_ASSERT_EQUAL_INT64(-1,date_start("abcd-09-11"));
+call    0 returned 100%
+call    1 returned 100%
+        1:   87: TEST_ASSERT_EQUAL_INT64(-1,date_start("1969-12-31"));
+call    0 returned 100%
+call    1 returned 100%
+        1:   88: TEST_ASSERT_EQUAL_INT64(-1,date_start(NULL));
+call    0 returned 100%
+call    1 returned 100%
+        1:   89:}
+function test_date_text_roundtrip called 1 returned 100% blocks executed 91%
+        1:   90:static void test_date_text_roundtrip(void){
+        1:   91: const char *dates[]={"1970-01-02","2000-02-29","2024-02-29","2026-09-11","2026-12-31","2100-02-28"};
+        -:   92: char buf[11];
+        7:   93: for(size_t i=0;i<sizeof dates/sizeof *dates;i++){
+branch  0 taken 86%
+branch  1 taken 14% (fallthrough)
+       6*:   94:  Id v=date_start(dates[i]);TEST_ASSERT_TRUE(v>=0);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        6:   95:  date_text((v+28800)/86400,buf);
+call    0 returned 100%
+        6:   96:  TEST_ASSERT_EQUAL_STRING(dates[i],buf);
+call    0 returned 100%
+        -:   97: }
+        1:   98: date_text(-5,buf);TEST_ASSERT_EQUAL_STRING("1970-01-01",buf); /* 防御性钳制 */
+call    0 returned 100%
+call    1 returned 100%
+        1:   99:}
+function test_hash_and_random called 1 returned 100% blocks executed 83%
+        1:  100:static void test_hash_and_random(void){
+        -:  101: char a[65],b[65],r1[65],r2[65];
+        1:  102: hash_text("abc",a);hash_text("abc",b);
+call    0 returned 100%
+call    1 returned 100%
+        1:  103: TEST_ASSERT_EQUAL_STRING(a,b);TEST_ASSERT_EQUAL_INT64(64,(Id)strlen(a));
+call    0 returned 100%
+call    1 returned 100%
+      65*:  104: for(int i=0;i<64;i++)TEST_ASSERT_TRUE(isxdigit((unsigned char)a[i]));
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+branch  3 taken 98%
+branch  4 taken 2% (fallthrough)
+       1*:  105: hash_text("abd",b);TEST_ASSERT_FALSE(strcmp(a,b)==0);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  106: random_hex(r1);random_hex(r2);
+call    0 returned 100%
+call    1 returned 100%
+       1*:  107: TEST_ASSERT_EQUAL_INT64(64,(Id)strlen(r1));TEST_ASSERT_FALSE(strcmp(r1,r2)==0);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  108:}
+function test_result_envelope called 1 returned 100% blocks executed 100%
+        1:  109:static void test_result_envelope(void){
+        1:  110: Result r=result(409,"SLOT_FULL","测试",NULL);
+call    0 returned 100%
+        1:  111: TEST_ASSERT_EQUAL_INT(409,r.status);
+call    0 returned 100%
+        1:  112: TEST_ASSERT_EQUAL_STRING("SLOT_FULL",rcode(r));
+call    0 returned 100%
+call    1 returned 100%
+        1:  113: drop(r);
+call    0 returned 100%
+        1:  114:}
+        -:  115:
+        -:  116:/* ---------- 数据库层 ---------- */
+function test_seed_shape_and_invariants called 1 returned 100% blocks executed 88%
+        1:  117:static void test_seed_shape_and_invariants(void){
+        1:  118: TEST_ASSERT_EQUAL_INT64(21,db_num(&db,"SELECT count(*) FROM users",""));
+call    0 returned 100%
+call    1 returned 100%
+        1:  119: TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"SELECT count(*) FROM labs",""));
+call    0 returned 100%
+call    1 returned 100%
+        1:  120: Id slots=db_num(&db,"SELECT count(*) FROM slots","");
+call    0 returned 100%
+       1*:  121: TEST_ASSERT_TRUE(slots>0&&slots<=3*14*8);
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+call    4 never executed
+        1:  122: TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM slots WHERE end_at!=start_at+3600",""));
+call    0 returned 100%
+call    1 returned 100%
+        1:  123: TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM (SELECT lab_id,start_at FROM slots GROUP BY lab_id,start_at HAVING count(*)>1)",""));
+call    0 returned 100%
+call    1 returned 100%
+       1*:  124: TEST_ASSERT_TRUE(db_check(&db));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  125:}
+function test_over_capacity_detected called 1 returned 100% blocks executed 79%
+        1:  126:static void test_over_capacity_detected(void){
+        1:  127: Id s=free_slot();User u1=make_user("user01"),u2=make_user("user02");
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+       1*:  128: TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?,'CONFIRMED','DIRECT',?)","iii",u1.id,s,now_sec()));
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 never executed
+       1*:  129: TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?,'CONFIRMED','DIRECT',?)","iii",u2.id,s,now_sec())); /* 容量约束由事务层校验，超卖可落库但必须被检查发现 */
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 never executed
+       1*:  130: TEST_ASSERT_FALSE(db_check(&db)); /* capacity=1 场次出现两条 CONFIRMED：启动检查必须拦截 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  131: db_run(&db,"DELETE FROM reservations WHERE slot_id=?","i",s);db.error=0;
+call    0 returned 100%
+       1*:  132: TEST_ASSERT_TRUE(db_check(&db));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  133:}
+function test_db_check_rejects_coexistence called 1 returned 100% blocks executed 76%
+        1:  134:static void test_db_check_rejects_coexistence(void){
+        1:  135: const char *dirty="build/unit-dirty.db";DB d;Id u,lab,s;
+        1:  136: remove_files(dirty);
+call    0 returned 100%
+       1*:  137: TEST_ASSERT_TRUE(db_open(&d,dirty));TEST_ASSERT_TRUE(db_init(&d));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+call    4 returned 100%
+branch  5 taken 0% (fallthrough)
+branch  6 taken 100%
+call    7 never executed
+       1*:  138: TEST_ASSERT_TRUE(db_run(&d,"INSERT INTO users(username,password_hash,role) VALUES('x','h','USER')",""));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  139: u=db_num(&d,"SELECT id FROM users WHERE username='x'","");
+call    0 returned 100%
+       1*:  140: TEST_ASSERT_TRUE(db_run(&d,"INSERT INTO labs(name,location,description) VALUES('脏数据实验室','a','')",""));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  141: lab=db_num(&d,"SELECT id FROM labs WHERE name='脏数据实验室'","");
+call    0 returned 100%
+        1:  142: s=(now_sec()/3600+48)*3600;
+call    0 returned 100%
+       1*:  143: TEST_ASSERT_TRUE(db_run(&d,"INSERT INTO slots(lab_id,start_at,end_at) VALUES(?,?,?)","iii",lab,s,s+3600));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  144: s=sqlite3_last_insert_rowid(d.sql); /* s 改存场次编号 */
+call    0 returned 100%
+       1*:  145: TEST_ASSERT_TRUE(db_run(&d,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?,'CONFIRMED','DIRECT',?)","iii",u,s,now_sec()));
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 never executed
+       1*:  146: TEST_ASSERT_TRUE(db_run(&d,"INSERT INTO waitlist(user_id,slot_id,status,created_at) VALUES(?,?,'WAITING',?)","iii",u,s,now_sec()));
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 never executed
+       1*:  147: TEST_ASSERT_FALSE(db_check(&d)); /* 同一用户同场次既有预约又候补，启动检查必须发现 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  148: db_close(&d);remove_files(dirty);
+call    0 returned 100%
+call    1 returned 100%
+        1:  149:}
+        -:  150:
+        -:  151:/* ---------- 业务层（直接调用 booking，不经 HTTP） ---------- */
+function test_reserve_conflict_and_alternatives called 1 returned 100% blocks executed 91%
+        1:  152:static void test_reserve_conflict_and_alternatives(void){
+        1:  153: User u1=make_user("user01"),u2=make_user("user02");
+call    0 returned 100%
+call    1 returned 100%
+        1:  154: Id s=free_slot(),lab=slot_field(s,"lab_id"),start=slot_field(s,"start_at");
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  155: char k1[40],k2[40],k3[40],kc[40];new_key(k1);new_key(k2);new_key(k3);new_key(kc);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  156: Result r=booking(&db,NULL,&u1,"reserve",s,k1);
+call    0 returned 100%
+        1:  157: TEST_ASSERT_EQUAL_INT(200,r.status);TEST_ASSERT_EQUAL_STRING("OK",rcode(r));
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+       1*:  158: Id rid=rid_of(r,"reservation_id");TEST_ASSERT_TRUE(rid>0);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  159: TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
+call    0 returned 100%
+call    1 returned 100%
+        1:  160: drop(r);
+call    0 returned 100%
+        1:  161: r=booking(&db,NULL,&u2,"reserve",s,k2);
+call    0 returned 100%
+        1:  162: TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("SLOT_FULL",rcode(r));
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  163: cJSON *alts=cJSON_GetObjectItemCaseSensitive(rdata(r),"alternatives");
+call    0 returned 100%
+call    1 returned 100%
+       1*:  164: TEST_ASSERT_TRUE(cJSON_IsArray(alts));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  165: int n=cJSON_GetArraySize(alts);TEST_ASSERT_TRUE(n>=1&&n<=3);
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+branch  3 taken 100% (fallthrough)
+branch  4 taken 0%
+call    5 never executed
+        1:  166: Id prev=0;
+        4:  167: for(cJSON *it=alts->child;it;it=it->next){ /* 同实验室、更晚、7 天内、空闲、按时间升序 */
+branch  0 taken 75%
+branch  1 taken 25% (fallthrough)
+       3*:  168:  Id aid=0;parse_id(jstr(it,"id"),&aid);TEST_ASSERT_TRUE(aid>0);
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 never executed
+        3:  169:  TEST_ASSERT_EQUAL_INT64(lab,slot_field(aid,"lab_id"));
+call    0 returned 100%
+call    1 returned 100%
+       3*:  170:  Id at=slot_field(aid,"start_at");TEST_ASSERT_TRUE(at>start&&at<=start+7*86400);
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+branch  3 taken 100% (fallthrough)
+branch  4 taken 0%
+call    5 never executed
+       3*:  171:  if(prev)TEST_ASSERT_TRUE(at>prev);
+branch  0 taken 67% (fallthrough)
+branch  1 taken 33%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 never executed
+        3:  172:  prev=at;
+        3:  173:  TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",aid));
+call    0 returned 100%
+call    1 returned 100%
+        -:  174: }
+        1:  175: char *first=cJSON_PrintUnformatted(r.body);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+        1:  176: Result again=booking(&db,NULL,&u2,"reserve",s,k2); /* 同编号同参数重放：返回原结果 */
+call    0 returned 100%
+        1:  177: char *second=cJSON_PrintUnformatted(again.body);
+call    0 returned 100%
+        1:  178: TEST_ASSERT_EQUAL_STRING(first,second);
+call    0 returned 100%
+        1:  179: cJSON_free(first);cJSON_free(second);drop(again);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  180: r=booking(&db,NULL,&u2,"reserve",s,k3); /* 新编号同场次：仍满，属新的失败请求 */
+call    0 returned 100%
+        1:  181: TEST_ASSERT_EQUAL_INT(409,r.status);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+        1:  182: drop(booking(&db,NULL,&u1,"cancel",rid,kc)); /* 取消使用新编号；释放该场次 */
+call    0 returned 100%
+call    1 returned 100%
+        1:  183: TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
+call    0 returned 100%
+call    1 returned 100%
+        1:  184:}
+function test_wait_guards called 1 returned 100% blocks executed 100%
+        1:  185:static void test_wait_guards(void){
+        1:  186: User u1=make_user("user01");
+call    0 returned 100%
+        4:  187: Id s=free_slot();char k[3][40];for(int i=0;i<3;i++)new_key(k[i]);
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 75%
+branch  3 taken 25% (fallthrough)
+        1:  188: Result r=booking(&db,NULL,&u1,"wait",s,k[0]); /* 空闲场次禁止候补 */
+call    0 returned 100%
+        1:  189: TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("SLOT_AVAILABLE",rcode(r));drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  190: r=booking(&db,NULL,&u1,"reserve",s,k[1]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  191: r=booking(&db,NULL,&u1,"wait",s,k[2]); /* 已预约者禁止再候补 */
+call    0 returned 100%
+        1:  192: TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("ALREADY_RESERVED",rcode(r));drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  193:}
+function test_wait_queue_idempotent_reentry called 1 returned 100% blocks executed 92%
+        1:  194:static void test_wait_queue_idempotent_reentry(void){
+        1:  195: User u1=make_user("user01"),u2=make_user("user02"),u3=make_user("user03");
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        7:  196: Id s=free_slot();char k[6][40];for(int i=0;i<6;i++)new_key(k[i]);
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 86%
+branch  3 taken 14% (fallthrough)
+        1:  197: drop(booking(&db,NULL,&u1,"reserve",s,k[0]));
+call    0 returned 100%
+call    1 returned 100%
+        1:  198: Result r=booking(&db,NULL,&u2,"wait",s,k[1]);TEST_ASSERT_EQUAL_INT(200,r.status);
+call    0 returned 100%
+call    1 returned 100%
+       1*:  199: Id w2=rid_of(r,"waitlist_id");TEST_ASSERT_TRUE(w2>0);drop(r);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+call    4 returned 100%
+        1:  200: r=booking(&db,NULL,&u2,"wait",s,k[1]); /* 同编号重放：同一候补编号 */
+call    0 returned 100%
+        1:  201: TEST_ASSERT_EQUAL_INT(200,r.status);TEST_ASSERT_EQUAL_INT64(w2,rid_of(r,"waitlist_id"));drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  202: r=booking(&db,NULL,&u3,"wait",s,k[2]);TEST_ASSERT_EQUAL_INT(200,r.status);
+call    0 returned 100%
+call    1 returned 100%
+       1*:  203: Id w3=rid_of(r,"waitlist_id");TEST_ASSERT_TRUE(w3>w2); /* 入队顺序 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  204: drop(r);
+call    0 returned 100%
+        1:  205: r=booking(&db,NULL,&u2,"withdraw",w2,k[3]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  206: TEST_ASSERT_EQUAL_STRING("WITHDRAWN",wait_status(w2));
+call    0 returned 100%
+call    1 returned 100%
+        1:  207: r=booking(&db,NULL,&u2,"wait",s,k[4]); /* 重新入队排在队尾 */
+call    0 returned 100%
+       1*:  208: Id w2b=rid_of(r,"waitlist_id");TEST_ASSERT_TRUE(w2b>w3);drop(r);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+call    4 returned 100%
+        1:  209: Id rid1=db_num(&db,"SELECT id FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s);
+call    0 returned 100%
+        1:  210: r=booking(&db,NULL,&u1,"cancel",rid1,k[5]); /* 取消触发 FIFO 补位 */
+call    0 returned 100%
+        1:  211: TEST_ASSERT_EQUAL_INT(200,r.status);
+call    0 returned 100%
+       1*:  212: Id promoted=rid_of(r,"promoted_reservation_id");TEST_ASSERT_TRUE(promoted>0);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  213: TEST_ASSERT_EQUAL_INT64(db_num(&db,"SELECT user_id FROM reservations WHERE id=?","i",promoted),u3.id);
+call    0 returned 100%
+call    1 returned 100%
+        1:  214: TEST_ASSERT_EQUAL_STRING("PROMOTED",wait_status(w3));
+call    0 returned 100%
+call    1 returned 100%
+        1:  215: TEST_ASSERT_EQUAL_STRING("WAITING",wait_status(w2b));
+call    0 returned 100%
+call    1 returned 100%
+        1:  216: TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
+call    0 returned 100%
+call    1 returned 100%
+        1:  217: drop(r);
+call    0 returned 100%
+        1:  218:}
+function test_stats_totals_match_sql called 1 returned 100% blocks executed 92%
+        1:  219:static void test_stats_totals_match_sql(void){
+        1:  220: Id day0=(now_sec()+28800)/86400,start=day0*86400-28800,end=start+13*86400;
+call    0 returned 100%
+        1:  221: Result r=stats(&db,start,end);
+call    0 returned 100%
+        1:  222: TEST_ASSERT_EQUAL_INT(200,r.status);TEST_ASSERT_EQUAL_STRING("OK",rcode(r));
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  223: cJSON *d=rdata(r),*t=cJSON_GetObjectItemCaseSensitive(d,"totals"),*rows=cJSON_GetObjectItemCaseSensitive(d,"stats");
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+       1*:  224: TEST_ASSERT_TRUE(cJSON_IsObject(t)&&cJSON_IsArray(rows));
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+call    6 never executed
+       1*:  225: int n=cJSON_GetArraySize(rows);TEST_ASSERT_TRUE(n>=1&&n<=14);
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+branch  3 taken 100% (fallthrough)
+branch  4 taken 0%
+call    5 never executed
+        1:  226: TEST_ASSERT_EQUAL_INT64(db_num(&db,"SELECT count(*) FROM slots WHERE start_at>=? AND start_at<?","ii",start,end+86400),(Id)cJSON_GetObjectItemCaseSensitive(t,"slots")->valuedouble);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  227: TEST_ASSERT_EQUAL_INT64(db_num(&db,"SELECT count(*) FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE s.start_at>=? AND s.start_at<? AND r.status='CONFIRMED'","ii",start,end+86400),(Id)cJSON_GetObjectItemCaseSensitive(t,"confirmed")->valuedouble);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  228: TEST_ASSERT_EQUAL_INT64(db_num(&db,"SELECT count(*) FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE s.start_at>=? AND s.start_at<? AND r.status='CANCELLED'","ii",start,end+86400),(Id)cJSON_GetObjectItemCaseSensitive(t,"cancelled")->valuedouble);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  229: TEST_ASSERT_EQUAL_INT64(db_num(&db,"SELECT count(*) FROM waitlist w JOIN slots s ON s.id=w.slot_id JOIN users u ON u.id=w.user_id WHERE s.start_at>=? AND s.start_at<? AND w.status='WAITING' AND u.enabled=1","ii",start,end+86400),(Id)cJSON_GetObjectItemCaseSensitive(t,"waiting")->valuedouble);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+       15:  230: for(cJSON *it=rows->child;it;it=it->next){ /* 逐行日期与 SQL 对账 */
+branch  0 taken 93%
+branch  1 taken 7% (fallthrough)
+      14*:  231:  const char *date=jstr(it,"date");TEST_ASSERT_TRUE(date&&strlen(date)==10);
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+branch  3 taken 100% (fallthrough)
+branch  4 taken 0%
+call    5 never executed
+      14*:  232:  Id ds=date_start(date);TEST_ASSERT_TRUE(ds>=start&&ds<=end);
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+branch  3 taken 100% (fallthrough)
+branch  4 taken 0%
+call    5 never executed
+       14:  233:  TEST_ASSERT_EQUAL_INT64(db_num(&db,"SELECT count(*) FROM slots WHERE start_at>=? AND start_at<?","ii",ds,ds+86400),(Id)cJSON_GetObjectItemCaseSensitive(it,"slots")->valuedouble);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        -:  234: }
+        1:  235: drop(r);
+call    0 returned 100%
+        1:  236:}
+        -:  237:
+        -:  238:/* ---------- 新增功能：签到、通知、会话、改密 ---------- */
+function test_hex_and_page_args called 1 returned 100% blocks executed 81%
+        1:  239:static void test_hex_and_page_args(void){
+       1*:  240: TEST_ASSERT_TRUE(hex_token("0123456789abcdef",16));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  241: TEST_ASSERT_TRUE(hex_token("ABCDEF0123456789",16));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  242: TEST_ASSERT_FALSE(hex_token("0123456789abcde",16));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  243: TEST_ASSERT_FALSE(hex_token("0123456789abcdeg",16));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  244: TEST_ASSERT_FALSE(hex_token(NULL,16));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  245: TEST_ASSERT_FALSE(hex_token("",16));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  246: TEST_ASSERT_EQUAL_INT(7,page_arg("7",1,1,100));
+call    0 returned 100%
+call    1 returned 100%
+        1:  247: TEST_ASSERT_EQUAL_INT(1,page_arg(NULL,1,1,100));
+call    0 returned 100%
+call    1 returned 100%
+        1:  248: TEST_ASSERT_EQUAL_INT(1,page_arg("",1,1,100));
+call    0 returned 100%
+call    1 returned 100%
+        1:  249: TEST_ASSERT_EQUAL_INT(-1,page_arg("0",1,1,100));
+call    0 returned 100%
+call    1 returned 100%
+        1:  250: TEST_ASSERT_EQUAL_INT(-1,page_arg("101",1,1,100));
+call    0 returned 100%
+call    1 returned 100%
+        1:  251: TEST_ASSERT_EQUAL_INT(-1,page_arg("abc",1,1,100));
+call    0 returned 100%
+call    1 returned 100%
+        1:  252:}
+function test_checkin_business called 1 returned 100% blocks executed 94%
+        1:  253:static void test_checkin_business(void){
+        1:  254: User u1=make_user("user01"),u2=make_user("user02");
+call    0 returned 100%
+call    1 returned 100%
+        1:  255: Id s=free_slot();char k[40];
+call    0 returned 100%
+        1:  256: new_key(k);Result r=booking(&db,NULL,&u1,"reserve",s,k);TEST_ASSERT_EQUAL_INT(200,r.status);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  257: Id rid=rid_of(r,"reservation_id");drop(r);
+call    0 returned 100%
+call    1 returned 100%
+        1:  258: new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(409,r.status);drop(r); /* 未开始 */
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  259: db_run(&db,"UPDATE slots SET start_at=?,end_at=? WHERE id=?","iii",now_sec()-1,now_sec()+3599,s);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  260: new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(200,r.status);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  261: cJSON *ci=cJSON_GetObjectItemCaseSensitive(rdata(r),"checked_in_at");
+call    0 returned 100%
+call    1 returned 100%
+       1*:  262: TEST_ASSERT_TRUE(cJSON_IsNumber(ci));Id when=(Id)ci->valuedouble;TEST_ASSERT_TRUE(when>0);drop(r);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+call    6 never executed
+call    7 returned 100%
+        1:  263: TEST_ASSERT_EQUAL_INT64(when,db_num(&db,"SELECT checked_in_at FROM reservations WHERE id=?","i",rid));
+call    0 returned 100%
+call    1 returned 100%
+        1:  264: new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(200,r.status); /* 重复签到幂等 */
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+       1*:  265: cJSON *ci2=cJSON_GetObjectItemCaseSensitive(rdata(r),"checked_in_at");TEST_ASSERT_TRUE(cJSON_IsNumber(ci2));TEST_ASSERT_EQUAL_INT64(when,(Id)ci2->valuedouble);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+call    5 never executed
+call    6 returned 100%
+call    7 returned 100%
+        1:  266: new_key(k);r=booking(&db,NULL,&u2,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(403,r.status);drop(r); /* 非本人 */
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  267: Config cfg={"build/unit-test.db",NULL,0,900,30,30,1,5,900,500,NULL,NULL,NULL};
+        1:  268: TEST_ASSERT_EQUAL_INT(0,sweep_once(&cfg)); /* 已签到不被判爽约 */
+call    0 returned 100%
+call    1 returned 100%
+        1:  269: TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE id=? AND status='CONFIRMED' AND checked_in_at IS NOT NULL","i",rid));
+call    0 returned 100%
+call    1 returned 100%
+        1:  270:}
+function test_notify_sessions_and_password called 1 returned 100% blocks executed 96%
+        1:  271:static void test_notify_sessions_and_password(void){
+        1:  272: User u1=make_user("user01");char k[40];
+call    0 returned 100%
+        1:  273: Id s=free_slot();
+call    0 returned 100%
+        1:  274: new_key(k);Result rr=booking(&db,NULL,&u1,"reserve",s,k);TEST_ASSERT_EQUAL_INT(200,rr.status);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  275: Id rid=rid_of(rr,"reservation_id");drop(rr);
+call    0 returned 100%
+call    1 returned 100%
+        1:  276: notify(&db,u1.id,"PROMOTED","候补补位成功","你的候补已补位，请按时签到。",s,rid);
+call    0 returned 100%
+        1:  277: Result r=notifications(&db,&u1,1,1,20);TEST_ASSERT_EQUAL_INT(200,r.status);
+call    0 returned 100%
+call    1 returned 100%
+        1:  278: TEST_ASSERT_EQUAL_INT(1,cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(rdata(r),"notifications")));
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  279: TEST_ASSERT_EQUAL_INT(1,(int)cJSON_GetObjectItemCaseSensitive(rdata(r),"unread_count")->valuedouble);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  280: cJSON *body=cJSON_CreateObject();cJSON_AddBoolToObject(body,"all",1);
+call    0 returned 100%
+call    1 returned 100%
+        1:  281: new_key(k);r=notifications_read(&db,&u1,body,k);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);cJSON_Delete(body);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+call    4 returned 100%
+        1:  282: r=notifications(&db,&u1,1,1,20);TEST_ASSERT_EQUAL_INT(0,(int)cJSON_GetObjectItemCaseSensitive(rdata(r),"unread_count")->valuedouble);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+call    4 returned 100%
+        -:  283: /* 会话列表：曾因绑定格式串与占位符不匹配而崩溃，此处保留回归保护 */
+       1*:  284: TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,created_at) VALUES(?,?,?,?,?)","sisii","unit-token",u1.id,"unit-csrf",now_sec()+3600,now_sec()));
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+call    5 never executed
+        1:  285: r=sessions_list(&db,&u1,"unit-token");TEST_ASSERT_EQUAL_INT(200,r.status);
+call    0 returned 100%
+call    1 returned 100%
+        1:  286: cJSON *list=cJSON_GetObjectItemCaseSensitive(rdata(r),"sessions");TEST_ASSERT_EQUAL_INT(1,cJSON_GetArraySize(list));
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  287: TEST_ASSERT_EQUAL_STRING("unit-token",jstr(list->child,"id"));
+call    0 returned 100%
+call    1 returned 100%
+       1*:  288: TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(list->child,"current")));drop(r);
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 never executed
+call    5 returned 100%
+        1:  289: new_key(k);r=session_revoke(&db,&u1,"unit-token",k);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  290: new_key(k);r=session_revoke(&db,&u1,"unit-token",k);TEST_ASSERT_EQUAL_INT(404,r.status);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  291: new_key(k);r=password_change(&db,&u1,"wrong-password","NewPassword123!",NULL,k);TEST_ASSERT_EQUAL_INT(401,r.status);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  292: new_key(k);r=password_change(&db,&u1,"UnitPassword123!","short",NULL,k);TEST_ASSERT_EQUAL_INT(400,r.status);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  293: new_key(k);r=password_change(&db,&u1,"UnitPassword123!","UnitPassword123!",NULL,k);TEST_ASSERT_EQUAL_INT(400,r.status);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+       1*:  294: TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,created_at) VALUES(?,?,?,?,?)","sisii","keep-me",u1.id,"c2",now_sec()+3600,now_sec()));
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+call    5 never executed
+       1*:  295: TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,created_at) VALUES(?,?,?,?,?)","sisii","drop-me",u1.id,"c3",now_sec()+3600,now_sec()));
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+call    5 never executed
+        1:  296: new_key(k);r=password_change(&db,&u1,"UnitPassword123!","NewPassword123!","keep-me",k);TEST_ASSERT_EQUAL_INT(200,r.status);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:  297: TEST_ASSERT_EQUAL_INT(1,(int)cJSON_GetObjectItemCaseSensitive(rdata(r),"revoked_sessions")->valuedouble);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  298: TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM sessions WHERE token_hash='drop-me'",""));
+call    0 returned 100%
+call    1 returned 100%
+        1:  299: TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM sessions WHERE token_hash='keep-me'",""));
+call    0 returned 100%
+call    1 returned 100%
+        1:  300: new_key(k);r=password_change(&db,&u1,"NewPassword123!","UnitPassword123!","keep-me",k);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r); /* 复原口令 */
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  301:}
+        -:  302:/* -- r5/security：限流纯函数（令牌桶毫令制，锁定窗口毫秒制） */
+function test_bucket_allow called 1 returned 100% blocks executed 67%
+        1:  303:static void test_bucket_allow(void){
+        1:  304: RateBucket b={0,0,0};
+       1*:  305: TEST_ASSERT_TRUE(bucket_allow(NULL,0,3,1)); /* 空桶放行，不因限流器故障拒服务 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  306: TEST_ASSERT_TRUE(bucket_allow(&b,0,3,1));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  307: TEST_ASSERT_TRUE(bucket_allow(&b,0,3,1));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  308: TEST_ASSERT_TRUE(bucket_allow(&b,0,3,1));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  309: TEST_ASSERT_FALSE(bucket_allow(&b,0,3,1));  /* burst=3 用尽 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  310: TEST_ASSERT_FALSE(bucket_allow(&b,999,3,1)); /* 999ms 不足 1 个补充 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  311: TEST_ASSERT_TRUE(bucket_allow(&b,1000,3,1)); /* 第 1 秒补 1 个并消耗 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  312: TEST_ASSERT_FALSE(bucket_allow(&b,1999,3,1));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  313: TEST_ASSERT_TRUE(bucket_allow(&b,2000,3,1));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  314: TEST_ASSERT_FALSE(bucket_allow(&b,2999,3,1));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  315: TEST_ASSERT_TRUE(bucket_allow(&b,3000,3,1));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  316: TEST_ASSERT_TRUE(bucket_allow(&b,13000,3,1)); /* 闲置 10s 补满 3 个：恰好再得 burst 次后拒绝，不囤积 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  317: TEST_ASSERT_TRUE(bucket_allow(&b,13000,3,1));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  318: TEST_ASSERT_TRUE(bucket_allow(&b,13000,3,1));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  319: TEST_ASSERT_FALSE(bucket_allow(&b,13000,3,1));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  320: RateBucket c={0,0,0};
+       1*:  321: TEST_ASSERT_TRUE(bucket_allow(&c,0,1,5));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  322: TEST_ASSERT_FALSE(bucket_allow(&c,0,1,5));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  323: TEST_ASSERT_FALSE(bucket_allow(&c,4999,1,5));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  324: TEST_ASSERT_TRUE(bucket_allow(&c,5000,1,5));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  325:}
+function test_login_guard called 1 returned 100% blocks executed 77%
+        1:  326:static void test_login_guard(void){
+        1:  327: LoginGuard g={0,0};
+       1*:  328: TEST_ASSERT_TRUE(login_allow(&g,100000));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  329: login_record_fail(&g,100000,3,900);
+call    0 returned 100%
+        1:  330: login_record_fail(&g,200000,3,900);
+call    0 returned 100%
+       1*:  331: TEST_ASSERT_TRUE(login_allow(&g,250000)); /* 2 次未达阈值 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  332: login_record_fail(&g,300000,3,900);       /* 第 3 次 → 锁定至 300000+900000 */
+call    0 returned 100%
+       1*:  333: TEST_ASSERT_FALSE(login_allow(&g,1199999));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  334: TEST_ASSERT_TRUE(login_allow(&g,1200000)); /* 到期解锁 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  335: TEST_ASSERT_EQUAL_INT(0,g.fails);          /* 锁定后计数清零 */
+call    0 returned 100%
+        1:  336: login_record_ok(&g);
+call    0 returned 100%
+        1:  337: TEST_ASSERT_EQUAL_INT(0,g.locked_until);
+call    0 returned 100%
+        1:  338: login_record_fail(&g,2000000,3,900);
+call    0 returned 100%
+       1*:  339: TEST_ASSERT_TRUE(login_allow(&g,2000001)); /* 成功登录清零后重新计数 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  340: TEST_ASSERT_TRUE(login_allow(NULL,0));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  341:}
+        -:  342:/* -- r5/capacity：容量制补位循环与 v2 迁移 */
+function test_capacity_fill_and_promotion called 1 returned 100% blocks executed 93%
+        1:  343:static void test_capacity_fill_and_promotion(void){
+        1:  344: User u1=make_user("user01"),u2=make_user("user02"),u3=make_user("user03"),u4=make_user("user04");
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  345: Id s=free_slot();
+call    0 returned 100%
+       1*:  346: TEST_ASSERT_TRUE(db_run(&db,"UPDATE slots SET capacity=3 WHERE id=?","i",s));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        7:  347: char k[6][40];for(int i=0;i<6;i++)new_key(k[i]);
+call    0 returned 100%
+branch  1 taken 86%
+branch  2 taken 14% (fallthrough)
+        1:  348: Result r=booking(&db,NULL,&u1,"reserve",s,k[0]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        -:  349: /* 注入两名候补：正常路径下有空位时接口会引导直约（SLOT_AVAILABLE），候补只能在满员后产生 */
+       1*:  350: TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO waitlist(user_id,slot_id,status,created_at) VALUES(?,?,'WAITING',?)","iii",u2.id,s,now_sec()));
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 never executed
+       1*:  351: TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO waitlist(user_id,slot_id,status,created_at) VALUES(?,?,'WAITING',?)","iii",u3.id,s,now_sec()));
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 never executed
+        1:  352: Id w2=db_num(&db,"SELECT id FROM waitlist WHERE user_id=? AND slot_id=? AND status='WAITING'","ii",u2.id,s),w3=db_num(&db,"SELECT id FROM waitlist WHERE user_id=? AND slot_id=? AND status='WAITING'","ii",u3.id,s);
+call    0 returned 100%
+call    1 returned 100%
+        1:  353: r=booking(&db,NULL,&u4,"reserve",s,k[1]); /* 有余位：先按 FIFO 补满 u2/u3，再满员拒绝 u4 */
+call    0 returned 100%
+        1:  354: TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("SLOT_FULL",rcode(r));drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  355: TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
+call    0 returned 100%
+call    1 returned 100%
+        1:  356: TEST_ASSERT_EQUAL_STRING("PROMOTED",wait_status(w2));
+call    0 returned 100%
+call    1 returned 100%
+        1:  357: TEST_ASSERT_EQUAL_STRING("PROMOTED",wait_status(w3));
+call    0 returned 100%
+call    1 returned 100%
+        1:  358: TEST_ASSERT_EQUAL_INT64(2,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND source='WAITLIST' AND status='CONFIRMED'","i",s));
+call    0 returned 100%
+call    1 returned 100%
+        1:  359: r=booking(&db,NULL,&u2,"reserve",s,k[2]); /* 已持席位再约 */
+call    0 returned 100%
+        1:  360: TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("ALREADY_RESERVED",rcode(r));drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+call    3 returned 100%
+        1:  361: Id u1rid=db_num(&db,"SELECT id FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",s,u1.id);
+call    0 returned 100%
+        1:  362: r=booking(&db,NULL,&u1,"cancel",u1rid,k[3]); /* 队列已空：取消后不再补位 */
+call    0 returned 100%
+        1:  363: TEST_ASSERT_EQUAL_INT(200,r.status);
+call    0 returned 100%
+       1*:  364: TEST_ASSERT_FALSE(cJSON_IsString(cJSON_GetObjectItemCaseSensitive(rdata(r),"promoted_reservation_id")));drop(r);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+call    5 never executed
+call    6 returned 100%
+        1:  365: TEST_ASSERT_EQUAL_INT64(2,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
+call    0 returned 100%
+call    1 returned 100%
+        1:  366: r=booking(&db,NULL,&u4,"reserve",s,k[4]); /* 余位释放后可直接预约 */
+call    0 returned 100%
+        1:  367: TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+call    0 returned 100%
+call    1 returned 100%
+        1:  368: TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
+call    0 returned 100%
+call    1 returned 100%
+        1:  369:}
+        -:  370:/* -- r6 语句缓存与线程连接复用 */
+function test_statement_watchdog called 1 returned 100% blocks executed 100%
+        1:  371:static void test_statement_watchdog(void){
+        -:  372: /* 单测构建以 -DWATCHDOG_MS=50 收紧阈值：无限递归 CTE 在 50ms 后被打断（SQLITE_INTERRUPT → 503 语义） */
+        1:  373: TEST_ASSERT_EQUAL_INT64(0,db_run(&db,"WITH RECURSIVE c(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM c) SELECT count(*) FROM c",""));
+call    0 returned 100%
+call    1 returned 100%
+        1:  374: TEST_ASSERT_EQUAL_INT(SQLITE_INTERRUPT,db.error&255);
+call    0 returned 100%
+        1:  375: db.error=0;
+        1:  376: TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT 1","")); /* 看门狗不影响常规查询 */
+call    0 returned 100%
+call    1 returned 100%
+        1:  377:}
+function test_stmt_cache_and_eviction called 1 returned 100% blocks executed 100%
+        1:  378:static void test_stmt_cache_and_eviction(void){
+        -:  379: /* 命中路径：同一 SQL 反复执行结果一致（第二次调用走缓存 reset 分支） */
+        1:  380: Id a1=db_num(&db,"SELECT count(*) FROM slots",""),a2=db_num(&db,"SELECT count(*) FROM slots","");
+call    0 returned 100%
+call    1 returned 100%
+        1:  381: TEST_ASSERT_EQUAL_INT64(a1,a2);
+call    0 returned 100%
+        -:  382: /* LRU 淘汰：40 条不同 SQL 超过 32 上限，淘汰后重新 prepare 仍全部正确 */
+       41:  383: for(int i=1;i<=40;i++){char sql[32];snprintf(sql,sizeof sql,"SELECT %d",i);TEST_ASSERT_EQUAL_INT64(i,db_num(&db,sql,""));}
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 98%
+branch  3 taken 2% (fallthrough)
+        1:  384: TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT 1","")); /* 早期条目被淘汰后可重建 */
+call    0 returned 100%
+call    1 returned 100%
+        -:  385: /* 参数化语句重复绑定：同一 SQL 不同参数结果不同 */
+        1:  386: TEST_ASSERT_EQUAL_INT64(7,db_num(&db,"SELECT ? * 7","i",(Id)1));
+call    0 returned 100%
+call    1 returned 100%
+        1:  387: TEST_ASSERT_EQUAL_INT64(42,db_num(&db,"SELECT ? * 7","i",(Id)6));
+call    0 returned 100%
+call    1 returned 100%
+        -:  388: /* 错误 SQL：prepare 失败不污染缓存，后续查询正常 */
+        1:  389: TEST_ASSERT_EQUAL_INT64(0,db_run(&db,"SELEC 1",""));db.error=0;
+call    0 returned 100%
+call    1 returned 100%
+        1:  390: TEST_ASSERT_EQUAL_INT64(5,db_num(&db,"SELECT 5",""));
+call    0 returned 100%
+call    1 returned 100%
+        1:  391:}
+function test_thread_connection_reuse called 1 returned 100% blocks executed 77%
+        1:  392:static void test_thread_connection_reuse(void){
+        1:  393: remove_files("build/unit-thread.db");
+call    0 returned 100%
+        1:  394: DB *d1=db_thread_get("build/unit-thread.db");
+call    0 returned 100%
+       1*:  395: TEST_ASSERT_NOT_NULL(d1);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       1*:  396: TEST_ASSERT_TRUE(db_run(d1,"CREATE TABLE IF NOT EXISTS t(x)",""));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  397: DB *d2=db_thread_get("build/unit-thread.db");
+call    0 returned 100%
+       1*:  398: TEST_ASSERT_TRUE(d1==d2); /* 同线程复用同一连接 */
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       1*:  399: TEST_ASSERT_TRUE(db_run(d2,"INSERT INTO t(x) VALUES(1)",""));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  400: TEST_ASSERT_EQUAL_INT64(1,db_num(d2,"SELECT count(*) FROM t",""));
+call    0 returned 100%
+call    1 returned 100%
+        1:  401: d1->error=SQLITE_IOERR;   /* 模拟致命 IO 错误 */
+        1:  402: db_thread_bad(d1);
+call    0 returned 100%
+       1*:  403: TEST_ASSERT_NULL(d1->sql); /* 致命错误后连接已丢弃 */
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+        1:  404: DB *d3=db_thread_get("build/unit-thread.db");
+call    0 returned 100%
+       1*:  405: TEST_ASSERT_NOT_NULL(d3);  /* 下次使用自动重建 */
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+        1:  406: TEST_ASSERT_EQUAL_INT64(1,db_num(d3,"SELECT count(*) FROM t","")); /* 数据仍在 */
+call    0 returned 100%
+call    1 returned 100%
+        1:  407: d3->error=SQLITE_IOERR;db_thread_bad(d3); /* 清理线程连接 */
+call    0 returned 100%
+        1:  408: remove_files("build/unit-thread.db");
+call    0 returned 100%
+        1:  409:}
+function test_v2_to_v3_migration called 1 returned 100% blocks executed 84%
+        1:  410:static void test_v2_to_v3_migration(void){
+        1:  411: const char *path="build/unit-v2.db";DB d;remove_files(path);
+call    0 returned 100%
+       1*:  412: TEST_ASSERT_TRUE(db_open(&d,path));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  413: const char *v2=
+        -:  414:  "BEGIN;"
+        -:  415:  "CREATE TABLE users(id INTEGER PRIMARY KEY,username TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1);"
+        -:  416:  "CREATE TABLE sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL,csrf_token TEXT NOT NULL,expires_at INTEGER NOT NULL);"
+        -:  417:  "CREATE TABLE labs(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,location TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',enabled INTEGER NOT NULL DEFAULT 1);"
+        -:  418:  "CREATE TABLE slots(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL,start_at INTEGER NOT NULL,end_at INTEGER NOT NULL,enabled INTEGER NOT NULL DEFAULT 1,UNIQUE(lab_id,start_at));"
+        -:  419:  "CREATE TABLE reservations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,slot_id INTEGER NOT NULL,status TEXT NOT NULL,source TEXT NOT NULL,created_at INTEGER NOT NULL,cancelled_at INTEGER);"
+        -:  420:  "CREATE UNIQUE INDEX one_booking ON reservations(slot_id) WHERE status='CONFIRMED';"
+        -:  421:  "CREATE TABLE waitlist(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,slot_id INTEGER NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,promoted_reservation_id INTEGER);"
+        -:  422:  "CREATE TABLE request_receipts(user_id INTEGER NOT NULL,request_id TEXT NOT NULL,action TEXT NOT NULL,payload_digest TEXT NOT NULL,http_status INTEGER NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(user_id,request_id));"
+        -:  423:  "CREATE TABLE operation_events(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL,action TEXT NOT NULL,entity_id INTEGER NOT NULL,request_id TEXT,created_at INTEGER NOT NULL);"
+        -:  424:  "INSERT INTO labs(id,name,location) VALUES(1,'迁移实验室','信息楼');"
+        -:  425:  "INSERT INTO slots(id,lab_id,start_at,end_at) VALUES(1,1,(strftime('%s','now')+172800)/3600*3600,(strftime('%s','now')+172800)/3600*3600+3600);"
+        -:  426:  "PRAGMA user_version=2;COMMIT;";
+        1:  427: int rc=sqlite3_exec(d.sql,v2,NULL,NULL,NULL);TEST_ASSERT_EQUAL_INT(SQLITE_OK,rc);
+call    0 returned 100%
+call    1 returned 100%
+        1:  428: db_close(&d); /* 以 v2 落盘后用新代码重新打开，触发迁移 */
+call    0 returned 100%
+        1:  429: db_close(&db); /* 先释放主测试库，避免句柄泄漏与文件占用 */
+call    0 returned 100%
+       1*:  430: TEST_ASSERT_TRUE(db_open(&db,path));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:  431: TEST_ASSERT_TRUE(db_init(&db));
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  432: TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"PRAGMA user_version",""));
+call    0 returned 100%
+call    1 returned 100%
+        1:  433: cJSON *cap=db_first(&db,"SELECT capacity FROM slots WHERE id=1",""); /* 旧行以默认容量 1 迁移 */
+call    0 returned 100%
+       1*:  434: TEST_ASSERT_NOT_NULL(cap);TEST_ASSERT_EQUAL_INT(1,(int)cJSON_GetObjectItemCaseSensitive(cap,"capacity")->valuedouble);cJSON_Delete(cap);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+call    3 returned 100%
+call    4 returned 100%
+call    5 returned 100%
+        1:  435: TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM sqlite_master WHERE type='index' AND name='one_booking'","")); /* 单占用索引退役 */
+call    0 returned 100%
+call    1 returned 100%
+       1*:  436: TEST_ASSERT_TRUE(db_check(&db)); /* 迁移后完整性检查通过 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  437: db_close(&db);remove_files(path);
+call    0 returned 100%
+call    1 returned 100%
+        1:  438: fresh_seed(); /* 恢复主测试库，保证后续/全局状态干净 */
+call    0 returned 100%
+        1:  439:}
+function main called 1 returned 100% blocks executed 100%
+        1:  440:int main(void){
+        1:  441: setvbuf(stdout,NULL,_IONBF,0); /* 崩溃时也能看到已完成用例，便于定位 */
+call    0 returned 100%
+call    1 returned 100%
+        1:  442: UnityBegin("tests/unit.c");
+call    0 returned 100%
+        1:  443: fresh_seed();
+call    0 returned 100%
+        1:  444: RUN_TEST(test_parse_id);
+call    0 returned 100%
+        1:  445: RUN_TEST(test_uuid_valid);
+call    0 returned 100%
+        1:  446: RUN_TEST(test_date_start);
+call    0 returned 100%
+        1:  447: RUN_TEST(test_date_text_roundtrip);
+call    0 returned 100%
+        1:  448: RUN_TEST(test_hash_and_random);
+call    0 returned 100%
+        1:  449: RUN_TEST(test_result_envelope);
+call    0 returned 100%
+        1:  450: RUN_TEST(test_seed_shape_and_invariants);
+call    0 returned 100%
+        1:  451: RUN_TEST(test_over_capacity_detected);
+call    0 returned 100%
+        1:  452: RUN_TEST(test_wait_guards);
+call    0 returned 100%
+        1:  453: RUN_TEST(test_reserve_conflict_and_alternatives);
+call    0 returned 100%
+        1:  454: RUN_TEST(test_wait_queue_idempotent_reentry);
+call    0 returned 100%
+        1:  455: RUN_TEST(test_stats_totals_match_sql);
+call    0 returned 100%
+        1:  456: RUN_TEST(test_hex_and_page_args);
+call    0 returned 100%
+        1:  457: RUN_TEST(test_checkin_business);
+call    0 returned 100%
+        1:  458: RUN_TEST(test_notify_sessions_and_password);
+call    0 returned 100%
+        1:  459: RUN_TEST(test_db_check_rejects_coexistence);
+call    0 returned 100%
+        1:  460: RUN_TEST(test_bucket_allow);
+call    0 returned 100%
+        1:  461: RUN_TEST(test_login_guard);
+call    0 returned 100%
+        1:  462: RUN_TEST(test_capacity_fill_and_promotion);
+call    0 returned 100%
+        1:  463: RUN_TEST(test_v2_to_v3_migration);
+call    0 returned 100%
+        1:  464: RUN_TEST(test_stmt_cache_and_eviction);
+call    0 returned 100%
+        1:  465: RUN_TEST(test_thread_connection_reuse);
+call    0 returned 100%
+        1:  466: RUN_TEST(test_statement_watchdog);
+call    0 returned 100%
+        1:  467: db_close(&db);remove_files(DBPATH);
+call    0 returned 100%
+call    1 returned 100%
+        1:  468: return UnityEnd();
+call    0 returned 100%
+        -:  469:}

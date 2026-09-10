@@ -1,0 +1,66 @@
+        -:    0:Source:vendor/civetweb/src/sort.inl
+        -:    0:Graph:C:\Users\admin\Desktop\毕业设计\build\cov_civetweb.gcno
+        -:    0:Data:C:\Users\admin\Desktop\毕业设计\build\cov_civetweb.gcda
+        -:    0:Runs:3
+        -:    1:/* Sort function. */
+        -:    2:/* from https://github.com/bel2125/sort_r */
+        -:    3:
+        -:    4:static void
+function mg_sort called 0 returned 0% blocks executed 0%
+    #####:    5:mg_sort(void *data,
+        -:    6:        size_t elemcount,
+        -:    7:        size_t elemsize,
+        -:    8:        int (*compfunc)(const void *data1, const void *data2, void *userarg),
+        -:    9:        void *userarg)
+        -:   10:{
+        -:   11:	/* We cannot use qsort_r here. For a detailed reason, see
+        -:   12:	 * https://github.com/civetweb/civetweb/issues/1048#issuecomment-1047093014
+        -:   13:	 * https://stackoverflow.com/questions/39560773/different-declarations-of-qsort-r-on-mac-and-linux
+        -:   14:	 */
+        -:   15:
+        -:   16:	/* We use ShellSort here with this gap sequence: https://oeis.org/A102549 */
+    #####:   17:	size_t A102549[9] = {1, 4, 10, 23, 57, 132, 301, 701, 1750};
+        -:   18:	size_t gap, i, j, k;
+        -:   19:	int Aidx;
+    #####:   20:	void *tmp = alloca(elemsize);
+        -:   21:
+    #####:   22:	for (Aidx = 8; Aidx >= 0; Aidx--) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:   23:		gap = A102549[Aidx];
+    #####:   24:		if (gap > (elemcount / 2)) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:   25:			continue;
+        -:   26:		}
+    #####:   27:		for (i = 0; i < gap; i++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:   28:			for (j = i; j < elemcount; j += gap) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:   29:				memcpy(tmp, (void *)((size_t)data + elemsize * j), elemsize);
+        -:   30:
+    #####:   31:				for (k = j; k >= gap; k -= gap) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:   32:					void *cmp = (void *)((size_t)data + elemsize * (k - gap));
+    #####:   33:					int cmpres = compfunc(cmp, tmp, userarg);
+call    0 never executed
+    #####:   34:					if (cmpres > 0) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:   35:						memcpy((void *)((size_t)data + elemsize * k),
+        -:   36:						       cmp,
+        -:   37:						       elemsize);
+        -:   38:					} else {
+    #####:   39:						break;
+        -:   40:					}
+        -:   41:				}
+    #####:   42:				memcpy((void *)((size_t)data + elemsize * k), tmp, elemsize);
+        -:   43:			}
+        -:   44:		}
+        -:   45:	}
+    #####:   46:}
+        -:   47:
+        -:   48:/* end if sort.inl */

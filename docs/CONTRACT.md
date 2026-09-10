@@ -59,3 +59,9 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 slots 增加 capacity 列（1..200，默认 1），schema user_version=3；v2 库启动时幂等迁移：追加列、DROP INDEX one_booking（单占用唯一索引退役，容量约束改由 BEGIN IMMEDIATE 单写者事务内校验保证）。种子数据容量保持 1。
 预约：事务内校验 `CONFIRMED 数 < capacity` 才可预约；同一用户同场次仅一条有效预约（409 ALREADY_RESERVED 优先于满员判定）。候补补位改为 promote_fill 循环：取消/爽约释放后连续按 FIFO 补位直至满员或队列空；取消响应 promoted_reservation_id 报告首个补位。候补守卫：尚有余位时返回 409 SLOT_AVAILABLE 引导直约；满员才可入队。替代时段查询按 `CONFIRMED 数 < capacity` 判空闲。
 `GET /api/slots` 每项新增 `capacity` 与 `confirmed_count`（移除 occupied，前端以 confirmed_count>=capacity 判满）。`POST /api/admin/slots/publish` 增加可选 `capacity`（数字或字符串，1..200，默认 1；已存在场次不受影响）。统计口径不变。
+
+## 运维与观测（r6）
+- GET /api/health 附 version 与 uptime_s。
+- 响应头：X-Frame-Options: DENY、Content-Security-Policy: default-src 'self'、Referrer-Policy: no-referrer。
+- `--backup DEST`：SQLite Backup API 在线备份到 DEST（不阻塞业务），返回 0 表示成功。
+- `--slow-ms MS`（默认 500）：单请求超过阈值记 WARN 日志。日志落 data/logs/app.log（分级 INFO/WARN/ERROR，5MB×3 轮转，含 ACCESS 行与 SWEEP 摘要）。SQLITE_INTERRUPT 映射为 503 DATABASE_BUSY。

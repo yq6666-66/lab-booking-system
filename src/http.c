@@ -190,7 +190,7 @@ int serve(const Config *cfg){
  rl_configure(cfg);log_init("data/logs/app.log",5*1024*1024);app_boot=GetTickCount64();
  rl_configure(cfg);
  struct mg_context *ctx=mg_start(&callbacks,NULL,opts);if(!ctx){fprintf(stderr,"HTTP server startup failed. Check port and web directory.\n");mg_exit_library();return 1;}
- mg_set_request_handler(ctx,"/api",api,(void*)cfg);signal(SIGINT,on_stop);signal(SIGTERM,on_stop);
+ mg_set_request_handler(ctx,"/api",api,(void*)cfg);signal(SIGINT,on_stop);signal(SIGTERM,on_stop);signal(SIGBREAK,on_stop); /* CTRL_BREAK 用于优雅停机（覆盖率数据落盘依赖正常退出） */
  sweep_start(cfg);
  printf("Lab Booking ready: http://127.0.0.1:%d\n",cfg->port);fflush(stdout);
  while(!stopping)Sleep(100);

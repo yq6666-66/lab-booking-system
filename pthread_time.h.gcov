@@ -1,0 +1,143 @@
+        -:    0:Source:C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/pthread_time.h
+        -:    0:Graph:C:\Users\admin\Desktop\毕业设计\build\cov_civetweb.gcno
+        -:    0:Data:C:\Users\admin\Desktop\毕业设计\build\cov_civetweb.gcda
+        -:    0:Runs:3
+        -:    1:/*
+        -:    2:   Copyright (c) 2011-2016  mingw-w64 project
+        -:    3:
+        -:    4:   Permission is hereby granted, free of charge, to any person obtaining a
+        -:    5:   copy of this software and associated documentation files (the "Software"),
+        -:    6:   to deal in the Software without restriction, including without limitation
+        -:    7:   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+        -:    8:   and/or sell copies of the Software, and to permit persons to whom the
+        -:    9:   Software is furnished to do so, subject to the following conditions:
+        -:   10:
+        -:   11:   The above copyright notice and this permission notice shall be included in
+        -:   12:   all copies or substantial portions of the Software.
+        -:   13:
+        -:   14:   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        -:   15:   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        -:   16:   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        -:   17:   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        -:   18:   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+        -:   19:   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+        -:   20:   DEALINGS IN THE SOFTWARE.
+        -:   21:*/
+        -:   22:
+        -:   23:#ifndef WIN_PTHREADS_TIME_H
+        -:   24:#define WIN_PTHREADS_TIME_H
+        -:   25:
+        -:   26:#include <sys/timeb.h>
+        -:   27:#include "pthread_compat.h"
+        -:   28:
+        -:   29:/* Posix timers are supported */
+        -:   30:#ifndef _POSIX_TIMERS
+        -:   31:#define _POSIX_TIMERS           200809L
+        -:   32:#endif
+        -:   33:
+        -:   34:/* Monotonic clocks are available.  */
+        -:   35:#ifndef _POSIX_MONOTONIC_CLOCK
+        -:   36:#define _POSIX_MONOTONIC_CLOCK  200809L
+        -:   37:#endif
+        -:   38:
+        -:   39:/* CPU-time clocks are available.  */
+        -:   40:#ifndef _POSIX_CPUTIME
+        -:   41:#define _POSIX_CPUTIME          200809L
+        -:   42:#endif
+        -:   43:
+        -:   44:/* Clock support in threads are available.  */
+        -:   45:#ifndef _POSIX_THREAD_CPUTIME
+        -:   46:#define _POSIX_THREAD_CPUTIME   200809L
+        -:   47:#endif
+        -:   48:
+        -:   49:#ifndef TIMER_ABSTIME
+        -:   50:#define TIMER_ABSTIME   1
+        -:   51:#endif
+        -:   52:
+        -:   53:#ifndef CLOCK_REALTIME
+        -:   54:#define CLOCK_REALTIME              0
+        -:   55:#endif
+        -:   56:
+        -:   57:#ifndef CLOCK_MONOTONIC
+        -:   58:#define CLOCK_MONOTONIC             1
+        -:   59:#endif
+        -:   60:
+        -:   61:#ifndef CLOCK_PROCESS_CPUTIME_ID
+        -:   62:#define CLOCK_PROCESS_CPUTIME_ID    2
+        -:   63:#endif
+        -:   64:
+        -:   65:#ifndef CLOCK_THREAD_CPUTIME_ID
+        -:   66:#define CLOCK_THREAD_CPUTIME_ID     3
+        -:   67:#endif
+        -:   68:
+        -:   69:#ifndef CLOCK_REALTIME_COARSE
+        -:   70:#define CLOCK_REALTIME_COARSE       4
+        -:   71:#endif
+        -:   72:
+        -:   73:#ifdef __cplusplus
+        -:   74:extern "C" {
+        -:   75:#endif
+        -:   76:
+        -:   77:WINPTHREAD_API int __cdecl nanosleep32(const struct _timespec32 *request, struct _timespec32 *remain);
+        -:   78:WINPTHREAD_API int __cdecl nanosleep64(const struct _timespec64 *request, struct _timespec64 *remain);
+        -:   79:WINPTHREAD_NANOSLEEP_DECL int __cdecl nanosleep(const struct timespec *request, struct timespec *remain)
+        -:   80:{
+        -:   81:#if WINPTHREADS_TIME_BITS == 32
+        -:   82:  return nanosleep32 ((struct _timespec32 *)request, (struct _timespec32 *)remain);
+        -:   83:#else
+        -:   84:  return nanosleep64 ((struct _timespec64 *)request, (struct _timespec64 *)remain);
+        -:   85:#endif
+        -:   86:}
+        -:   87:
+        -:   88:WINPTHREAD_API int __cdecl clock_nanosleep32(clockid_t clock_id, int flags, const struct _timespec32 *request, struct _timespec32 *remain);
+        -:   89:WINPTHREAD_API int __cdecl clock_nanosleep64(clockid_t clock_id, int flags, const struct _timespec64 *request, struct _timespec64 *remain);
+        -:   90:WINPTHREAD_CLOCK_DECL int __cdecl clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *request, struct timespec *remain)
+        -:   91:{
+        -:   92:#if WINPTHREADS_TIME_BITS == 32
+        -:   93:  return clock_nanosleep32 (clock_id, flags, (struct _timespec32 *)request, (struct _timespec32 *)remain);
+        -:   94:#else
+        -:   95:  return clock_nanosleep64 (clock_id, flags, (struct _timespec64 *)request, (struct _timespec64 *)remain);
+        -:   96:#endif
+        -:   97:}
+        -:   98:
+        -:   99:WINPTHREAD_API int __cdecl clock_getres32(clockid_t clock_id, struct _timespec32 *res);
+        -:  100:WINPTHREAD_API int __cdecl clock_getres64(clockid_t clock_id, struct _timespec64 *res);
+        -:  101:WINPTHREAD_CLOCK_DECL int __cdecl clock_getres(clockid_t clock_id, struct timespec *res)
+        -:  102:{
+        -:  103:#if WINPTHREADS_TIME_BITS == 32
+        -:  104:  return clock_getres32 (clock_id, (struct _timespec32 *)res);
+        -:  105:#else
+        -:  106:  return clock_getres64 (clock_id, (struct _timespec64 *)res);
+        -:  107:#endif
+        -:  108:}
+        -:  109:
+        -:  110:WINPTHREAD_API int __cdecl clock_gettime32(clockid_t clock_id, struct _timespec32 *tp);
+        -:  111:WINPTHREAD_API int __cdecl clock_gettime64(clockid_t clock_id, struct _timespec64 *tp);
+        -:  112:WINPTHREAD_CLOCK_DECL int __cdecl clock_gettime(clockid_t clock_id, struct timespec *tp)
+        -:  113:{
+        -:  114:#if WINPTHREADS_TIME_BITS == 32
+        -:  115:  return clock_gettime32 (clock_id, (struct _timespec32 *)tp);
+        -:  116:#else
+      220:  117:  return clock_gettime64 (clock_id, (struct _timespec64 *)tp);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        -:  118:#endif
+        -:  119:}
+        -:  120:
+        -:  121:WINPTHREAD_API int __cdecl clock_settime32(clockid_t clock_id, const struct _timespec32 *tp);
+        -:  122:WINPTHREAD_API int __cdecl clock_settime64(clockid_t clock_id, const struct _timespec64 *tp);
+        -:  123:WINPTHREAD_CLOCK_DECL int __cdecl clock_settime(clockid_t clock_id, const struct timespec *tp)
+        -:  124:{
+        -:  125:#if WINPTHREADS_TIME_BITS == 32
+        -:  126:  return clock_settime32 (clock_id, (struct _timespec32 *)tp);
+        -:  127:#else
+        -:  128:  return clock_settime64 (clock_id, (struct _timespec64 *)tp);
+        -:  129:#endif
+        -:  130:}
+        -:  131:
+        -:  132:#ifdef __cplusplus
+        -:  133:}
+        -:  134:#endif
+        -:  135:
+        -:  136:#endif /* WIN_PTHREADS_TIME_H */
