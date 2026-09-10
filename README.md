@@ -75,6 +75,9 @@ Remove-Item Env:\LAB_SEED_PASSWORD
 
 # 4. 启动服务并浏览器访问 http://127.0.0.1:8080
 ./build/lab-booking.exe --db data/lab.db --web web --port 8080
+
+# 或者：一键演示服务（首次自动初始化 data\demo.db，重复执行会复用并重启实例）
+powershell -File scripts/start-demo.ps1 -Password 'Demo-Lab-2026' -Reset   # -Reset 清空旧演示数据
 ```
 
 预置账号：`admin`（管理员）与 `user01`–`user20`（普通用户），密码均为初始化时 `LAB_SEED_PASSWORD` 设置的值。种子数据包含 3 个实验室与未来 14 天场次。
