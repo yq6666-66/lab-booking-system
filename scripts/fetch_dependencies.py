@@ -1,4 +1,5 @@
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 import urllib.request, zipfile, tarfile, hashlib, json
 from concurrent.futures import ThreadPoolExecutor
 P=Path(__file__).resolve().parents[1]
@@ -9,10 +10,17 @@ SPECS=[
 ('sqlite','3.53.4','https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip'),
 ('unity','43f5ce1737022eb3f50787f3131ab4ddf5354349','https://codeload.github.com/ThrowTheSwitch/Unity/zip/43f5ce1737022eb3f50787f3131ab4ddf5354349'),
 ('sodium','1.0.22','https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22-mingw.tar.gz')]
+ALLOWED_HOSTS={'codeload.github.com','github.com','www.sqlite.org','objects.githubusercontent.com'}
+def fetch(url):
+ parts=urlsplit(url)
+ if parts.scheme!='https' or parts.hostname not in ALLOWED_HOSTS:
+  raise ValueError('Dependency URL outside allowlist: '+url)
+ with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'Lab-Booking-Fetch'}),timeout=90) as r:
+  return r.read()
 def one(s):
  name,version,url=s; archive=CACHE/(name+('.tar.gz' if name=='sodium' else '.zip'))
  if not archive.exists():
-  with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'Codex-Lab-Booking'}),timeout=90) as r: archive.write_bytes(r.read())
+  archive.write_bytes(fetch(url))
  target=P/'vendor'/name; target.mkdir(exist_ok=True)
  if name=='sodium':
   with tarfile.open(archive) as a:

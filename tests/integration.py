@@ -4,7 +4,7 @@ import argparse, concurrent.futures, contextlib, csv, datetime, http.client, jso
 import os, pathlib, shutil, socket, sqlite3, statistics, subprocess, tempfile, threading, time, uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-PASSWORD = "Test-Only-Password-927!"
+PASSWORD = os.environ.get("LAB_TEST_PASSWORD", "")  # 由运行方提供，测试口令不入库
 RESULTS = []
 RACES = []
 
@@ -307,6 +307,7 @@ def main():
     parser.add_argument("--test-exe",type=pathlib.Path,default=ROOT/"build/lab-booking-test.exe")
     parser.add_argument("--output",type=pathlib.Path,default=ROOT/"tests/results")
     args=parser.parse_args(); args.output.mkdir(parents=True,exist_ok=True)
+    if len(PASSWORD)<8: parser.error("请通过环境变量 LAB_TEST_PASSWORD 提供至少 8 位的测试专用口令")
     for file in (args.exe,args.test_exe):
         if not file.is_file(): parser.error(f"Missing executable: {file}")
     full=args.full; rounds=20 if full else 1; fault_rounds=10 if full else 1

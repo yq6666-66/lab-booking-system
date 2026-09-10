@@ -15,7 +15,7 @@ powershell -File scripts/build.ps1 -Harden             # FORTIFY+SSP 加固构�
 python tests/integration.py --full --exe build/lab-booking-harden.exe --test-exe build/lab-booking-test-harden.exe --output tests/results-full-harden
 ```
 
-`--exe`、`--test-exe` 可以指定不同的已构建程序。输出目录请每次采用新的名字以保留既有实验；默认 `tests/results`。初始化仅使用测试密码，通过 `LAB_SEED_PASSWORD` 环境变量传给初始化子进程。脚本不会把测试登录口令写入证据。
+`--exe`、`--test-exe` 可以指定不同的已构建程序。输出目录请每次采用新的名字以保留既有实验；默认 `tests/results`。测试口令不入库：运行前设置环境变量 `LAB_TEST_PASSWORD`（至少 8 位，脚本启动时校验），该口令经 `LAB_SEED_PASSWORD` 传给初始化子进程。脚本不会把测试登录口令写入证据。`scripts/fetch_dependencies.py` 仅允许访问 `docs/dependencies.lock.json` 固定域名的 HTTPS 地址（下载前校验 scheme 与主机白名单，并核对 SHA256）。
 
 单元测试（`build/unit-tests.exe`，随 `build.ps1` 自动构建运行）基于 Unity 框架，覆盖纯函数（ID/UUID/日期/哈希）、数据库唯一索引与启动检查，以及不经 HTTP 直接调用业务层 `booking()` 的 13 个用例；证据输出在 `docs/evidence/unit-tests.txt`。本 MinGW 工具链不含 libasan/libubsan 运行库，动态内存检查不可用，改以 `-fanalyzer` 静态分析加 `_FORTIFY_SOURCE=3`、栈保护、自动变量零初始化的加固构建跑全量实验替代，并在报告中如实说明。
 
