@@ -42,6 +42,7 @@ static Result login(DB *d,const cJSON *body,char cookie[256]){
  db_run(d,"DELETE FROM sessions WHERE expires_at<?","i",now_sec());
  if(!db_run(d,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES(?,?,?,?)","sisi",hash,u.id,u.csrf,now_sec()+7200))return db_failure(d);
  snprintf(cookie,256,"Set-Cookie: lab_session=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=7200\r\n",token);sodium_memzero(token,sizeof token);
+ metrics_inc_login();
  return result(200,"OK","登录成功",user_data(&u));
 }
 static int path_id(const char *path,const char *prefix,const char *suffix,Id *id){
@@ -116,6 +117,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
    Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
    return stats(d,a,b);
   }
+  if(!strcmp(path,"/api/admin/metrics")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return result(200,"OK","查询成功",metrics_snapshot());}
   return result(404,"NOT_FOUND","接口不存在",NULL);
  }
  if(!strcmp(path,"/api/logout")){db_run(d,"DELETE FROM sessions WHERE token_hash=?","s",tokenhash);strcpy(cookie,"Set-Cookie: lab_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n");return result(200,"OK","已退出",NULL);}
@@ -136,6 +138,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
  return booking(d,cfg,&u,action,target,key);
 }
 static int api(struct mg_connection *c,void *userdata){
+ LARGE_INTEGER mfreq,mt0;QueryPerformanceFrequency(&mfreq);QueryPerformanceCounter(&mt0);
  const Config *cfg=userdata;const struct mg_request_info *ri=mg_get_request_info(c);Result r={0,NULL};cJSON *body=NULL;char cookie[256]={0};DB d={0};char *raw=NULL,*serialized=NULL;
  if(!host_ok(c,cfg)){r=result(403,"FORBIDDEN","Host 不被允许",NULL);goto send;}
  int post=!strcmp(ri->request_method,"POST");
@@ -160,7 +163,9 @@ send:
  serialized=r.body?cJSON_PrintUnformatted(r.body):NULL;
  if(!serialized){r.status=500;cookie[0]=0;}
  const char *out=serialized?serialized:"{\"code\":\"INTERNAL_ERROR\",\"message\":\"Memory error\",\"data\":{}}";
- mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);return 1;
+ mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
+ {LARGE_INTEGER mt1;QueryPerformanceCounter(&mt1);metrics_record_request(r.status,(double)(mt1.QuadPart-mt0.QuadPart)*1000.0/(double)mfreq.QuadPart);}
+ return 1;
 }
 /* 后台扫描：定期释放超过签到时限仍未签到的预约，并按 FIFO 补位。 */
 static void *sweeper(void *arg){
