@@ -45,4 +45,9 @@ void notify(DB *db,Id user,const char *kind,const char *title,const char *body,I
 int sweep_once(const Config *config);
 void sweep_start(const Config *config);
 int serve(const Config *config);
+/* r5/metrics */
+void metrics_init(void);
+void metrics_record_request(int status,double elapsed_ms);
+void metrics_inc_login(void);
+cJSON *metrics_snapshot(void);
 #endif

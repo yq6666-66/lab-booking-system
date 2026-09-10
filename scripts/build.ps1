@@ -11,7 +11,7 @@ try {
  $sources=@('vendor/civetweb/src/civetweb.c','vendor/cjson/cJSON.c','vendor/sqlite/sqlite3.c')
  $objects=@()
  foreach($s in $sources){$o='build/'+[IO.Path]::GetFileNameWithoutExtension($s)+'.o'; if(-not (Test-Path -LiteralPath $o) -or (Get-Item -LiteralPath $s).LastWriteTimeUtc -gt (Get-Item -LiteralPath $o).LastWriteTimeUtc){ & gcc @flags -c $s -o $o; if($LASTEXITCODE -ne 0){throw "Compile failed: $s"} }; $objects+=$o}
- $own=@('src/main.c','src/util.c','src/db.c','src/service.c','src/http.c')
+ $own=@('src/main.c','src/util.c','src/db.c','src/service.c','src/http.c','src/metrics.c')
  $checks=@('-Wall','-Wextra','-Wformat=2','-Wshadow','-Wstrict-prototypes')
  if($Analyze){$checks+='-fanalyzer'}
  $libs=@('-Lvendor/sodium/libsodium-win64/lib','-lsodium','-lws2_32','-ladvapi32')
