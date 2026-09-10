@@ -41,3 +41,13 @@
 - [x] 合并与集成验证：解决 3 处行级冲突；单元 20/20；集成 29 项全绿（正常+加固各一轮，720 次并发零重复占用、20 次中断恢复正确）；-fanalyzer 零告警；浏览器端到端通过（容量显示/替代时段/指标面板），截图 docs/evidence/ui-r5/
 - [ ] 论文正文初稿（待大纲确认）
 
+# 第六轮：深度优化
+- [x] L1 性能：每线程连接复用 + 预编译语句 LRU 缓存；基准前后对比（读吞吐 +40%~+600%，p50 -86%）与 T27 回归
+- [x] L4 可靠性：故障注入第三类 sweep-mid（T11 三类）、语句看门狗 5 秒墙钟打断、tests/soak.py 浸泡实验
+- [x] L3 可观测性：src/log.c 分级日志 + 轮转 + 访问日志 + 慢请求告警（--slow-ms）
+- [x] L5 安全：X-Frame-Options/CSP/Referrer-Policy 响应头；--backup 在线备份（SQLite Backup API）
+- [x] L6 质量：tests/fuzz.py 模糊稳健性实验（240 次）；gcov 覆盖率（全模块 84.6%~98%，GCOV_PREFIX 绕行非 ASCII 路径）
+- [x] L2 CI：MSYS2 ASan 内存安全通道（观察期，稳定后转必过门禁）
+- [x] 文档同步：CONTRACT/README/CHANGELOG/TEST_REPORT/论文大纲
+
+

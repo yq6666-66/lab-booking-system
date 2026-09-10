@@ -1,0 +1,168 @@
+﻿File 'vendor/civetweb/src/civetweb.c'
+Lines executed:27.43% of 5227
+Branches executed:31.34% of 3625
+Taken at least once:18.51% of 3625
+Calls executed:23.66% of 1403
+Creating 'civetweb.c.gcov'
+
+File 'C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/pthread_time.h'
+Lines executed:100.00% of 1
+No branches
+Calls executed:100.00% of 3
+Creating 'pthread_time.h.gcov'
+
+File 'vendor/civetweb/src/handle_form.inl'
+Lines executed:0.00% of 438
+Branches executed:0.00% of 330
+Taken at least once:0.00% of 330
+Calls executed:0.00% of 98
+Creating 'handle_form.inl.gcov'
+
+File 'vendor/civetweb/src/response.inl'
+Lines executed:2.73% of 110
+Branches executed:2.78% of 72
+Taken at least once:1.39% of 72
+Calls executed:0.00% of 26
+Creating 'response.inl.gcov'
+
+File 'vendor/civetweb/src/match.inl'
+Lines executed:0.00% of 107
+Branches executed:0.00% of 78
+Taken at least once:0.00% of 78
+Calls executed:0.00% of 15
+Creating 'match.inl.gcov'
+
+File 'vendor/civetweb/src/sort.inl'
+Lines executed:0.00% of 18
+Branches executed:0.00% of 12
+Taken at least once:0.00% of 12
+Calls executed:0.00% of 1
+Creating 'sort.inl.gcov'
+
+File 'vendor/civetweb/src/md5.inl'
+Lines executed:0.00% of 121
+Branches executed:0.00% of 24
+Taken at least once:0.00% of 24
+Calls executed:0.00% of 4
+Creating 'md5.inl.gcov'
+
+File 'C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/psdk_inc/intrin-impl.h'
+Lines executed:50.00% of 2
+No branches
+No calls
+Creating 'intrin-impl.h.gcov'
+
+File 'C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/stdlib.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdlib.h.gcov'
+
+Lines executed:23.91% of 6026
+File 'vendor/cjson/cJSON.c'
+Lines executed:43.73% of 1404
+Branches executed:58.85% of 938
+Taken at least once:34.97% of 938
+Calls executed:43.32% of 217
+Creating 'cJSON.c.gcov'
+
+File 'C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/stdlib.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdlib.h.gcov'
+
+Lines executed:43.81% of 1406
+File 'src/db.c'
+Lines executed:92.95% of 156
+Branches executed:93.70% of 254
+Taken at least once:65.35% of 254
+Calls executed:80.42% of 143
+Creating 'db.c.gcov'
+
+Lines executed:92.95% of 156
+File 'src/http.c'
+Lines executed:91.98% of 162
+Branches executed:90.00% of 320
+Taken at least once:57.50% of 320
+Calls executed:73.38% of 263
+Creating 'http.c.gcov'
+
+Lines executed:91.98% of 162
+File 'src/log.c'
+Lines executed:84.62% of 26
+Branches executed:100.00% of 22
+Taken at least once:54.55% of 22
+Calls executed:73.68% of 19
+Creating 'log.c.gcov'
+
+Lines executed:84.62% of 26
+File 'src/main.c'
+Lines executed:84.62% of 39
+Branches executed:54.43% of 158
+Taken at least once:34.18% of 158
+Calls executed:30.00% of 60
+Creating 'main.c.gcov'
+
+Lines executed:84.62% of 39
+File 'src/metrics.c'
+Lines executed:93.10% of 29
+Branches executed:92.86% of 28
+Taken at least once:60.71% of 28
+Calls executed:85.71% of 21
+Creating 'metrics.c.gcov'
+
+File 'C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/psdk_inc/intrin-impl.h'
+Lines executed:100.00% of 3
+No branches
+No calls
+Creating 'intrin-impl.h.gcov'
+
+Lines executed:93.75% of 32
+File 'src/ratelimit.c'
+Lines executed:85.25% of 61
+Branches executed:93.10% of 58
+Taken at least once:63.79% of 58
+Calls executed:73.68% of 19
+Creating 'ratelimit.c.gcov'
+
+Lines executed:85.25% of 61
+File 'src/service.c'
+Lines executed:91.46% of 281
+Branches executed:87.01% of 354
+Taken at least once:56.50% of 354
+Calls executed:73.68% of 361
+Creating 'service.c.gcov'
+
+Lines executed:91.46% of 281
+File 'vendor/sqlite/sqlite3.c'
+Lines executed:41.90% of 49552
+Branches executed:46.42% of 33349
+Taken at least once:31.22% of 33349
+Calls executed:33.05% of 13162
+Creating 'sqlite3.c.gcov'
+
+File 'C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/psdk_inc/intrin-impl.h'
+Lines executed:100.00% of 1
+No branches
+No calls
+Creating 'intrin-impl.h.gcov'
+
+Lines executed:41.90% of 49553
+File 'tests/unit.c'
+Lines executed:100.00% of 415
+Branches executed:100.00% of 258
+Taken at least once:53.88% of 258
+Calls executed:84.20% of 671
+Creating 'unit.c.gcov'
+
+Lines executed:100.00% of 415
+File 'src/util.c'
+Lines executed:98.00% of 50
+Branches executed:88.46% of 156
+Taken at least once:79.49% of 156
+Calls executed:89.47% of 19
+Creating 'util.c.gcov'
+
+Lines executed:98.00% of 50
+

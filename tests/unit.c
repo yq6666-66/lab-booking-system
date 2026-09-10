@@ -264,7 +264,7 @@ static void test_checkin_business(void){
  new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(200,r.status); /* 重复签到幂等 */
  cJSON *ci2=cJSON_GetObjectItemCaseSensitive(rdata(r),"checked_in_at");TEST_ASSERT_TRUE(cJSON_IsNumber(ci2));TEST_ASSERT_EQUAL_INT64(when,(Id)ci2->valuedouble);drop(r);
  new_key(k);r=booking(&db,NULL,&u2,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(403,r.status);drop(r); /* 非本人 */
- Config cfg={"build/unit-test.db",NULL,0,900,30,30,1,5,900,NULL,NULL};
+ Config cfg={"build/unit-test.db",NULL,0,900,30,30,1,5,900,500,NULL,NULL,NULL};
  TEST_ASSERT_EQUAL_INT(0,sweep_once(&cfg)); /* 已签到不被判爽约 */
  TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE id=? AND status='CONFIRMED' AND checked_in_at IS NOT NULL","i",rid));
 }

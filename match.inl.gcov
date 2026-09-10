@@ -1,0 +1,367 @@
+        -:    0:Source:vendor/civetweb/src/match.inl
+        -:    0:Graph:C:\Users\admin\Desktop\毕业设计\build\cov_civetweb.gcno
+        -:    0:Data:C:\Users\admin\Desktop\毕业设计\build\cov_civetweb.gcda
+        -:    0:Runs:3
+        -:    1:/* Reimplementation of pattern matching */
+        -:    2:/* This file is part of the CivetWeb web server.
+        -:    3: * See https://github.com/civetweb/civetweb/
+        -:    4: */
+        -:    5:
+        -:    6:
+        -:    7:/* Initialize structure with 0 matches */
+        -:    8:static void
+function match_context_reset called 0 returned 0% blocks executed 0%
+    #####:    9:match_context_reset(struct mg_match_context *mcx)
+        -:   10:{
+    #####:   11:	mcx->num_matches = 0;
+    #####:   12:	memset(mcx->match, 0, sizeof(mcx->match));
+    #####:   13:}
+        -:   14:
+        -:   15:
+        -:   16:/* Add a new match to the list of matches */
+        -:   17:static void
+function match_context_push called 0 returned 0% blocks executed 0%
+    #####:   18:match_context_push(const char *str, size_t len, struct mg_match_context *mcx)
+        -:   19:{
+    #####:   20:	if (mcx->num_matches < MG_MATCH_CONTEXT_MAX_MATCHES) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:   21:		mcx->match[mcx->num_matches].str = str;
+    #####:   22:		mcx->match[mcx->num_matches].len = len;
+    #####:   23:		mcx->num_matches++;
+        -:   24:	}
+    #####:   25:}
+        -:   26:
+        -:   27:
+        -:   28:static ptrdiff_t
+function mg_match_impl called 0 returned 0% blocks executed 0%
+    #####:   29:mg_match_impl(const char *pat,
+        -:   30:              size_t pat_len,
+        -:   31:              const char *str,
+        -:   32:              struct mg_match_context *mcx)
+        -:   33:{
+        -:   34:	/* Parse string */
+    #####:   35:	size_t i_pat = 0; /* Pattern index */
+    #####:   36:	size_t i_str = 0; /* Pattern index */
+        -:   37:
+    #####:   38:	int case_sensitive = ((mcx != NULL) ? mcx->case_sensitive : 0); /* 0 or 1 */
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:   39:
+    #####:   40:	while (i_pat < pat_len) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+        -:   41:
+        -:   42:		/* Pattern ? matches one character, except / and NULL character */
+    #####:   43:		if ((pat[i_pat] == '?') && (str[i_str] != '\0')
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####:   44:		    && (str[i_str] != '/')) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:   45:			size_t i_str_start = i_str;
+        -:   46:			do {
+        -:   47:				/* Advance as long as there are ? */
+    #####:   48:				i_pat++;
+    #####:   49:				i_str++;
+    #####:   50:			} while ((i_pat < pat_len) && (pat[i_pat] == '?')
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:   51:			         && (str[i_str] != '\0') && (str[i_str] != '/'));
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+branch  4 never executed
+branch  5 never executed (fallthrough)
+        -:   52:
+        -:   53:			/* If we have a match context, add the substring we just found */
+    #####:   54:			if (mcx) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:   55:				match_context_push(str + i_str_start, i_str - i_str_start, mcx);
+call    0 never executed
+        -:   56:			}
+        -:   57:
+        -:   58:			/* Reached end of pattern ? */
+    #####:   59:			if (i_pat == pat_len) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:   60:				return (ptrdiff_t)i_str;
+        -:   61:			}
+        -:   62:		}
+        -:   63:
+        -:   64:		/* Pattern $ matches end of string */
+    #####:   65:		if (pat[i_pat] == '$') {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:   66:			return (str[i_str] == '\0') ? (ptrdiff_t)i_str : -1;
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:   67:		}
+        -:   68:
+        -:   69:		/* Pattern * or ** matches multiple characters */
+    #####:   70:		if (pat[i_pat] == '*') {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:   71:			size_t len; /* length matched by "*" or "**" */
+        -:   72:			ptrdiff_t ret;
+        -:   73:
+    #####:   74:			i_pat++;
+    #####:   75:			if ((i_pat < pat_len) && (pat[i_pat] == '*')) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -:   76:				/* Pattern ** matches all */
+    #####:   77:				i_pat++;
+    #####:   78:				len = strlen(str + i_str);
+        -:   79:			} else {
+        -:   80:				/* Pattern * matches all except / character */
+    #####:   81:				len = strcspn(str + i_str, "/");
+        -:   82:			}
+        -:   83:
+    #####:   84:			if (i_pat == pat_len) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:   85:				/* End of pattern reached. Add all to match context. */
+    #####:   86:				if (mcx) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:   87:					match_context_push(str + i_str, len, mcx);
+call    0 never executed
+        -:   88:				}
+    #####:   89:				return ((ptrdiff_t)(i_str + len));
+        -:   90:			}
+        -:   91:
+        -:   92:			/* This loop searches for the longest possible match */
+        -:   93:			do {
+    #####:   94:				ret = mg_match_impl(pat + i_pat,
+    #####:   95:				                    (pat_len - (size_t)i_pat),
+    #####:   96:				                    str + i_str + len,
+call    0 never executed
+        -:   97:				                    mcx);
+    #####:   98:			} while ((ret == -1) && (len-- > 0));
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+        -:   99:
+        -:  100:			/* If we have a match context, add the substring we just found */
+    #####:  101:			if (ret >= 0) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  102:				if (mcx) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  103:					match_context_push(str + i_str, len, mcx);
+call    0 never executed
+        -:  104:				}
+    #####:  105:				return ((ptrdiff_t)i_str + ret + (ptrdiff_t)len);
+        -:  106:			}
+        -:  107:
+    #####:  108:			return -1;
+        -:  109:		}
+        -:  110:
+        -:  111:
+        -:  112:		/* Single character compare */
+    #####:  113:		if (case_sensitive) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  114:			if (pat[i_pat] != str[i_str]) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  115:				/* case sensitive compare: mismatch */
+    #####:  116:				return -1;
+        -:  117:			}
+    #####:  118:		} else if (lowercase(&pat[i_pat]) != lowercase(&str[i_str])) {
+call    0 never executed
+call    1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -:  119:			/* case insensitive compare: mismatch */
+    #####:  120:			return -1;
+        -:  121:		}
+        -:  122:
+    #####:  123:		i_pat++;
+    #####:  124:		i_str++;
+        -:  125:	}
+    #####:  126:	return (ptrdiff_t)i_str;
+        -:  127:}
+        -:  128:
+        -:  129:
+        -:  130:static ptrdiff_t
+function mg_match_alternatives called 0 returned 0% blocks executed 0%
+    #####:  131:mg_match_alternatives(const char *pat,
+        -:  132:                      size_t pat_len,
+        -:  133:                      const char *str,
+        -:  134:                      struct mg_match_context *mcx)
+        -:  135:{
+    #####:  136:	const char *match_alternative = (const char *)memchr(pat, '|', pat_len);
+        -:  137:
+    #####:  138:	if (mcx != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  139:		match_context_reset(mcx);
+call    0 never executed
+        -:  140:	}
+        -:  141:
+    #####:  142:	while (match_alternative != NULL) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+        -:  143:		/* Split at | for alternative match */
+    #####:  144:		size_t left_size = (size_t)(match_alternative - pat);
+        -:  145:
+        -:  146:		/* Try left string first */
+    #####:  147:		ptrdiff_t ret = mg_match_impl(pat, left_size, str, mcx);
+call    0 never executed
+    #####:  148:		if (ret >= 0) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  149:			/* A 0-byte match is also valid */
+    #####:  150:			return ret;
+        -:  151:		}
+        -:  152:
+        -:  153:		/* Reset possible incomplete match data */
+    #####:  154:		if (mcx != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  155:			match_context_reset(mcx);
+call    0 never executed
+        -:  156:		}
+        -:  157:
+        -:  158:		/* If no match: try right side */
+    #####:  159:		pat += left_size + 1;
+    #####:  160:		pat_len -= left_size + 1;
+    #####:  161:		match_alternative = (const char *)memchr(pat, '|', pat_len);
+        -:  162:	}
+        -:  163:
+        -:  164:	/* Handled all | operators. This is the final string. */
+    #####:  165:	return mg_match_impl(pat, pat_len, str, mcx);
+call    0 never executed
+        -:  166:}
+        -:  167:
+        -:  168:
+        -:  169:static int
+function match_compare called 0 returned 0% blocks executed 0%
+    #####:  170:match_compare(const void *p1, const void *p2, void *user)
+        -:  171:{
+    #####:  172:	const struct mg_match_element *e1 = (const struct mg_match_element *)p1;
+    #####:  173:	const struct mg_match_element *e2 = (const struct mg_match_element *)p2;
+        -:  174:
+        -:  175:	/* unused */
+        -:  176:	(void)user;
+        -:  177:
+    #####:  178:	if (e1->str > e2->str) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  179:		return +1;
+        -:  180:	}
+    #####:  181:	if (e1->str < e2->str) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  182:		return -1;
+        -:  183:	}
+    #####:  184:	return 0;
+        -:  185:}
+        -:  186:
+        -:  187:
+        -:  188:#if defined(MG_EXPERIMENTAL_INTERFACES)
+        -:  189:CIVETWEB_API
+        -:  190:#else
+        -:  191:static
+        -:  192:#endif
+        -:  193:ptrdiff_t
+function mg_match called 0 returned 0% blocks executed 0%
+    #####:  194:mg_match(const char *pat, const char *str, struct mg_match_context *mcx)
+        -:  195:{
+    #####:  196:	size_t pat_len = strlen(pat);
+    #####:  197:	ptrdiff_t ret = mg_match_alternatives(pat, pat_len, str, mcx);
+call    0 never executed
+    #####:  198:	if (mcx != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  199:		if (ret < 0) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  200:			/* Remove possible incomplete data */
+    #####:  201:			match_context_reset(mcx);
+call    0 never executed
+        -:  202:		} else {
+        -:  203:			/* Join "?*" to one pattern. */
+        -:  204:			size_t i, j;
+        -:  205:
+        -:  206:			/* Use difference of two array elements instead of sizeof, since
+        -:  207:			 * there may be some additional padding bytes. */
+    #####:  208:			size_t elmsize =
+        -:  209:			    (size_t)(&mcx->match[1]) - (size_t)(&mcx->match[0]);
+        -:  210:
+        -:  211:			/* First sort the matches by address ("str" begin to end) */
+    #####:  212:			mg_sort(mcx->match, mcx->num_matches, elmsize, match_compare, NULL);
+call    0 never executed
+        -:  213:
+        -:  214:			/* Join consecutive matches */
+    #####:  215:			i = 1;
+    #####:  216:			while (i < mcx->num_matches) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  217:				if ((mcx->match[i - 1].str + mcx->match[i - 1].len)
+    #####:  218:				    == mcx->match[i].str) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  219:					/* Two matches are consecutive. Join length. */
+    #####:  220:					mcx->match[i - 1].len += mcx->match[i].len;
+        -:  221:
+        -:  222:					/* Shift all list elements. */
+    #####:  223:					for (j = i + 1; j < mcx->num_matches; j++) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  224:						mcx->match[j - 1].len = mcx->match[j].len;
+    #####:  225:						mcx->match[j - 1].str = mcx->match[j].str;
+        -:  226:					}
+        -:  227:
+        -:  228:					/* Remove/blank last list element. */
+    #####:  229:					mcx->num_matches--;
+    #####:  230:					mcx->match[mcx->num_matches].str = NULL;
+    #####:  231:					mcx->match[mcx->num_matches].len = 0;
+        -:  232:
+        -:  233:				} else {
+    #####:  234:					i++;
+        -:  235:				}
+        -:  236:			}
+        -:  237:		}
+        -:  238:	}
+    #####:  239:	return ret;
+        -:  240:}
+        -:  241:
+        -:  242:
+        -:  243:static ptrdiff_t
+function match_prefix called 0 returned 0% blocks executed 0%
+    #####:  244:match_prefix(const char *pattern, size_t pattern_len, const char *str)
+        -:  245:{
+    #####:  246:	if (pattern == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  247:		return -1;
+        -:  248:	}
+    #####:  249:	return mg_match_alternatives(pattern, pattern_len, str, NULL);
+call    0 never executed
+        -:  250:}
+        -:  251:
+        -:  252:
+        -:  253:static ptrdiff_t
+function match_prefix_strlen called 0 returned 0% blocks executed 0%
+    #####:  254:match_prefix_strlen(const char *pattern, const char *str)
+        -:  255:{
+    #####:  256:	if (pattern == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  257:		return -1;
+        -:  258:	}
+    #####:  259:	return mg_match_alternatives(pattern, strlen(pattern), str, NULL);
+call    0 never executed
+        -:  260:}
+        -:  261:
+        -:  262:/* End of match.inl */
