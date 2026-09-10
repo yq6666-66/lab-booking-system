@@ -530,6 +530,34 @@ def security_checks(s):
         require(status==200,f"refill after window: {status}")
     record("T24 mutation rate limit burst and refill",t24)
 
+def sweep_fault_case(exe,directory,baseline):
+    """爽约扫描事务中途崩溃（exit 88）：重启前回滚、重启后回收与补位原子完成。"""
+    with running(exe,pathlib.Path(directory)/"sweep-fault",baseline,extra=["--checkin-window","1","--sweep-interval","1","--fault","sweep-mid"]) as s:
+        a,b=s.user(1),s.user(2)
+        slot=s.slots()[0]
+        rid=a.post("/api/reservations",{"slot_id":slot,"request_id":uid()})["data"]["reservation_id"]
+        wid=b.post("/api/waitlist",{"slot_id":slot,"request_id":uid()})["data"]["waitlist_id"]
+        now=int(time.time());s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(now-7,now+3593,slot))
+        deadline=time.monotonic()+15
+        while time.monotonic()<deadline and s.process.poll() is None:time.sleep(.3)
+        require(s.process.poll()==88,f"sweep fault exit {s.process.poll()}")
+        st=s.sql("SELECT status FROM reservations WHERE id=?",(rid,))
+        require(st==[("CONFIRMED",)],f"未提交事务应整体回滚: {st}")
+        s.stop()
+        s.extra=["--checkin-window","1","--sweep-interval","1"] # 重启实例移除故障参数
+        s.fault=None;s.start() # 同库重启：WAL 数据完整保留
+        rows=[];deadline=time.monotonic()+20
+        while time.monotonic()<deadline:
+            rows=s.sql("SELECT status,cancel_reason FROM reservations WHERE id=?",(rid,))
+            if rows and rows[0][0]=="CANCELLED":break
+            time.sleep(.4)
+        require(rows==[("CANCELLED","NO_SHOW")],f"重启后回收: {rows}")
+        st=s.sql("SELECT status FROM waitlist WHERE id=?",(wid,))
+        require(st==[("PROMOTED",)],f"候补已补位: {st}")
+        require(s.sql("SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'",(slot,))==[(1,)],"补位后单占用保持")
+        s.integrity()
+    return {"exit_code":88}
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     mode=parser.add_mutually_exclusive_group()
@@ -561,6 +589,7 @@ def main():
         with running(args.exe,pathlib.Path(temp)/"races",baseline,extra=["--rate-burst","100000"]) as s: record("T10 concurrent unique occupation",lambda:races(s,rounds))
         for fault in ("cancel-before-promote","after-commit"):
             record("T11 recovery "+fault,lambda f=fault:fault_case(args.test_exe,temp,baseline,f,fault_rounds))
+        record("T11 recovery sweep-mid",lambda:sweep_fault_case(args.test_exe,pathlib.Path(temp)/"sweep",baseline))
         check=subprocess.run([str(args.exe),"--db",str(baseline),"--check"],capture_output=True,text=True,timeout=15)
         record("CLI database check",lambda:require(check.returncode==0,f"--check failed {check.stdout} {check.stderr}"))
         rejected=subprocess.run([str(args.exe),"--db",str(baseline),"--fault","after-commit","--fault-request",uid()],capture_output=True,text=True,timeout=10)

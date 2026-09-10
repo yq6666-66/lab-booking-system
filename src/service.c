@@ -13,7 +13,10 @@ static void slot_when(DB *d,Id slot,char out[40]){
 }
 static void fault(const Config *c,const char *stage,const char *key){
 #ifdef TEST_FAULTS
- if(c->fault&&c->fault_request&&!strcmp(c->fault,stage)&&!strcmp(c->fault_request,key))_Exit(!strcmp(stage,"cancel-before-promote")?86:87);
+ if(c->fault&&!strcmp(c->fault,stage)){
+  if(!strcmp(stage,"sweep-mid"))_Exit(88); /* 扫描事务中途崩溃：验证回收+补位的原子性 */
+  if(c->fault_request&&key&&!strcmp(c->fault_request,key))_Exit(!strcmp(stage,"cancel-before-promote")?86:87);
+ }
 #else
  (void)c;(void)stage;(void)key;
 #endif
@@ -316,6 +319,7 @@ int sweep_once(const Config *config){
   count++;
  }
  cJSON_Delete(due);
+ fault(config,"sweep-mid",NULL); /* 事务已写未提交：崩溃后应整体回滚（exit 88） */
  if(d.error){sqlite3_exec(d.sql,"ROLLBACK",NULL,NULL,NULL);db_close(&d);return count;}
  if(!db_run(&d,"COMMIT","")){db_close(&d);return count;}
  db_close(&d);return count;

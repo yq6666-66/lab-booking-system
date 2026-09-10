@@ -4,6 +4,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sodium.h>
+#include <windows.h>
+#ifndef WATCHDOG_MS
+#define WATCHDOG_MS 5000
+#endif
+/* r6 语句看门狗：单条语句墙钟超过 WATCHDOG_MS（含锁等待）由 progress 回调打断，
+   防止慢查询长期占用写锁；常规短事务不受影响。单测构建以 -DWATCHDOG_MS=50 收紧验证。 */
+static _Thread_local unsigned long long tls_tick0;
+static int prog_cb(void *p){(void)p;return GetTickCount64()-tls_tick0>WATCHDOG_MS;}
 /* r6 语句缓存：每连接按 SQL 文本缓存预处理语句（LRU，上限 32），消除重复 prepare；
    任一步骤出错即淘汰对应条目，保守优先。 */
 #define STMT_CACHE_MAX 32
@@ -51,6 +59,7 @@ static sqlite3_stmt *stmt_get(DB *d,const char *sql){
 static void stmt_done(DB *d,sqlite3_stmt *s){(void)d;sqlite3_reset(s);}
 static void stmt_fail(DB *d,sqlite3_stmt *s){cache_drop(d,s);}
 static sqlite3_stmt *prepare(DB *d,const char *sql,const char *fmt,va_list a){
+ tls_tick0=GetTickCount64();
  sqlite3_stmt *s=stmt_get(d,sql);
  if(!s){ d->error=d->error?d->error:SQLITE_NOMEM;return NULL; }
  int rc=0;
@@ -68,6 +77,7 @@ int db_open(DB *d,const char *p){
  d->cache=calloc(1,sizeof(StmtCache));
  if(!d->cache){sqlite3_close(d->sql);d->sql=NULL;d->error=SQLITE_NOMEM;return 0;}
  sqlite3_extended_result_codes(d->sql,1);sqlite3_busy_timeout(d->sql,3000);
+ sqlite3_progress_handler(d->sql,200000,prog_cb,0); /* 语句看门狗：超长查询按 20 万 VM 步打断 */
  db_run(d,"PRAGMA foreign_keys=ON","");db_run(d,"PRAGMA synchronous=FULL","");return !d->error;
 }
 void db_close(DB *d){if(d->sql){if(!sqlite3_get_autocommit(d->sql))sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cache_clear(d);sqlite3_close(d->sql);}d->sql=NULL;d->cache=NULL;}

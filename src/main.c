@@ -24,7 +24,9 @@
 #endif
   else {fprintf(stderr,"Usage: lab-booking --db FILE --web DIR --port PORT [--checkin-window SEC] [--sweep-interval SEC] [--rate-burst N] [--rate-refill-sec SEC] [--login-max-fails N] [--login-lockout SEC] [--seed --init-only] [--check]\n");return 2;}
  }
- if((c.fault||c.fault_request)&&(!c.fault||!c.fault_request||!uuid_valid(c.fault_request)||(strcmp(c.fault,"cancel-before-promote")&&strcmp(c.fault,"after-commit"))))return 2;
+ int sweep_mid=c.fault&&!strcmp(c.fault,"sweep-mid");
+ if(sweep_mid){/* 扫描故障注入无需请求编号 */}
+ else if((c.fault||c.fault_request)&&(!c.fault||!c.fault_request||!uuid_valid(c.fault_request)||(strcmp(c.fault,"cancel-before-promote")&&strcmp(c.fault,"after-commit"))))return 2;
  if(sodium_init()<0){fprintf(stderr,"Crypto initialization failed\n");return 1;}
  _mkdir("data");DB db={0};
  if(!db_open(&db,c.db_path)){fprintf(stderr,"Cannot open database\n");db_close(&db);return 1;}
