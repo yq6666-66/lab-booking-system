@@ -43,6 +43,12 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 `build/lab-booking.exe --db <file> --web <dir> --port 8080 [--checkin-window SEC] [--sweep-interval SEC]`，默认data/lab.db和web。`--checkin-window` 为签到窗口秒数（1..86400，默认900），`--sweep-interval` 为爽约扫描间隔秒数（1..3600，默认30，数值越小释放越及时，测试用 1 秒以获得确定性）。`--seed --init-only`初始化3实验室+14天场次+admin/user01...user20，从环境LAB_SEED_PASSWORD读取密码（至少8位），不输出密码。--check仅检查数据库（含新增列、通知表与取消原因不变式）。
 测试版 build/lab-booking-test.exe额外支持`--fault cancel-before-promote|after-commit --fault-request <UUID>`，仅匹配该request_id时终止进程（exit 86/87），通过编译宏TEST_FAULTS启用，正常版拒绝这些参数。取消事务未提交的故障86；提交后响应前87。测试独立数据库/子进程，无故障HTTP入口。
 
+## 运行指标
+- GET /api/admin/metrics -> data `{counters:{requests_total,ok_2xx,err_4xx,err_5xx,db_busy_503,logins},latency_ms:{count,sum,max,buckets}}`。仅管理员；非管理员 403、匿名 401。
+- 计数口径：requests_total 为自进程启动以来的全部 API 请求数（含本接口自身）；ok_2xx/err_4xx/err_5xx 按 HTTP 状态分类；db_busy_503 为数据库忙碌导致的 503 次数（计入 err_5xx）；logins 为登录成功次数。
+- 延迟直方图桶边界（毫秒）：1/2/5/10/20/50/100/200/500/1000/2000 及 >2000 溢出桶，共 12 桶；latency_ms.sum 与 max 单位为毫秒。
+- 计数器为进程内存态（无锁原子计数），服务重启清零，不持久化。
+
 ## 分工
 主Agent：src、依赖、构建、集成。页面Agent仅修改web。测试Agent仅修改tests。任何修改已有文件先在本任务work/backups留备份；不要修改其他Agent拥有的文件。
 

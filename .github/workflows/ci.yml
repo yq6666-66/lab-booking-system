@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+
+jobs:
+  build-test:
+    name: 构建与单元/集成测试
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 检测 gcc（缺失则安装 MinGW）
+        shell: pwsh
+        run: |
+          if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
+            choco install mingw -y --no-progress
+            foreach ($p in @('C:\ProgramData\mingw64\mingw64\bin','C:\mingw64\bin','C:\msys64\mingw64\bin')) {
+              if (Test-Path "$p\gcc.exe") { $env:Path = "$p;$env:Path"; break }
+            }
+          }
+          gcc --version
+      - name: 构建并运行 16 个单元测试
+        shell: pwsh
+        run: powershell -File scripts/build.ps1
+      - name: 快速集成实验
+        shell: pwsh
+        run: |
+          $env:LAB_TEST_PASSWORD = 'Ci-Only-Password-77'
+          python tests/integration.py --quick --output tests/results-ci
+      - name: 上传测试结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: tests/results-ci/
+          if-no-files-found: ignore
+
+  static-analysis:
+    name: 静态分析门禁
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 检测 gcc（缺失则安装 MinGW）
+        shell: pwsh
+        run: |
+          if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
+            choco install mingw -y --no-progress
+            foreach ($p in @('C:\ProgramData\mingw64\mingw64\bin','C:\mingw64\bin','C:\msys64\mingw64\bin')) {
+              if (Test-Path "$p\gcc.exe") { $env:Path = "$p;$env:Path"; break }
+            }
+          }
+          gcc --version
+      - name: gcc -fanalyzer 静态分析
+        shell: pwsh
+        run: powershell -File scripts/build.ps1 -Analyze

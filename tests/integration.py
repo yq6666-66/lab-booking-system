@@ -273,6 +273,17 @@ def regression(s):
         total,valid=s.sql("SELECT (SELECT count(*) FROM sessions),(SELECT count(*) FROM sessions WHERE expires_at>?)",(int(time.time()),))[0]
         require(total==valid and valid>=1,"expired sessions pruned after login")
     record("T15 expired session rejected and pruned",t15)
+    def t25():
+        adm=s.user(0)  # T15 已使所有会话过期，此处重新登录
+        require(adm.request("GET","/api/admin/metrics")[0]==200,"admin metrics 200")
+        require(s.user(1).request("GET","/api/admin/metrics")[0]==403,"metrics non-admin 403")
+        require(Client(s.port).request("GET","/api/admin/metrics")[0]==401,"metrics anonymous 401")
+        before=adm.request("GET","/api/admin/metrics")[1]["data"]["counters"]["requests_total"]
+        adm.request("GET","/api/me")
+        after=adm.request("GET","/api/admin/metrics")[1]["data"]["counters"]["requests_total"]
+        require(after>before,"metrics requests_total 递增")
+        return {"requests_total_before":before,"requests_total_after":after}
+    record("T25 admin metrics endpoint and counters",t25) # -- r5/metrics
 
 def races(s, rounds):
     users=[s.user(i) for i in range(1,21)]
