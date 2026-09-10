@@ -45,7 +45,7 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 
 ## 运行指标
 - GET /api/admin/metrics -> data `{counters:{requests_total,ok_2xx,err_4xx,err_5xx,db_busy_503,logins},latency_ms:{count,sum,max,buckets}}`。仅管理员；非管理员 403、匿名 401。
-- 计数口径：requests_total 为自进程启动以来的全部 API 请求数（含本接口自身）；ok_2xx/err_4xx/err_5xx 按 HTTP 状态分类；db_busy_503 为数据库忙碌导致的 503 次数（计入 err_5xx）；logins 为登录成功次数。
+- 计数口径：请求在**响应写出之后**统一计数，因此 requests_total 为"已写完响应的累计请求数"；快照读取发生在本次响应写出之前，故返回值不含本次 `/api/admin/metrics` 请求自身，且恒有 requests_total = ok_2xx + err_4xx + err_5xx（本服务不返回 3xx）。ok_2xx/err_4xx/err_5xx 按 HTTP 状态分类；db_busy_503 为数据库忙碌导致的 503 次数（已含于 err_5xx，不重复累加）；logins 在 /api/login 成功路径单独计数。
 - 延迟直方图桶边界（毫秒）：1/2/5/10/20/50/100/200/500/1000/2000 及 >2000 溢出桶，共 12 桶；latency_ms.sum 与 max 单位为毫秒。
 - 计数器为进程内存态（无锁原子计数），服务重启清零，不持久化。
 

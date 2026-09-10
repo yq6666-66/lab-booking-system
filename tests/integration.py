@@ -439,14 +439,18 @@ def account_checks(s):
         return {"sessions":2}
     record("T21 online session listing and revoke",t21)
 
-def noshow_checks(s):
-    """T22：签到超时自动释放，名额按 FIFO 补位并记入通知（极短签到窗口）。"""
+def noshow_checks(s,window):
+    """T22：签到超时自动释放，名额按 FIFO 补位并记入通知。
+
+    签到窗口须大于本用例自身耗时：窗口过短时，补位产生的新预约会在断言期间再次到期被释放，
+    持续产生新的 NO_SHOW 通知，使"全部标记已读"断言不稳定。
+    """
     def t22():
         a=s.user(1); b=s.user(2)
         slot=s.slots()[0]
         rid=a.post("/api/reservations",{"slot_id":slot,"request_id":uid()})["data"]["reservation_id"]
         wid=b.post("/api/waitlist",{"slot_id":slot,"request_id":uid()})["data"]["waitlist_id"]
-        now=int(time.time()); s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(now-1,now+3599,slot))
+        now=int(time.time()); start=now-window-1; s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(start,start+3600,slot))
         rows=[]; deadline=time.monotonic()+25
         while time.monotonic()<deadline:
             rows=s.sql("SELECT status,cancel_reason FROM reservations WHERE id=?",(rid,))
@@ -525,7 +529,7 @@ def main():
         with running(args.exe,pathlib.Path(temp)/"regression",baseline) as s: regression(s)
         with running(args.exe,pathlib.Path(temp)/"features",baseline,extra=["--checkin-window","60","--sweep-interval","1"]) as s: feature_checks(s)
         with running(args.exe,pathlib.Path(temp)/"accounts",baseline) as s: account_checks(s)
-        with running(args.exe,pathlib.Path(temp)/"noshow",baseline,extra=["--checkin-window","1","--sweep-interval","1"]) as s: noshow_checks(s)
+        with running(args.exe,pathlib.Path(temp)/"noshow",baseline,extra=["--checkin-window","5","--sweep-interval","1"]) as s: noshow_checks(s,5)
         with running(args.exe,pathlib.Path(temp)/"security",baseline,extra=["--login-max-fails","3","--login-lockout","1","--rate-burst","3","--rate-refill-sec","1"]) as s: security_checks(s)
         with running(args.exe,pathlib.Path(temp)/"races",baseline,extra=["--rate-burst","100000"]) as s: record("T10 concurrent unique occupation",lambda:races(s,rounds))
         for fault in ("cancel-before-promote","after-commit"):
