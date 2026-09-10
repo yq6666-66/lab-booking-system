@@ -367,6 +367,39 @@ static void test_capacity_fill_and_promotion(void){
  TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
  TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
 }
+/* -- r6 语句缓存与线程连接复用 */
+static void test_stmt_cache_and_eviction(void){
+ /* 命中路径：同一 SQL 反复执行结果一致（第二次调用走缓存 reset 分支） */
+ Id a1=db_num(&db,"SELECT count(*) FROM slots",""),a2=db_num(&db,"SELECT count(*) FROM slots","");
+ TEST_ASSERT_EQUAL_INT64(a1,a2);
+ /* LRU 淘汰：40 条不同 SQL 超过 32 上限，淘汰后重新 prepare 仍全部正确 */
+ for(int i=1;i<=40;i++){char sql[32];snprintf(sql,sizeof sql,"SELECT %d",i);TEST_ASSERT_EQUAL_INT64(i,db_num(&db,sql,""));}
+ TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT 1","")); /* 早期条目被淘汰后可重建 */
+ /* 参数化语句重复绑定：同一 SQL 不同参数结果不同 */
+ TEST_ASSERT_EQUAL_INT64(7,db_num(&db,"SELECT ? * 7","i",(Id)1));
+ TEST_ASSERT_EQUAL_INT64(42,db_num(&db,"SELECT ? * 7","i",(Id)6));
+ /* 错误 SQL：prepare 失败不污染缓存，后续查询正常 */
+ TEST_ASSERT_EQUAL_INT64(0,db_run(&db,"SELEC 1",""));db.error=0;
+ TEST_ASSERT_EQUAL_INT64(5,db_num(&db,"SELECT 5",""));
+}
+static void test_thread_connection_reuse(void){
+ remove_files("build/unit-thread.db");
+ DB *d1=db_thread_get("build/unit-thread.db");
+ TEST_ASSERT_NOT_NULL(d1);
+ TEST_ASSERT_TRUE(db_run(d1,"CREATE TABLE IF NOT EXISTS t(x)",""));
+ DB *d2=db_thread_get("build/unit-thread.db");
+ TEST_ASSERT_TRUE(d1==d2); /* 同线程复用同一连接 */
+ TEST_ASSERT_TRUE(db_run(d2,"INSERT INTO t(x) VALUES(1)",""));
+ TEST_ASSERT_EQUAL_INT64(1,db_num(d2,"SELECT count(*) FROM t",""));
+ d1->error=SQLITE_IOERR;   /* 模拟致命 IO 错误 */
+ db_thread_bad(d1);
+ TEST_ASSERT_NULL(d1->sql); /* 致命错误后连接已丢弃 */
+ DB *d3=db_thread_get("build/unit-thread.db");
+ TEST_ASSERT_NOT_NULL(d3);  /* 下次使用自动重建 */
+ TEST_ASSERT_EQUAL_INT64(1,db_num(d3,"SELECT count(*) FROM t","")); /* 数据仍在 */
+ d3->error=SQLITE_IOERR;db_thread_bad(d3); /* 清理线程连接 */
+ remove_files("build/unit-thread.db");
+}
 static void test_v2_to_v3_migration(void){
  const char *path="build/unit-v2.db";DB d;remove_files(path);
  TEST_ASSERT_TRUE(db_open(&d,path));
@@ -421,6 +454,8 @@ int main(void){
  RUN_TEST(test_login_guard);
  RUN_TEST(test_capacity_fill_and_promotion);
  RUN_TEST(test_v2_to_v3_migration);
+ RUN_TEST(test_stmt_cache_and_eviction);
+ RUN_TEST(test_thread_connection_reuse);
  db_close(&db);remove_files(DBPATH);
  return UnityEnd();
 }
