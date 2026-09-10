@@ -5,8 +5,8 @@
 #include <string.h>
 #include <direct.h>
 #include <windows.h>
-static int app_main(int argc,char **argv){
- Config c={"data/lab.db","web",8080,900,30,NULL,NULL};int seed=0,init=0,check=0;
+ static int app_main(int argc,char **argv){
+ Config c={"data/lab.db","web",8080,900,30,30,1,5,900,NULL,NULL};int seed=0,init=0,check=0;
  for(int i=1;i<argc;i++){
   if(!strcmp(argv[i],"--seed"))seed=1;else if(!strcmp(argv[i],"--init-only"))init=1;else if(!strcmp(argv[i],"--check"))check=1;
   else if(!strcmp(argv[i],"--db")&&i+1<argc)c.db_path=argv[++i];
@@ -14,11 +14,15 @@ static int app_main(int argc,char **argv){
   else if(!strcmp(argv[i],"--port")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n<1024||n>65535){fprintf(stderr,"Port must be 1024..65535\n");return 2;}c.port=(int)n;}
   else if(!strcmp(argv[i],"--checkin-window")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n<1||n>86400){fprintf(stderr,"Check-in window must be 1..86400 seconds\n");return 2;}c.checkin_window=(int)n;}
   else if(!strcmp(argv[i],"--sweep-interval")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n<1||n>3600){fprintf(stderr,"Sweep interval must be 1..3600 seconds\n");return 2;}c.sweep_interval=(int)n;}
+  else if(!strcmp(argv[i],"--rate-burst")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n<1||n>100000){fprintf(stderr,"Rate burst must be 1..100000\n");return 2;}c.rate_burst=(int)n;}
+  else if(!strcmp(argv[i],"--rate-refill-sec")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n<1||n>3600){fprintf(stderr,"Rate refill must be 1..3600 seconds\n");return 2;}c.rate_refill_sec=(int)n;}
+  else if(!strcmp(argv[i],"--login-max-fails")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n<1||n>100){fprintf(stderr,"Login max fails must be 1..100\n");return 2;}c.login_max_fails=(int)n;}
+  else if(!strcmp(argv[i],"--login-lockout")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n<1||n>86400){fprintf(stderr,"Login lockout must be 1..86400 seconds\n");return 2;}c.login_lockout=(int)n;}
 #ifdef TEST_FAULTS
   else if(!strcmp(argv[i],"--fault")&&i+1<argc)c.fault=argv[++i];
   else if(!strcmp(argv[i],"--fault-request")&&i+1<argc)c.fault_request=argv[++i];
 #endif
-  else {fprintf(stderr,"Usage: lab-booking --db FILE --web DIR --port PORT [--checkin-window SEC] [--sweep-interval SEC] [--seed --init-only] [--check]\n");return 2;}
+  else {fprintf(stderr,"Usage: lab-booking --db FILE --web DIR --port PORT [--checkin-window SEC] [--sweep-interval SEC] [--rate-burst N] [--rate-refill-sec SEC] [--login-max-fails N] [--login-lockout SEC] [--seed --init-only] [--check]\n");return 2;}
  }
  if((c.fault||c.fault_request)&&(!c.fault||!c.fault_request||!uuid_valid(c.fault_request)||(strcmp(c.fault,"cancel-before-promote")&&strcmp(c.fault,"after-commit"))))return 2;
  if(sodium_init()<0){fprintf(stderr,"Crypto initialization failed\n");return 1;}

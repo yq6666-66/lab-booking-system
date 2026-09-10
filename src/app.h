@@ -6,7 +6,7 @@
 #include "cJSON.h"
 typedef sqlite3_int64 Id;
 typedef struct { sqlite3 *sql; int error; } DB;
-typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; const char *fault; const char *fault_request; } Config;
+typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; const char *fault; const char *fault_request; } Config;
 typedef struct { Id id; int admin; char username[65]; char csrf[65]; } User;
 typedef struct { int status; cJSON *body; } Result;
 int db_open(DB *db,const char *path);
@@ -45,4 +45,16 @@ void notify(DB *db,Id user,const char *kind,const char *title,const char *body,I
 int sweep_once(const Config *config);
 void sweep_start(const Config *config);
 int serve(const Config *config);
+/* r5/security */
+typedef struct { double tokens; Id last_ms; int started; } RateBucket;
+typedef struct { int fails; Id locked_until; } LoginGuard;
+int bucket_allow(RateBucket *bucket,Id now_ms,int burst,int refill_sec);
+int login_allow(const LoginGuard *guard,Id now_ms);
+void login_record_fail(LoginGuard *guard,Id now_ms,int max_fails,int lockout_sec);
+void login_record_ok(LoginGuard *guard);
+void rl_configure(const Config *config);
+int rl_login_gate(const char *username);
+void rl_login_fail(const char *username);
+void rl_login_ok(const char *username);
+int rl_consume(Id user_id);
 #endif

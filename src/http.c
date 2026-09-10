@@ -27,9 +27,16 @@ static int authenticated(DB *d,struct mg_connection *c,User *u,char hash[65]){
 static int text_ok(const char *s,size_t max,int empty){return s&&strlen(s)<=max&&(empty||strlen(s)>0);}
 static Result login(DB *d,const cJSON *body,char cookie[256]){
  const char *name=jstr(body,"username"),*pw=jstr(body,"password");if(!text_ok(name,64,0)||!text_ok(pw,128,0))return invalid();
+ if(!rl_login_gate(name))return result(429,"LOGIN_LOCKED","登录尝试过于频繁，请稍后再试",NULL);
  cJSON *r=db_first(d,"SELECT id,username,role,password_hash FROM users WHERE username=? AND enabled=1","s",name);
  if(d->error)return db_failure(d);
- if(!r||crypto_pwhash_str_verify(jstr(r,"password_hash"),pw,strlen(pw))){cJSON_Delete(r);return result(401,"UNAUTHORIZED","用户名或密码不正确",NULL);}
+ if(!r||crypto_pwhash_str_verify(jstr(r,"password_hash"),pw,strlen(pw))){
+  rl_login_fail(name);
+  Id uid=0;
+  if(r&&parse_id(jstr(r,"id"),&uid))db_run(d,"INSERT INTO operation_events(actor_id,action,entity_id,created_at) VALUES(?,?,0,?)","isi",uid,"LOGIN_FAILED",now_sec());
+  cJSON_Delete(r);return result(401,"UNAUTHORIZED","用户名或密码不正确",NULL);
+ }
+ rl_login_ok(name);
  User u={0};parse_id(jstr(r,"id"),&u.id);u.admin=!strcmp(jstr(r,"role"),"ADMIN");snprintf(u.username,sizeof u.username,"%s",name);cJSON_Delete(r);
  char token[65],hash[65];random_hex(token);hash_text(token,hash);random_hex(u.csrf);
  db_run(d,"DELETE FROM sessions WHERE expires_at<?","i",now_sec());
@@ -77,7 +84,8 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
  const struct mg_request_info *ri=mg_get_request_info(c);const char *path=ri->local_uri;int post=!strcmp(ri->request_method,"POST");
  if(!strcmp(path,"/api/login"))return post?login(d,body,cookie):result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);
  User u={0};char tokenhash[65];if(!authenticated(d,c,&u,tokenhash))return d->error?db_failure(d):result(401,"UNAUTHORIZED","请先登录",NULL);
- if(post){const char *csrf=mg_get_header(c,"X-CSRF-Token");if(!csrf||strlen(csrf)!=64||sodium_memcmp(csrf,u.csrf,64))return result(403,"CSRF","请求校验失败，请刷新后重试",NULL);}
+ if(post){const char *csrf=mg_get_header(c,"X-CSRF-Token");if(!csrf||strlen(csrf)!=64||sodium_memcmp(csrf,u.csrf,64))return result(403,"CSRF","请求校验失败，请刷新后重试",NULL);
+  if(!rl_consume(u.id))return result(429,"RATE_LIMITED","操作过于频繁，请稍后再试",NULL);}
  if(!post){
   if(!strcmp(path,"/api/me"))return result(200,"OK","查询成功",user_data(&u));
   if(!strcmp(path,"/api/labs")){cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"labs",db_rows(d,"SELECT id,name,location,description,enabled FROM labs ORDER BY id",""));return result(200,"OK","查询成功",j);}
@@ -167,6 +175,7 @@ int serve(const Config *cfg){
  char port[48];snprintf(port,sizeof port,"127.0.0.1:%d",cfg->port);
  const char *opts[]={"listening_ports",port,"document_root",cfg->web_path,"num_threads","8","enable_directory_listing","no","request_timeout_ms","5000","enable_keep_alive","no",NULL};
  struct mg_callbacks callbacks;memset(&callbacks,0,sizeof callbacks);mg_init_library(0);
+ rl_configure(cfg);
  struct mg_context *ctx=mg_start(&callbacks,NULL,opts);if(!ctx){fprintf(stderr,"HTTP server startup failed. Check port and web directory.\n");mg_exit_library();return 1;}
  mg_set_request_handler(ctx,"/api",api,(void*)cfg);signal(SIGINT,on_stop);signal(SIGTERM,on_stop);
  sweep_start(cfg);

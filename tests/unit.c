@@ -264,7 +264,7 @@ static void test_checkin_business(void){
  new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(200,r.status); /* 重复签到幂等 */
  cJSON *ci2=cJSON_GetObjectItemCaseSensitive(rdata(r),"checked_in_at");TEST_ASSERT_TRUE(cJSON_IsNumber(ci2));TEST_ASSERT_EQUAL_INT64(when,(Id)ci2->valuedouble);drop(r);
  new_key(k);r=booking(&db,NULL,&u2,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(403,r.status);drop(r); /* 非本人 */
- Config cfg={"build/unit-test.db",NULL,0,900,30,NULL,NULL};
+ Config cfg={"build/unit-test.db",NULL,0,900,30,30,1,5,900,NULL,NULL};
  TEST_ASSERT_EQUAL_INT(0,sweep_once(&cfg)); /* 已签到不被判爽约 */
  TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE id=? AND status='CONFIRMED' AND checked_in_at IS NOT NULL","i",rid));
 }
@@ -299,6 +299,46 @@ static void test_notify_sessions_and_password(void){
  TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM sessions WHERE token_hash='keep-me'",""));
  new_key(k);r=password_change(&db,&u1,"NewPassword123!","UnitPassword123!","keep-me",k);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r); /* 复原口令 */
 }
+/* -- r5/security：限流纯函数（令牌桶毫令制，锁定窗口毫秒制） */
+static void test_bucket_allow(void){
+ RateBucket b={0,0,0};
+ TEST_ASSERT_TRUE(bucket_allow(NULL,0,3,1)); /* 空桶放行，不因限流器故障拒服务 */
+ TEST_ASSERT_TRUE(bucket_allow(&b,0,3,1));
+ TEST_ASSERT_TRUE(bucket_allow(&b,0,3,1));
+ TEST_ASSERT_TRUE(bucket_allow(&b,0,3,1));
+ TEST_ASSERT_FALSE(bucket_allow(&b,0,3,1));  /* burst=3 用尽 */
+ TEST_ASSERT_FALSE(bucket_allow(&b,999,3,1)); /* 999ms 不足 1 个补充 */
+ TEST_ASSERT_TRUE(bucket_allow(&b,1000,3,1)); /* 第 1 秒补 1 个并消耗 */
+ TEST_ASSERT_FALSE(bucket_allow(&b,1999,3,1));
+ TEST_ASSERT_TRUE(bucket_allow(&b,2000,3,1));
+ TEST_ASSERT_FALSE(bucket_allow(&b,2999,3,1));
+ TEST_ASSERT_TRUE(bucket_allow(&b,3000,3,1));
+ TEST_ASSERT_TRUE(bucket_allow(&b,13000,3,1)); /* 闲置 10s 补满 3 个：恰好再得 burst 次后拒绝，不囤积 */
+ TEST_ASSERT_TRUE(bucket_allow(&b,13000,3,1));
+ TEST_ASSERT_TRUE(bucket_allow(&b,13000,3,1));
+ TEST_ASSERT_FALSE(bucket_allow(&b,13000,3,1));
+ RateBucket c={0,0,0};
+ TEST_ASSERT_TRUE(bucket_allow(&c,0,1,5));
+ TEST_ASSERT_FALSE(bucket_allow(&c,0,1,5));
+ TEST_ASSERT_FALSE(bucket_allow(&c,4999,1,5));
+ TEST_ASSERT_TRUE(bucket_allow(&c,5000,1,5));
+}
+static void test_login_guard(void){
+ LoginGuard g={0,0};
+ TEST_ASSERT_TRUE(login_allow(&g,100000));
+ login_record_fail(&g,100000,3,900);
+ login_record_fail(&g,200000,3,900);
+ TEST_ASSERT_TRUE(login_allow(&g,250000)); /* 2 次未达阈值 */
+ login_record_fail(&g,300000,3,900);       /* 第 3 次 → 锁定至 300000+900000 */
+ TEST_ASSERT_FALSE(login_allow(&g,1199999));
+ TEST_ASSERT_TRUE(login_allow(&g,1200000)); /* 到期解锁 */
+ TEST_ASSERT_EQUAL_INT(0,g.fails);          /* 锁定后计数清零 */
+ login_record_ok(&g);
+ TEST_ASSERT_EQUAL_INT(0,g.locked_until);
+ login_record_fail(&g,2000000,3,900);
+ TEST_ASSERT_TRUE(login_allow(&g,2000001)); /* 成功登录清零后重新计数 */
+ TEST_ASSERT_TRUE(login_allow(NULL,0));
+}
 int main(void){
  setvbuf(stdout,NULL,_IONBF,0); /* 崩溃时也能看到已完成用例，便于定位 */
  UnityBegin("tests/unit.c");
@@ -319,6 +359,8 @@ int main(void){
  RUN_TEST(test_checkin_business);
  RUN_TEST(test_notify_sessions_and_password);
  RUN_TEST(test_db_check_rejects_coexistence);
+ RUN_TEST(test_bucket_allow);
+ RUN_TEST(test_login_guard);
  db_close(&db);remove_files(DBPATH);
  return UnityEnd();
 }
