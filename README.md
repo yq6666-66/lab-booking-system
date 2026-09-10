@@ -1,5 +1,7 @@
 # 基于 C 语言的实验室预约与候补系统
 
+[![CI](https://github.com/yq6666-66/lab-booking-system/actions/workflows/ci.yml/badge.svg)](https://github.com/yq6666-66/lab-booking-system/actions/workflows/ci.yml)
+
 高校开放实验室预约与候补管理系统（毕业设计）。C11 后端 + 浏览器静态页面，提供固定一小时场次的在线预约、FIFO 候补排队、取消自动补位与业务记录查询。技术重点是并发请求下的事务一致性、重复请求去重与进程中断后的恢复验证。
 
 ## 功能概览
