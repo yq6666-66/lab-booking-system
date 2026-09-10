@@ -374,20 +374,21 @@ def feature_checks(s):
 def account_checks(s):
     """T20-T21：改密（其他会话失效）与在线会话管理。"""
     def t20():
+        NEWPW, WRONG = PASSWORD + "-new", PASSWORD + "-wrong"  # 派生口令，测试结束恢复原口令
         client=Client(s.port).login("user03"); other=Client(s.port).login("user03")
         sessions=client.request("GET","/api/me/sessions")[1]["data"]["sessions"]
         require(len(sessions)==2,f"two sessions before change: {len(sessions)}")
         require(sum(1 for x in sessions if x["current"])==1,"exactly one current session")
-        require(client.request("POST","/api/me/password",{"old_password":"definitely-wrong","new_password":"NewPassword123!","request_id":uid()})[0]==401,"wrong old password rejected")
+        require(client.request("POST","/api/me/password",{"old_password":WRONG,"new_password":NEWPW,"request_id":uid()})[0]==401,"wrong old password rejected")
         require(client.request("POST","/api/me/password",{"old_password":PASSWORD,"new_password":"short","request_id":uid()})[0]==400,"short new password rejected")
         require(client.request("POST","/api/me/password",{"old_password":PASSWORD,"new_password":PASSWORD,"request_id":uid()})[0]==400,"unchanged password rejected")
-        data=client.post("/api/me/password",{"old_password":PASSWORD,"new_password":"NewPassword123!","request_id":uid()})["data"]
+        data=client.post("/api/me/password",{"old_password":PASSWORD,"new_password":NEWPW,"request_id":uid()})["data"]
         require(data["revoked_sessions"]==1,f"other session revoked: {data}")
         require(other.request("GET","/api/me")[0]==401,"other session invalidated")
         require(client.request("GET","/api/me")[0]==200,"current session preserved")
         require(Client(s.port).request("POST","/api/login",{"username":"user03","password":PASSWORD})[0]==401,"old password retired")
-        require(Client(s.port).request("POST","/api/login",{"username":"user03","password":"NewPassword123!"})[0]==200,"new password accepted")
-        client.post("/api/me/password",{"old_password":"NewPassword123!","new_password":PASSWORD,"request_id":uid()})
+        require(Client(s.port).request("POST","/api/login",{"username":"user03","password":NEWPW})[0]==200,"new password accepted")
+        client.post("/api/me/password",{"old_password":NEWPW,"new_password":PASSWORD,"request_id":uid()})
         return {"password_rotated":True}
     record("T20 password change revokes other sessions",t20)
     def t21():
