@@ -2,37 +2,90 @@
 #include <stdarg.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sodium.h>
+/* r6 语句缓存：每连接按 SQL 文本缓存预处理语句（LRU，上限 32），消除重复 prepare；
+   任一步骤出错即淘汰对应条目，保守优先。 */
+#define STMT_CACHE_MAX 32
+typedef struct { char *sql; sqlite3_stmt *stmt; unsigned lru; } CacheEntry;
+typedef struct { CacheEntry items[STMT_CACHE_MAX]; unsigned tick; } StmtCache;
+static sqlite3_stmt *cache_fetch(DB *d,const char *sql){
+ StmtCache *c=(StmtCache*)d->cache;unsigned best=0;int bi=-1;
+ for(int i=0;i<STMT_CACHE_MAX;i++){
+  CacheEntry *e=&c->items[i];
+  if(e->sql&&e->lru>best){best=e->lru;bi=i;}
+  if(e->sql&&!strcmp(e->sql,sql)){
+   if(sqlite3_reset(e->stmt)!=SQLITE_OK||sqlite3_clear_bindings(e->stmt)!=SQLITE_OK){sqlite3_finalize(e->stmt);free(e->sql);e->sql=NULL;e->stmt=NULL;return NULL;}
+   e->lru=++c->tick;return e->stmt;
+  }
+ }
+ (void)bi;return NULL;
+}
+static void cache_store(DB *d,const char *sql,sqlite3_stmt *stmt){
+ StmtCache *c=(StmtCache*)d->cache;int slot=-1, victim=-1;unsigned minl=~0u;
+ for(int i=0;i<STMT_CACHE_MAX&&slot<0;i++){
+  if(!c->items[i].sql)slot=i;
+  else if(c->items[i].lru<minl){minl=c->items[i].lru;victim=i;}
+ }
+ if(slot<0){
+  if(victim<0){sqlite3_finalize(stmt);return;}
+  CacheEntry *v=&c->items[victim];sqlite3_finalize(v->stmt);free(v->sql);v->sql=NULL;v->stmt=NULL;slot=victim;
+ }
+ c->items[slot].sql=_strdup(sql);c->items[slot].stmt=stmt;c->items[slot].lru=++c->tick;
+ if(!c->items[slot].sql){sqlite3_finalize(stmt);c->items[slot].stmt=NULL;return;}
+}
+static void cache_drop(DB *d,sqlite3_stmt *stmt){
+ StmtCache *c=(StmtCache*)d->cache;
+ for(int i=0;i<STMT_CACHE_MAX;i++)if(c->items[i].stmt==stmt){sqlite3_finalize(stmt);free(c->items[i].sql);c->items[i].sql=NULL;c->items[i].stmt=NULL;return;}
+}
+static void cache_clear(DB *d){
+ StmtCache *c=(StmtCache*)d->cache;if(!c)return;
+ for(int i=0;i<STMT_CACHE_MAX;i++)if(c->items[i].stmt){sqlite3_finalize(c->items[i].stmt);free(c->items[i].sql);c->items[i].sql=NULL;c->items[i].stmt=NULL;}
+}
+static sqlite3_stmt *stmt_get(DB *d,const char *sql){
+ sqlite3_stmt *s=cache_fetch(d,sql);
+ if(s)return s;
+ if(sqlite3_prepare_v2(d->sql,sql,-1,&s,NULL)!=SQLITE_OK){d->error=sqlite3_errcode(d->sql);return NULL;}
+ cache_store(d,sql,s);return s;
+}
+static void stmt_done(DB *d,sqlite3_stmt *s){(void)d;sqlite3_reset(s);}
+static void stmt_fail(DB *d,sqlite3_stmt *s){cache_drop(d,s);}
 static sqlite3_stmt *prepare(DB *d,const char *sql,const char *fmt,va_list a){
- sqlite3_stmt *s=NULL; int rc=sqlite3_prepare_v2(d->sql,sql,-1,&s,NULL);
- if(rc!=SQLITE_OK){ d->error=rc;return NULL; }
+ sqlite3_stmt *s=stmt_get(d,sql);
+ if(!s){ d->error=d->error?d->error:SQLITE_NOMEM;return NULL; }
+ int rc=0;
  for(int i=0;fmt&&fmt[i];i++){
   if(fmt[i]=='i')rc=sqlite3_bind_int64(s,i+1,va_arg(a,Id));
   else if(fmt[i]=='s'){const char *v=va_arg(a,const char*);rc=v?sqlite3_bind_text(s,i+1,v,-1,SQLITE_TRANSIENT):sqlite3_bind_null(s,i+1);}
   else rc=SQLITE_MISUSE;
-  if(rc!=SQLITE_OK){d->error=rc;sqlite3_finalize(s);return NULL;}
+  if(rc!=SQLITE_OK){d->error=rc;stmt_fail(d,s);return NULL;}
  }
  return s;
 }
 int db_open(DB *d,const char *p){
  memset(d,0,sizeof *d);int rc=sqlite3_open_v2(p,&d->sql,SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE|SQLITE_OPEN_FULLMUTEX,NULL);
  if(rc!=SQLITE_OK){d->error=rc;return 0;}
+ d->cache=calloc(1,sizeof(StmtCache));
+ if(!d->cache){sqlite3_close(d->sql);d->sql=NULL;d->error=SQLITE_NOMEM;return 0;}
  sqlite3_extended_result_codes(d->sql,1);sqlite3_busy_timeout(d->sql,3000);
  db_run(d,"PRAGMA foreign_keys=ON","");db_run(d,"PRAGMA synchronous=FULL","");return !d->error;
 }
-void db_close(DB *d){if(d->sql){if(!sqlite3_get_autocommit(d->sql))sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);sqlite3_close(d->sql);}d->sql=NULL;}
+void db_close(DB *d){if(d->sql){if(!sqlite3_get_autocommit(d->sql))sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cache_clear(d);sqlite3_close(d->sql);}d->sql=NULL;d->cache=NULL;}
 int db_run(DB *d,const char *sql,const char *fmt,...){
  va_list a;va_start(a,fmt);sqlite3_stmt *s=prepare(d,sql,fmt,a);va_end(a);if(!s)return 0;
  int rc;do{rc=sqlite3_step(s);}while(rc==SQLITE_ROW);if(rc!=SQLITE_DONE)d->error=rc;
- int fr=sqlite3_finalize(s);if(fr!=SQLITE_OK)d->error=fr;return rc==SQLITE_DONE&&fr==SQLITE_OK;
+ if(rc!=SQLITE_DONE){stmt_fail(d,s);return 0;}
+ stmt_done(d,s);return 1;
 }
 Id db_num(DB *d,const char *sql,const char *fmt,...){
  va_list a;va_start(a,fmt);sqlite3_stmt *s=prepare(d,sql,fmt,a);va_end(a);if(!s)return 0;
- int rc=sqlite3_step(s);Id n=0;if(rc==SQLITE_ROW)n=sqlite3_column_int64(s,0);else if(rc!=SQLITE_DONE)d->error=rc;
- sqlite3_finalize(s);return n;
+ int rc=sqlite3_step(s);Id n=0;
+ if(rc==SQLITE_ROW){n=sqlite3_column_int64(s,0);rc=sqlite3_step(s);}
+ if(rc!=SQLITE_DONE){d->error=rc;stmt_fail(d,s);return 0;}
+ stmt_done(d,s);return n;
 }
 static cJSON *rowsv(DB *d,const char *sql,const char *fmt,va_list a){
- sqlite3_stmt *s=prepare(d,sql,fmt,a);if(!s)return NULL;cJSON *rows=cJSON_CreateArray();if(!rows){sqlite3_finalize(s);d->error=SQLITE_NOMEM;return NULL;}
+ sqlite3_stmt *s=prepare(d,sql,fmt,a);if(!s)return NULL;cJSON *rows=cJSON_CreateArray();if(!rows){d->error=SQLITE_NOMEM;stmt_fail(d,s);return NULL;}
  int rc;while((rc=sqlite3_step(s))==SQLITE_ROW){
   cJSON *r=cJSON_CreateObject();if(!r){d->error=SQLITE_NOMEM;break;}cJSON_AddItemToArray(rows,r);
   for(int i=0;i<sqlite3_column_count(s);i++){
@@ -45,8 +98,9 @@ static cJSON *rowsv(DB *d,const char *sql,const char *fmt,va_list a){
    }else cJSON_AddStringToObject(r,n,(const char*)sqlite3_column_text(s,i));
   }
  }
- if(rc!=SQLITE_DONE&&!d->error)d->error=rc;
- sqlite3_finalize(s);if(d->error){cJSON_Delete(rows);return NULL;}return rows;
+ if(rc!=SQLITE_DONE){if(!d->error)d->error=rc;stmt_fail(d,s);cJSON_Delete(rows);return NULL;}
+ stmt_done(d,s);
+ if(d->error){cJSON_Delete(rows);return NULL;}return rows;
 }
 cJSON *db_rows(DB *d,const char *sql,const char *fmt,...){va_list a;va_start(a,fmt);cJSON *j=rowsv(d,sql,fmt,a);va_end(a);return j;}
 cJSON *db_first(DB *d,const char *sql,const char *fmt,...){va_list a;va_start(a,fmt);cJSON *j=rowsv(d,sql,fmt,a);va_end(a);if(!j)return NULL;cJSON *r=cJSON_DetachItemFromArray(j,0);cJSON_Delete(j);return r;}
@@ -131,4 +185,20 @@ int db_seed(DB *d,const char *password){
  sodium_memzero(hash,sizeof hash);
  if(d->error){db_run(d,"ROLLBACK","");return 0;}
  return db_run(d,"COMMIT","");
+}
+/* r6 线程级连接复用：每个 HTTP 工作线程持有自己的连接（含语句缓存），
+   首次使用时打开；请求结束后 db_thread_bad 回收未结事务，致命错误时丢弃重建。
+   工作线程随进程存活，缓存随线程生命周期有界。 */
+static _Thread_local DB tls_db;
+static _Thread_local int tls_alive;
+DB *db_thread_get(const char *path){
+ if(tls_alive){tls_db.error=0;return &tls_db;}
+ if(db_open(&tls_db,path)){tls_alive=1;return &tls_db;}
+ memset(&tls_db,0,sizeof tls_db);return NULL;
+}
+void db_thread_bad(DB *d){
+ if(!d||!d->sql)return;
+ if(!sqlite3_get_autocommit(d->sql))sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);
+ int e=d->error&255;
+ if(e==SQLITE_CORRUPT||e==SQLITE_IOERR||e==SQLITE_CANTOPEN||e==SQLITE_NOMEM){db_close(d);memset(d,0,sizeof *d);tls_alive=0;}
 }

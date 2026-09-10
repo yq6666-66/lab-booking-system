@@ -264,6 +264,31 @@ def regression(s):
         st,body=u14.request("POST","/api/waitlist",{"slot_id":slot,"request_id":uid()})
         require(st==200,f"waitlist accepted on full slot: {st} {body}")
     record("T26 capacity slots, fill and FIFO promotion",t26)
+    def t27():
+        # 连接复用：读写混合并发下数据正确、服务稳定（r6 连接/语句复用回归）
+        import concurrent.futures
+        sa,sb=next(slots),next(slots)
+        w1,w2,r1,r2=[Client(s.port).login(f"user{n:02d}") for n in (16,17,19,20)]
+        def writer(client,slot,cycles):
+            out=[]
+            for _ in range(cycles):
+                out.append(client.post("/api/reservations",{"slot_id":slot,"request_id":uid()})["code"])
+                out.append(client.post(f"/api/reservations/{client.request('GET','/api/me/records')[1]['data']['reservations'][0]['id']}/cancel",{"request_id":uid()})["code"])
+            return out
+        def reader(client,cycles):
+            out=[]
+            for _ in range(cycles):
+                for path in ("/api/labs","/api/me/records?page=1&page_size=5","/api/health"):
+                    status,body=client.request("GET",path) if path!="/api/health" else client.request("GET",path)
+                    out.append(status)
+            return out
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            futs=[pool.submit(writer,w1,sa,8),pool.submit(writer,w2,sb,8),pool.submit(reader,r1,20),pool.submit(reader,r2,20)]
+            results=[f.result() for f in futs]
+        require(all(c=="OK" for c in results[0]+results[1]),f"writers all ok: {set(results[0]+results[1])}")
+        require(all(st==200 for st in results[2]+results[3]),f"readers all 200: {set(results[2]+results[3])}")
+        require(s.sql("SELECT count(*) FROM reservations WHERE status='CONFIRMED' AND slot_id IN (?,?)",(sa,sb))==[(0,)],"writers left no bookings")
+    record("T27 connection reuse under mixed read-write load",t27)
     record("T12 SQLite integrity and relational invariants",s.integrity)
     def t15():
         c=s.user(4)

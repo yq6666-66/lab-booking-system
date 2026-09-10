@@ -139,7 +139,8 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
 }
 static int api(struct mg_connection *c,void *userdata){
  LARGE_INTEGER mfreq,mt0;QueryPerformanceFrequency(&mfreq);QueryPerformanceCounter(&mt0);
- const Config *cfg=userdata;const struct mg_request_info *ri=mg_get_request_info(c);Result r={0,NULL};cJSON *body=NULL;char cookie[256]={0};DB d={0};char *raw=NULL,*serialized=NULL;
+ const Config *cfg=userdata;const struct mg_request_info *ri=mg_get_request_info(c);Result r={0,NULL};cJSON *body=NULL;char cookie[256]={0};char *raw=NULL,*serialized=NULL;
+ DB *pd=db_thread_get(cfg->db_path);if(!pd){r=result(503,"DATABASE_BUSY","数据库不可用，请稍后重试",NULL);goto send;}
  if(!host_ok(c,cfg)){r=result(403,"FORBIDDEN","Host 不被允许",NULL);goto send;}
  int post=!strcmp(ri->request_method,"POST");
  if(!post&&strcmp(ri->request_method,"GET")){r=result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);goto send;}
@@ -155,11 +156,10 @@ static int api(struct mg_connection *c,void *userdata){
   if(got!=n||!cJSON_IsObject(body)){r=invalid();goto send;}
   for(cJSON *a=body->child;a;a=a->next)for(cJSON *b=a->next;b;b=b->next)if(!strcmp(a->string,b->string)){r=invalid();goto send;}
  }
- if(!db_open(&d,cfg->db_path)){r=db_failure(&d);goto send;}
- r=dispatch(&d,c,cfg,body,cookie);
- if(d.error){cJSON_Delete(r.body);r=db_failure(&d);cookie[0]=0;}
+ r=dispatch(pd,c,cfg,body,cookie);
+ if(pd->error){cJSON_Delete(r.body);r=db_failure(pd);cookie[0]=0;}
 send:
- db_close(&d);if(raw){sodium_memzero(raw,strlen(raw));free(raw);}cJSON_Delete(body);
+ db_thread_bad(pd);if(raw){sodium_memzero(raw,strlen(raw));free(raw);}cJSON_Delete(body);
  serialized=r.body?cJSON_PrintUnformatted(r.body):NULL;
  if(!serialized){r.status=500;cookie[0]=0;}
  const char *out=serialized?serialized:"{\"code\":\"INTERNAL_ERROR\",\"message\":\"Memory error\",\"data\":{}}";

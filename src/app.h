@@ -5,12 +5,14 @@
 #include "sqlite3.h"
 #include "cJSON.h"
 typedef sqlite3_int64 Id;
-typedef struct { sqlite3 *sql; int error; } DB;
+typedef struct { sqlite3 *sql; int error; void *cache; } DB;
 typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; const char *fault; const char *fault_request; } Config;
 typedef struct { Id id; int admin; char username[65]; char csrf[65]; } User;
 typedef struct { int status; cJSON *body; } Result;
 int db_open(DB *db,const char *path);
 void db_close(DB *db);
+DB *db_thread_get(const char *path);
+void db_thread_bad(DB *db);
 int db_run(DB *db,const char *sql,const char *fmt,...);
 Id db_num(DB *db,const char *sql,const char *fmt,...);
 cJSON *db_rows(DB *db,const char *sql,const char *fmt,...);
