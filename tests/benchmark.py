@@ -91,11 +91,11 @@ def walled(fn, concurrency):
         parts = list(ex.map(fn, range(concurrency)))
     return parts, (time.perf_counter() - start)
 
-def aggregate(name, scenario, concurrency, samples, wall):
+def aggregate(name, scenario, concurrency, rounds, samples, wall):
     times = [ms for _, ms in samples]
     total = len(samples)
     return {
-        "experiment": name, "scenario": scenario, "concurrency": concurrency, "requests": total,
+        "experiment": name, "scenario": scenario, "concurrency": concurrency, "rounds": rounds, "requests": total,
         "throughput_rps": round(total / wall, 3) if wall > 0 else 0.0,
         "p50_ms": pct(times, 50), "p95_ms": pct(times, 95), "p99_ms": pct(times, 99),
         "count_200": sum(1 for s, _ in samples if 200 <= s < 300),
@@ -113,13 +113,13 @@ def run_e1(server, concurrency, requests):
             status, _, ms = c.request("GET", path); row.append((status, ms))
         return row
     parts, wall = walled(hit, concurrency)
-    return aggregate("E1", "read", concurrency, [x for p in parts for x in p], wall)
+    return aggregate("E1", "read", concurrency, requests, [x for p in parts for x in p], wall)
 
-def run_e2(server, concurrency, requests):
+def run_e2(server, concurrency, rounds):
     clients = [Client(server.port).login(f"user{i:02d}") for i in range(1, concurrency + 1)]
     slots = server.slots()
-    need = requests * (concurrency + 1)  # same 每轮 1 个 + diff 每轮 concurrency 个
-    rounds = requests if need <= len(slots) else max(1, len(slots) // (concurrency + 1))
+    need = rounds * (concurrency + 1)  # same 每轮 1 个 + diff 每轮 concurrency 个
+    require(need <= len(slots), f"空闲场次不足：需要 {need}，实际 {len(slots)}（请减小 --requests）")
     same_slots = slots[:rounds]
     diff_slots = slots[rounds:rounds + rounds * concurrency]
     def same_hit(i):
@@ -137,8 +137,8 @@ def run_e2(server, concurrency, requests):
     same_parts, same_wall = walled(same_hit, concurrency)
     diff_parts, diff_wall = walled(diff_hit, concurrency)
     return (
-        aggregate("E2", "same-slot", concurrency, [x for p in same_parts for x in p], same_wall),
-        aggregate("E2", "diff-slot", concurrency, [x for p in diff_parts for x in p], diff_wall),
+        aggregate("E2", "same-slot", concurrency, rounds, [x for p in same_parts for x in p], same_wall),
+        aggregate("E2", "diff-slot", concurrency, rounds, [x for p in diff_parts for x in p], diff_wall),
     )
 
 def main():
@@ -159,6 +159,14 @@ def main():
     env = os.environ.copy(); env["LAB_SEED_PASSWORD"] = PASSWORD
     seed = subprocess.run([str(args.exe), "--db", str(baseline), "--seed", "--init-only"], env=env, capture_output=True, text=True, timeout=30)
     require(seed.returncode == 0, f"seed failed: {seed.returncode}: {seed.stdout} {seed.stderr}")
+    probe = Server(args.exe, run_path / "probe", baseline).start()
+    try:
+        available = len(probe.slots())
+    finally:
+        probe.stop()
+    # E2 各档统一轮数，保证吞吐与分位数跨档可比（受最大并发档的空闲场次上限约束）
+    shared_rounds = max(1, min(args.requests, available // (max(concurrency) + 1)))
+    print(f"E2 统一轮数 = {shared_rounds}（可用空闲场次 {available}，最大并发 {max(concurrency)}）", flush=True)
     server = Server(args.exe, run_path / "srv", baseline).start()
     try:
         for c in concurrency:
@@ -168,22 +176,23 @@ def main():
     for c in concurrency:  # E2 写争用每档使用独立数据库，避免前档占用污染后档
         s2 = Server(args.exe, run_path / f"e2-{c}", baseline).start()
         try:
-            same, diff = run_e2(s2, c, args.requests)
+            same, diff = run_e2(s2, c, shared_rounds)
             rows.extend([same, diff])
         finally:
             s2.stop()
-    fields = ["experiment", "scenario", "concurrency", "requests", "throughput_rps", "p50_ms", "p95_ms", "p99_ms", "count_200", "count_409", "count_503"]
+    fields = ["experiment", "scenario", "concurrency", "rounds", "requests", "throughput_rps", "p50_ms", "p95_ms", "p99_ms", "count_200", "count_409", "count_503"]
     with (args.output / "benchmark.csv").open("w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=fields); w.writeheader(); w.writerows(rows)
     summary = {
         "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "executable": str(args.exe.resolve()), "clients": concurrency, "requests_per_client": args.requests,
+        "executable": str(args.exe.resolve()), "clients": concurrency,
+        "requests_per_client_e1": args.requests, "rounds_e2": shared_rounds, "available_slots": available,
         "raw_evidence_directory": str(run_path), "rows": rows,
     }
     (args.output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Benchmark done: {len(rows)} 行 -> {args.output.resolve()}")
     for r in rows:
-        print(f"  {r['experiment']}/{r['scenario']} c={r['concurrency']} 吞吐={r['throughput_rps']} rps p50={r['p50_ms']} p99={r['p99_ms']} 200={r['count_200']} 409={r['count_409']} 503={r['count_503']}")
+        print(f"  {r['experiment']}/{r['scenario']} c={r['concurrency']} 轮={r['rounds']} 请求={r['requests']} 吞吐={r['throughput_rps']} rps p50={r['p50_ms']} p99={r['p99_ms']} 200={r['count_200']} 409={r['count_409']} 503={r['count_503']}")
     return 0
 
 if __name__ == "__main__":
