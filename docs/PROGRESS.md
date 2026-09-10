@@ -33,3 +33,11 @@
 - [ ] 论文正文初稿（按确认后的大纲分章撰写，图表同步插入）
 - [ ] 答辩演示材料与演示脚本
 
+# 第五轮：双智能体并发升级（容量制/限流/指标/CI）
+- [x] WorkBuddy 分支 r5/wb：CI 门禁（.github/workflows/ci.yml + README 徽章）、tests/benchmark.py 性能基准实验、src/metrics.c 运行指标（原子计数器 + 延迟直方图）、GET /api/admin/metrics 与管理端指标面板、T25
+- [x] ZCode 分支 r5/core 分块④：src/ratelimit.c 登录防爆破与写操作令牌桶限流（纯函数可单测），429 LOGIN_LOCKED/RATE_LIMITED，四个新 CLI 参数，T23/T24 与限流纯函数单测
+- [x] ZCode 分块⑤：容量制 schema v3（slots.capacity、退役单占用唯一索引、promote_fill 连续补位、publish capacity、前端已约 X/Y），T26 与容量/迁移单测
+- [x] 修复三个实测缺陷：publish_slots 变参宽度错位（int 经 'i' 绑定致 CHECK 失败）、RateBucket 哨兵与时间戳 0 碰撞（t=0 边界单测暴露）、T26 测试自身丢失预约编号
+- [x] 合并与集成验证：解决 3 处行级冲突；单元 20/20；集成 29 项全绿（正常+加固各一轮，720 次并发零重复占用、20 次中断恢复正确）；-fanalyzer 零告警；浏览器端到端通过（容量显示/替代时段/指标面板），截图 docs/evidence/ui-r5/
+- [ ] 论文正文初稿（待大纲确认）
+

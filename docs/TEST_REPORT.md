@@ -1,9 +1,9 @@
 # 系统测试报告
 
-- 实验日期：2026-09-10（最近一轮完整实验 UTC 时间戳 2026-09-10T15:31:10Z）
+- 实验日期：2026-09-10/11（最近一轮合并后完整实验为第五轮集成版本）
 - 被测程序：`build/lab-booking.exe`（正式版）、`build/lab-booking-test.exe`（`TEST_FAULTS` 编译宏）、`build/*-harden.exe`（加固构建）
-- 测试脚本：`tests/integration.py`（Python 3 标准库，独立于被测 C 程序）与 `tests/unit.c`（Unity 框架单元测试）
-- 总体结论：**单元测试 16/16 通过；完整实验 24 项断言组全部通过**（`results.json` 中 `all_passed: true`）；浏览器端到端验收通过
+- 测试脚本：`tests/integration.py`（Python 3 标准库，独立于被测 C 程序）、`tests/unit.c`（Unity 框架单元测试）与 `tests/benchmark.py`（性能基准）
+- 总体结论：**单元测试 20/20 通过；合并后完整实验 29 项断言组全部通过**（正常与加固构建各一轮，720 次并发请求零重复占用、20 次中断恢复正确）；浏览器端到端验收通过
 - 原始证据目录：`artifacts/test-runs/`（含每轮实验独立数据库与服务器日志，失败亦保留）
 
 ## 一、实验环境与边界
@@ -14,7 +14,7 @@
 - p50/p95/max 为客户端测量（含连接与线程调度开销），只描述本机本条件，不代表生产容量。
 - **工具链限制（如实说明）**：本机 MinGW-w64 GCC 15.2 发行版不含 libasan/libubsan 运行库（已核实无 `libasan.a` 可链接），ASan/UBSan 动态内存检查不可用。替代方案为 `gcc -fanalyzer` 静态分析（第三节）、绑定参数类型静态核查（第四节）与加固构建运行验证（第八节）。
 
-## 二、单元测试（Unity，16 个用例）
+## 二、单元测试（Unity，20 个用例）
 
 `build/unit-tests.exe` 不经 HTTP 直接链接业务层，覆盖三个层次：
 
@@ -99,10 +99,28 @@ schema 由 v1 升至 v2：`reservations` 追加 `checked_in_at` 与 `cancel_reas
 
 截图与导出样本：`docs/evidence/ui-r3/`（01 待签到 → 06 管理端记录，及导出的 CSV 文件）。
 
-## 十、其他检查与证据文件
+## 十、第五轮实验（限流防爆破、运行指标、容量制）
+
+双智能体并行开发（WorkBuddy：CI/基准/指标；ZCode：限流/容量制）合并后重跑，最近一轮完整实验 29 项断言组全部通过（正常与加固构建各一轮，`docs/evidence/results-full-merge*/`）。单元测试扩至 20 个：新增令牌桶（burst 用尽、999ms 不足补充、逐秒补充、闲置不囤积）、登录锁定（阈值触发、锁定内拒绝、到期解锁、成功清零）、容量补位循环（FIFO 连续补位至满员、已持席位再约 409、队列空取消不补位、余位直约）、v2→v3 迁移实测（构造 v2 库重开：列追加、单占用索引退役、user_version=3、旧行默认容量、迁移后完整性通过）、超容量落库必被 db_check 发现。
+
+| 编号 | 内容 | 结果 |
+| --- | --- | --- |
+| T23 | 同用户名连续错误登录达阈值（--login-max-fails 3）后正确密码也 429 LOGIN_LOCKED；其他账号不受影响；--login-lockout 1 秒后自动解锁 | 通过 |
+| T24 | 已登录用户写操作超过 --rate-burst 3 后第 4 次 429 RATE_LIMITED；约 1 秒补充窗口后恢复 | 通过 |
+| T25 | /api/admin/metrics 请求计数随请求递增；非管理员 403、匿名 401 | 通过 |
+| T26 | 发布 capacity=3 场次：3 席占满后第 4 人 409；列表 capacity/confirmed_count 一致；取消触发 FIFO 补位至 3；已约者再约 409 ALREADY_RESERVED；满员可候补 | 通过 |
+| T10 | 并发实验在独立实例关闭限流（--rate-burst 100000）后重跑：80 轮 720 请求仍每轮恰 1 个成功、零忙碌失败 | 通过 |
+
+**容量制语义变更（论文要点）**：单占用唯一索引退役，容量约束改由 BEGIN IMMEDIATE 单写者事务内校验保证——并发正确性论证从"唯一索引兜底"演进为"串行化写事务 + 容量不变量"。v2→v3 幂等迁移经构造的 v2 库实测通过。开发中实测修复两个新缺陷：`publish_slots` 以 int 形参传入 8 字节变参绑定（'i' 格式）导致 CHECK 约束失败、种子初始化失败；RateBucket 以 last_ms==0 兼作初始化哨兵与合法时间戳 0 碰撞，t=0 边界单测暴露后改用显式 started 标志。另发现并修复一处测试自身缺陷（T26 初版丢弃初始预约编号导致误触发 ALREADY_RESERVED）。
+
+**浏览器端到端（第五轮）**：发布容量=3 场次 → 场次卡显示"已约 0/3"；多用户占座后计数实时更新为"已约 3/3 已满"；user04 以过期视图点击 → SLOT_FULL → 替代时段面板正确按容量判空闲 → 一键改约成功；管理端"运行指标"面板渲染请求计数与延迟直方图。截图：`docs/evidence/ui-r5/`。
+
+**性能基准**：`tests/benchmark.py` 独立实验（E1 读性能、E2 同场次 vs 异场次写争用），数据见 `docs/evidence/benchmark/`。
+
+## 十一、其他检查与证据文件
 
 - `--check` 命令行数据库完整性检查：通过；正式版拒绝 `--fault` 系列参数：按预期。
-- `docs/evidence/results-full/results.json`、`concurrency.csv`——本轮完整实验（24 项断言组）；
-- `docs/evidence/unit-tests.txt`——单元测试输出（16/16）；
-- `docs/evidence/ui-r3/`——浏览器验收截图与导出的 CSV；
+- `docs/evidence/results-full-merge/results.json`——合并后完整实验（29 项，正常构建）；`results-full-merge-harden/`——加固构建；
+- `docs/evidence/unit-tests.txt`——单元测试输出；`docs/evidence/benchmark/`——性能基准数据；
+- `docs/evidence/ui-r3/`、`ui-r5/`——浏览器验收截图与导出的 CSV；
 - `artifacts/test-runs/`——原始数据库与服务器日志（本地保留，不入库）。
