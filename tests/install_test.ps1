@@ -214,9 +214,11 @@ Step 'stop the service' {
   $svcId = $null
   $pidFile = Join-Path $global:InstallWorkDir 'data\demo.pid'
   if (Test-Path $pidFile) { $svcId = [int]((Get-Content $pidFile | Select-Object -First 1).Trim()) }
-  # 用 taskkill 按进程名强制终止：沙箱内 Get-Process/Stop-Process 可能对目标进程不可见，cmd 级更强
+  # 服务可能已随父进程退出，taskkill 找不到进程属正常，不是失败；临时放宽错误处理
+  $ErrorActionPreference = 'Continue'
   & taskkill.exe /F /IM lab-booking.exe *> $null
   if ($svcId) { & taskkill.exe /F /PID $svcId *> $null }
+  $ErrorActionPreference = 'Stop'
   Start-Sleep -Milliseconds 800
   $alive = [bool](Get-Process -Name 'lab-booking' -ErrorAction SilentlyContinue)
   if ($alive) { return "WARN: 服务进程未能停止（沙箱进程隔离，已尽力）：pid=$svcId" }
