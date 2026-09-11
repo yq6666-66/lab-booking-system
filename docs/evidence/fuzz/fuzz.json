@@ -1,0 +1,11 @@
+{
+  "rounds": 60,
+  "workers": 4,
+  "requests": 240,
+  "4xx": 239,
+  "5xx": 0,
+  "transport_errors": 0,
+  "process_alive": true,
+  "integrity": "ok",
+  "passed": true
+}

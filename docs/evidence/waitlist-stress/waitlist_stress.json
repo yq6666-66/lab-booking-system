@@ -1,0 +1,11 @@
+{
+  "users": 10,
+  "labs": 3,
+  "reserved": 3,
+  "waitlisted": 7,
+  "wait_full": 7,
+  "errors": 0,
+  "promoted": 3,
+  "fifo_ok": true,
+  "passed": true
+}

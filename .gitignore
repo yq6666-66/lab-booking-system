@@ -1,0 +1,14 @@
+/build/
+/data/
+/vendor/
+/artifacts/
+/tests/results*/
+/.mimosa/
+__pycache__/
+*.db
+*.db-wal
+*.db-shm
+*.exe
+*.o
+*.dll
+/.playwright-mcp/

@@ -1,0 +1,24 @@
+tests/unit.c:404:test_parse_id:PASS
+tests/unit.c:405:test_uuid_valid:PASS
+tests/unit.c:406:test_date_start:PASS
+tests/unit.c:407:test_date_text_roundtrip:PASS
+tests/unit.c:408:test_hash_and_random:PASS
+tests/unit.c:409:test_result_envelope:PASS
+tests/unit.c:410:test_seed_shape_and_invariants:PASS
+tests/unit.c:411:test_over_capacity_detected:PASS
+tests/unit.c:412:test_wait_guards:PASS
+tests/unit.c:413:test_reserve_conflict_and_alternatives:PASS
+tests/unit.c:414:test_wait_queue_idempotent_reentry:PASS
+tests/unit.c:415:test_stats_totals_match_sql:PASS
+tests/unit.c:416:test_hex_and_page_args:PASS
+tests/unit.c:417:test_checkin_business:PASS
+tests/unit.c:418:test_notify_sessions_and_password:PASS
+tests/unit.c:419:test_db_check_rejects_coexistence:PASS
+tests/unit.c:420:test_bucket_allow:PASS
+tests/unit.c:421:test_login_guard:PASS
+tests/unit.c:422:test_capacity_fill_and_promotion:PASS
+tests/unit.c:423:test_v2_to_v3_migration:PASS
+
+-----------------------
+20 Tests 0 Failures 0 Ignored 
+OK

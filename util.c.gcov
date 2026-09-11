@@ -1,0 +1,256 @@
+        -:    0:Source:src/util.c
+        -:    0:Graph:C:\Users\admin\Desktop\��ҵ���\build\cov_util.gcno
+        -:    0:Data:C:\Users\admin\Desktop\��ҵ���\build\cov_util.gcda
+        -:    0:Runs:3
+        -:    1:#include "app.h"
+        -:    2:#include <sodium.h>
+        -:    3:#include <string.h>
+        -:    4:#include <stdio.h>
+        -:    5:#include <stdlib.h>
+        -:    6:#include <errno.h>
+        -:    7:#include <time.h>
+        -:    8:#include <ctype.h>
+function now_sec called 1256 returned 100% blocks executed 100%
+     1256:    9:Id now_sec(void){ return (Id)time(NULL); }
+call    0 returned 100%
+function parse_id called 146 returned 100% blocks executed 100%
+      146:   10:int parse_id(const char *s,Id *out){
+      146:   11: if(!s||!*s||strlen(s)>18) return 0;
+branch  0 taken 99% (fallthrough)
+branch  1 taken 1%
+branch  2 taken 99% (fallthrough)
+branch  3 taken 1%
+branch  4 taken 1% (fallthrough)
+branch  5 taken 99%
+      347:   12: for(const char *p=s;*p;p++) if(*p<'0'||*p>'9') return 0;
+branch  0 taken 99% (fallthrough)
+branch  1 taken 1%
+branch  2 taken 1% (fallthrough)
+branch  3 taken 99%
+branch  4 taken 60%
+branch  5 taken 40% (fallthrough)
+      139:   13: errno=0; char *end; long long n=strtoll(s,&end,10);
+call    0 returned 100%
+call    1 returned 100%
+      139:   14: if(errno||*end||n<=0) return 0;
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+branch  3 taken 100% (fallthrough)
+branch  4 taken 0%
+branch  5 taken 1% (fallthrough)
+branch  6 taken 99%
+      137:   15: *out=(Id)n; return 1;
+        -:   16:}
+function uuid_valid called 16 returned 100% blocks executed 88%
+       16:   17:int uuid_valid(const char *s){
+       16:   18: if(!s||strlen(s)!=36) return 0;
+branch  0 taken 94% (fallthrough)
+branch  1 taken 6%
+branch  2 taken 27% (fallthrough)
+branch  3 taken 73%
+     407*:   19: for(int i=0;i<36;i++){ if(i==8||i==13||i==18||i==23){if(s[i]!='-')return 0;}else if(!isxdigit((unsigned char)s[i]))return 0; }
+branch  0 taken 97% (fallthrough)
+branch  1 taken 3%
+branch  2 taken 97% (fallthrough)
+branch  3 taken 3%
+branch  4 taken 97% (fallthrough)
+branch  5 taken 3%
+branch  6 taken 3% (fallthrough)
+branch  7 taken 97%
+branch  8 taken 0% (fallthrough)
+branch  9 taken 100%
+branch 10 taken 0% (fallthrough)
+branch 11 taken 100%
+branch 12 taken 97%
+branch 13 taken 3% (fallthrough)
+       11:   20: return 1;
+        -:   21:}
+function hex_token called 6 returned 100% blocks executed 100%
+        6:   22:int hex_token(const char *s,size_t len){
+        6:   23: if(!s||strlen(s)!=len) return 0;
+branch  0 taken 83% (fallthrough)
+branch  1 taken 17%
+branch  2 taken 40% (fallthrough)
+branch  3 taken 60%
+       50:   24: for(size_t i=0;i<len;i++) if(!isxdigit((unsigned char)s[i])) return 0;
+branch  0 taken 2% (fallthrough)
+branch  1 taken 98%
+branch  2 taken 96%
+branch  3 taken 4% (fallthrough)
+        2:   25: return 1;
+        -:   26:}
+function page_arg called 22 returned 100% blocks executed 100%
+       22:   27:int page_arg(const char *s,int fallback,int min,int max){
+       22:   28: Id n=0;
+       22:   29: if(!s||!*s) return fallback;
+branch  0 taken 95% (fallthrough)
+branch  1 taken 5%
+branch  2 taken 24% (fallthrough)
+branch  3 taken 76%
+       16:   30: if(!parse_id(s,&n)||n<(Id)min||n>(Id)max) return -1;
+call    0 returned 100%
+branch  1 taken 88% (fallthrough)
+branch  2 taken 12%
+branch  3 taken 100% (fallthrough)
+branch  4 taken 0%
+branch  5 taken 7% (fallthrough)
+branch  6 taken 93%
+       13:   31: return (int)n;
+        -:   32:}
+function date_start called 45 returned 100% blocks executed 100%
+       45:   33:Id date_start(const char *s){
+       45:   34: if(!s||strlen(s)!=10||s[4]!='-'||s[7]!='-') return -1;
+branch  0 taken 98% (fallthrough)
+branch  1 taken 2%
+branch  2 taken 98% (fallthrough)
+branch  3 taken 2%
+branch  4 taken 98% (fallthrough)
+branch  5 taken 2%
+branch  6 taken 0% (fallthrough)
+branch  7 taken 100%
+      452:   35: for(int i=0;i<10;i++) if(i!=4&&i!=7&&(s[i]<'0'||s[i]>'9')) return -1;
+branch  0 taken 90% (fallthrough)
+branch  1 taken 10%
+branch  2 taken 89% (fallthrough)
+branch  3 taken 11%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+branch  6 taken 1% (fallthrough)
+branch  7 taken 100%
+branch  8 taken 91%
+branch  9 taken 9% (fallthrough)
+       41:   36: int y=(s[0]-'0')*1000+(s[1]-'0')*100+(s[2]-'0')*10+s[3]-'0';
+       41:   37: int m=(s[5]-'0')*10+s[6]-'0',d=(s[8]-'0')*10+s[9]-'0';
+       41:   38: if(y<1970||y>2100||m<1||m>12) return -1;
+branch  0 taken 98% (fallthrough)
+branch  1 taken 2%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 98% (fallthrough)
+branch  5 taken 2%
+branch  6 taken 3% (fallthrough)
+branch  7 taken 97%
+       38:   39: int days[]={31,28,31,30,31,30,31,31,30,31,30,31};
+       38:   40: if(y%4==0&&(y%100!=0||y%400==0)) days[1]=29;
+branch  0 taken 13% (fallthrough)
+branch  1 taken 87%
+branch  2 taken 60% (fallthrough)
+branch  3 taken 40%
+branch  4 taken 67% (fallthrough)
+branch  5 taken 33%
+       38:   41: if(d<1||d>days[m-1])return -1;
+branch  0 taken 97% (fallthrough)
+branch  1 taken 3%
+branch  2 taken 3% (fallthrough)
+branch  3 taken 97%
+     1958:   42: Id n=d-1; for(int a=1970;a<y;a++)n+=365+(a%4==0&&(a%100!=0||a%400==0));
+branch  0 taken 25% (fallthrough)
+branch  1 taken 75%
+branch  2 taken 7% (fallthrough)
+branch  3 taken 93%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+branch  6 taken 98%
+branch  7 taken 2% (fallthrough)
+      277:   43: for(int a=0;a<m-1;a++) n+=days[a];
+branch  0 taken 87%
+branch  1 taken 13% (fallthrough)
+       36:   44: return n*86400-28800;
+        -:   45:}
+function date_text called 29 returned 100% blocks executed 93%
+       29:   46:void date_text(Id day,char out[11]){
+       29:   47: if(day<0)day=0;
+branch  0 taken 3% (fallthrough)
+branch  1 taken 97%
+      29*:   48: if(day>2932895)day=2932895; /* 防御性钳制，正常输入来自 SQL 日分组 */
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+       29:   49: Id y=1970;
+     1587:   50: while(y<9999&&day>=365+(y%4==0&&(y%100!=0||y%400==0))){day-=365+(y%4==0&&(y%100!=0||y%400==0));y++;}
+branch  0 taken 25% (fallthrough)
+branch  1 taken 75%
+branch  2 taken 7% (fallthrough)
+branch  3 taken 93%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+branch  6 taken 100% (fallthrough)
+branch  7 taken 0%
+branch  8 taken 25% (fallthrough)
+branch  9 taken 75%
+branch 10 taken 7% (fallthrough)
+branch 11 taken 93%
+branch 12 taken 96% (fallthrough)
+branch 13 taken 4%
+branch 14 taken 98%
+branch 15 taken 2% (fallthrough)
+       29:   51: int mdays[]={31,(int)(y%4==0&&(y%100!=0||y%400==0)?29:28),31,30,31,30,31,31,30,31,30,31},m=1;
+branch  0 taken 10% (fallthrough)
+branch  1 taken 90%
+branch  2 taken 67% (fallthrough)
+branch  3 taken 33%
+branch  4 taken 50% (fallthrough)
+branch  5 taken 50%
+      227:   52: while(m<12&&day>=mdays[m-1]){day-=mdays[m-1];m++;}
+branch  0 taken 100% (fallthrough)
+branch  1 taken 1%
+branch  2 taken 88%
+branch  3 taken 12% (fallthrough)
+      29*:   53: if(day>30)day=30;
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+       29:   54: snprintf(out,11,"%04d-%02d-%02d",(int)y,m,(int)day+1);
+       29:   55:}
+function jstr called 715 returned 100% blocks executed 100%
+      715:   56:const char *jstr(const cJSON *j,const char *key){ cJSON *v=cJSON_GetObjectItemCaseSensitive(j,key);return cJSON_IsString(v)?v->valuestring:NULL; }
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 99% (fallthrough)
+branch  3 taken 1%
+function jid called 239 returned 100% blocks executed 100%
+      239:   57:void jid(cJSON *j,const char *key,Id id){char buf[32];snprintf(buf,sizeof buf,"%lld",(long long)id);cJSON_AddStringToObject(j,key,buf);}
+call    0 returned 100%
+function hash_text called 82 returned 100% blocks executed 100%
+       82:   58:void hash_text(const char *s,char out[65]){unsigned char h[32];crypto_generichash(h,sizeof h,(const unsigned char*)s,strlen(s),NULL,0);sodium_bin2hex(out,65,h,sizeof h);}
+call    0 returned 100%
+call    1 returned 100%
+function random_hex called 12 returned 100% blocks executed 100%
+       12:   59:void random_hex(char out[65]){unsigned char b[32];randombytes_buf(b,sizeof b);sodium_bin2hex(out,65,b,sizeof b);}
+call    0 returned 100%
+call    1 returned 100%
+function result called 87 returned 100% blocks executed 79%
+       87:   60:Result result(int status,const char *code,const char *message,cJSON *data){
+      87*:   61: cJSON *b=cJSON_CreateObject();if(!b){cJSON_Delete(data);return (Result){500,NULL};}
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       87:   62: cJSON_AddStringToObject(b,"code",code);cJSON_AddStringToObject(b,"message",message);cJSON_AddItemToObject(b,"data",data?data:cJSON_CreateObject());return (Result){status,b};
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 16% (fallthrough)
+branch  3 taken 84%
+call    4 returned 100%
+call    5 returned 100%
+        -:   63:}
+function db_failure called 0 returned 0% blocks executed 0%
+    #####:   64:Result db_failure(DB *d){int e=d->error&255;return result(e==SQLITE_BUSY||e==SQLITE_LOCKED||e==SQLITE_INTERRUPT?503:500,e==SQLITE_BUSY||e==SQLITE_LOCKED||e==SQLITE_INTERRUPT?"DATABASE_BUSY":"INTERNAL_ERROR",e==SQLITE_INTERRUPT?"查询超时被看门狗打断，请稍后重试":e==SQLITE_BUSY||e==SQLITE_LOCKED?"数据库忙碌，请使用原请求编号重试":"服务处理失败，请稍后重试",NULL);}
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+branch  4 never executed (fallthrough)
+branch  5 never executed
+branch  6 never executed (fallthrough)
+branch  7 never executed
+branch  8 never executed (fallthrough)
+branch  9 never executed
+branch 10 never executed (fallthrough)
+branch 11 never executed
+branch 12 never executed (fallthrough)
+branch 13 never executed
+branch 14 never executed (fallthrough)
+branch 15 never executed
+branch 16 never executed (fallthrough)
+branch 17 never executed
+call   18 never executed

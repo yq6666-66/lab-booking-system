@@ -1,0 +1,172 @@
+        -:    0:Source:src/ratelimit.c
+        -:    0:Graph:C:\Users\admin\Desktop\��ҵ���\build\cov_ratelimit.gcno
+        -:    0:Data:C:\Users\admin\Desktop\��ҵ���\build\cov_ratelimit.gcda
+        -:    0:Runs:3
+        -:    1:/* r5/security：登录防爆破与写操作限流。判定逻辑为纯函数（可单测），存储为进程内存态哈希表，重启清零。 */
+        -:    2:#include "app.h"
+        -:    3:#include <windows.h>
+        -:    4:#include <stdio.h>
+        -:    5:#include <string.h>
+        -:    6:
+        -:    7:/* 令牌桶：tokens 以毫令为单位，每 refill_sec 秒补充 1000 毫令，上限 burst*1000。 */
+function bucket_allow called 35 returned 100% blocks executed 100%
+       35:    8:int bucket_allow(RateBucket *b,Id now_ms,int burst,int refill_sec){
+       35:    9: if(!b||burst<1||refill_sec<1)return 1;
+branch  0 taken 97% (fallthrough)
+branch  1 taken 3%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+       34:   10: if(!b->started){b->started=1;b->tokens=(double)burst*1000.0;b->last_ms=now_ms;}
+branch  0 taken 21% (fallthrough)
+branch  1 taken 79%
+       27:   11: else if(now_ms>b->last_ms){
+branch  0 taken 33% (fallthrough)
+branch  1 taken 67%
+        9:   12:  b->tokens+=(double)(now_ms-b->last_ms)/(double)refill_sec;
+        9:   13:  if(b->tokens>(double)burst*1000.0)b->tokens=(double)burst*1000.0;
+branch  0 taken 11% (fallthrough)
+branch  1 taken 89%
+        9:   14:  b->last_ms=now_ms;
+        -:   15: }
+       34:   16: if(b->tokens>=1000.0){b->tokens-=1000.0;return 1;}
+branch  0 taken 79% (fallthrough)
+branch  1 taken 21%
+        7:   17: return 0;
+        -:   18:}
+function login_allow called 11 returned 100% blocks executed 100%
+       11:   19:int login_allow(const LoginGuard *g,Id now_ms){return !g||g->locked_until<=now_ms;}
+branch  0 taken 91% (fallthrough)
+branch  1 taken 9%
+branch  2 taken 90% (fallthrough)
+branch  3 taken 10%
+function login_record_fail called 4 returned 100% blocks executed 83%
+        4:   20:void login_record_fail(LoginGuard *g,Id now_ms,int max_fails,int lockout_sec){
+       4*:   21: if(!g||max_fails<1)return;
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        4:   22: g->fails++;
+        4:   23: if(g->fails>=max_fails){g->locked_until=now_ms+(Id)lockout_sec*1000;g->fails=0;}
+branch  0 taken 25% (fallthrough)
+branch  1 taken 75%
+        -:   24:}
+function login_record_ok called 6 returned 100% blocks executed 100%
+        6:   25:void login_record_ok(LoginGuard *g){if(g){g->fails=0;g->locked_until=0;}}
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -:   26:
+        -:   27:typedef struct { char key[80]; RateBucket bucket; LoginGuard guard; } Entry;
+        -:   28:static Entry table[1024];
+        -:   29:static SRWLOCK rl_lock=SRWLOCK_INIT;
+        -:   30:static int cfg_burst=30,cfg_refill=1,cfg_maxfails=5,cfg_lockout=900;
+function rl_configure called 2 returned 100% blocks executed 91%
+        2:   31:void rl_configure(const Config *c){
+       2*:   32: if(!c)return;
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        2:   33: if(c->rate_burst>0)cfg_burst=c->rate_burst;
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        2:   34: if(c->rate_refill_sec>0)cfg_refill=c->rate_refill_sec;
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        2:   35: if(c->login_max_fails>0)cfg_maxfails=c->login_max_fails;
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        2:   36: if(c->login_lockout>0)cfg_lockout=c->login_lockout;
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -:   37:}
+function entry_get called 26 returned 100% blocks executed 83%
+       26:   38:static Entry *entry_get(const char *key){ /* 调用方持锁；表满时返回 NULL（放行，不因限流器故障拒绝服务） */
+       26:   39: unsigned idx=0;
+      152:   40: for(const char *p=key;*p;p++)idx=idx*131u+(unsigned char)*p;
+branch  0 taken 83%
+branch  1 taken 17% (fallthrough)
+       26:   41: idx&=1023u;
+      26*:   42: for(int i=0;i<1024;i++){
+branch  0 taken 100%
+branch  1 taken 0% (fallthrough)
+       26:   43:  Entry *e=&table[(idx+(unsigned)i)&1023u];
+       26:   44:  if(!e->key[0]){snprintf(e->key,sizeof e->key,"%s",key);return e;}
+branch  0 taken 38% (fallthrough)
+branch  1 taken 62%
+       16:   45:  if(!strcmp(e->key,key))return e;
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -:   46: }
+    #####:   47: return NULL;
+        -:   48:}
+function rl_login_gate called 5 returned 100% blocks executed 91%
+        5:   49:int rl_login_gate(const char *username){
+       5*:   50: char key[80];snprintf(key,sizeof key,"L:%s",username?username:"");
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        5:   51: Id now=now_sec()*1000;int ok=1;
+call    0 returned 100%
+        5:   52: AcquireSRWLockExclusive(&rl_lock);
+call    0 returned 100%
+        5:   53: Entry *e=entry_get(key);
+call    0 returned 100%
+        5:   54: if(e)ok=login_allow(&e->guard,now);
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+call    2 returned 100%
+        5:   55: ReleaseSRWLockExclusive(&rl_lock);
+call    0 returned 100%
+        5:   56: return ok;
+        -:   57:}
+function rl_login_fail called 0 returned 0% blocks executed 0%
+    #####:   58:void rl_login_fail(const char *username){
+    #####:   59: char key[80];snprintf(key,sizeof key,"L:%s",username?username:"");
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:   60: Id now=now_sec()*1000;
+call    0 never executed
+    #####:   61: AcquireSRWLockExclusive(&rl_lock);
+call    0 never executed
+    #####:   62: Entry *e=entry_get(key);
+call    0 never executed
+    #####:   63: if(e)login_record_fail(&e->guard,now,cfg_maxfails,cfg_lockout);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+    #####:   64: ReleaseSRWLockExclusive(&rl_lock);
+call    0 never executed
+    #####:   65:}
+function rl_login_ok called 5 returned 100% blocks executed 89%
+        5:   66:void rl_login_ok(const char *username){
+       5*:   67: char key[80];snprintf(key,sizeof key,"L:%s",username?username:"");
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        5:   68: AcquireSRWLockExclusive(&rl_lock);
+call    0 returned 100%
+        5:   69: Entry *e=entry_get(key);
+call    0 returned 100%
+        5:   70: if(e)login_record_ok(&e->guard);
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+call    2 returned 100%
+        5:   71: ReleaseSRWLockExclusive(&rl_lock);
+call    0 returned 100%
+        5:   72:}
+function rl_consume called 16 returned 100% blocks executed 100%
+       16:   73:int rl_consume(Id user_id){
+       16:   74: char key[80];snprintf(key,sizeof key,"U:%lld",(long long)user_id);
+       16:   75: Id now=now_sec()*1000;int ok=1;
+call    0 returned 100%
+       16:   76: AcquireSRWLockExclusive(&rl_lock);
+call    0 returned 100%
+       16:   77: Entry *e=entry_get(key);
+call    0 returned 100%
+       16:   78: if(e)ok=bucket_allow(&e->bucket,now,cfg_burst,cfg_refill);
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+call    2 returned 100%
+       16:   79: ReleaseSRWLockExclusive(&rl_lock);
+call    0 returned 100%
+       16:   80: return ok;
+        -:   81:}
