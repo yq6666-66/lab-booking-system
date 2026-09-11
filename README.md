@@ -53,6 +53,10 @@ powershell -File scripts/start-demo.ps1 -Password 'Demo-Lab-2026'
 #    -Reset 参数可清空旧演示数据重新开始
 ```
 
+> 部署提示：可执行文件依赖同目录下的 `build/libsodium-26.dll`（构建脚本已就位）。
+> 迁移到其他机器时请将 `lab-booking.exe`、`libsodium-26.dll` 与 `web/` 一起复制；
+> `tests/install_test.ps1` 会按此清单在空目录完整演练一遍部署流程。
+
 | 演示账号 | 说明 |
 | --- | --- |
 | `admin` | 管理员（实验室管理、场次发布、统计导出、运行指标） |

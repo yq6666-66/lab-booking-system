@@ -15,18 +15,19 @@
 | 6 | **安全测试** | T23/T24/T05 + fuzz.py + **security_test.py** + 限流/防爆破/CSRF | 限流/防爆破/越权/注入/CSRF/Origin/**SQL 注入 20 载荷**/**时序侧信道** | ✅ 全过 | results-full-merge/, fuzz/, security_results.json |
 | 7 | **白盒测试** | unit.c 直调内部函数（不做 HTTP） | 语句缓存/线程复用/看门狗/迁移实测 | ✅ 全过 | unit-tests.txt |
 | 8 | **黑盒测试** | integration.py 经 HTTP（不知内部实现） | 全部 33 项集成断言组 | ✅ 全过 | results-full-merge/ |
-| 9 | **灰盒测试** | tests/graybox_test.py（WB 交付） | API 驱动 + DB 直查交叉验证 | ✅ 脚本就绪 | 运行输出 |
+| 9 | **灰盒测试** | tests/graybox_test.py | API 驱动 + DB 直查交叉验证（G1–G7：注册落库/审计链/幂等回执/补位通知/改密轮换） | ✅ 全过 | 运行输出 |
 | 10 | **静态测试** | gcc -fanalyzer + 绑定参数核查 + 加固构建 | 全源码分析 + FORTIFY/SSP | ✅ 零告警 | 构建日志 |
 | 11 | **动态测试** | 全部运行时测试（1–8、10 之外的运行时验证） | 所有需要启动服务并交互的测试 | ✅ 全过 | 各证据目录 |
 | 12 | **自动化测试** | CI 三 job（GitHub Actions） | push 触发：构建+单元+快速集成+静态分析 | ✅ 运行中 | GitHub Actions |
 | 13 | **手工测试** | docs/test/manual_test_cases.md | 12 个手工用例（含步骤/预期/实际/结论列） | 📋 脚本就绪 | 本文档 |
 | 14 | **兼容性测试** | schema 迁移实测 + docs/BROWSER_COMPAT.md | v1→v3 迁移实测 + 浏览器矩阵声明 | ✅ 通过 | docs/BROWSER_COMPAT.md |
-| 15 | **文档测试** | tests/doc_test.py（WB 交付） | README/CONTRACT 与实际 API 一致性 | ✅ 脚本就绪 | 运行输出 |
+| 15 | **文档测试** | tests/doc_test.py | CONTRACT 端点存在性 21 项 + 默认值/业务码 + 版本一致 + README 文件引用 11 项 | ✅ 全过 | 运行输出 |
 | 16 | **易用性测试** | docs/test/usability_checklist.md | Nielsen 10 原则逐项评估 | 📋 已评估 | 本文档 |
 | 17 | **界面测试** | 截图存证（ui-r3/ui-r5）+ 响应式断言 | 桌面/窄屏/移动布局 | ✅ 通过 | docs/evidence/ui-r5/ |
-| 18 | **安装测试** | tests/install_test.ps1（WB 交付） | 全新环境部署（构建→种子→启动→验证→清理） | ✅ 脚本就绪 | 运行输出 |
-| 19 | **第三方测试** | tests/vendor_verify.py（WB 交付） | SHA256 逐项核对 vendor 组件完整性 | ✅ 脚本就绪 | 运行输出 |
-| 20 | **模糊测试** | tests/fuzz.py | 240 次畸形输入，零崩溃零 5xx | ✅ 通过 | docs/evidence/fuzz/ |
+| 18 | **安装测试** | tests/install_test.ps1 | 空目录全流程部署（复制→初始化→重装幂等→健康→完整性→清理），已抓获 DLL 缺失缺陷 | ✅ 全过 | 运行输出 |
+| 19 | **第三方测试** | tests/vendor_verify.py + vendor_manifest.json | 锁文件结构 + 1096 个 vendored 文件 SHA256 漂移检测（含篡改自检） | ✅ 全过 | tests/vendor_manifest.json |
+| 20 | **模糊测试** | tests/fuzz.py | 720 次畸形输入并发，零崩溃零 5xx，库完整性 ok | ✅ 通过 | docs/evidence/fuzz/ |
+| 21 | **契约测试** | tests/contract_test.py | 19 组端点封套与字段类型断言（三键封套/编号字符串化/capacity 1..200/计数器守恒） | ✅ 全过 | 运行输出 |
 | 21 | **浸泡测试** | tests/soak.py | 34970 请求 60s，工作集 +3MB，句柄 +44 | ✅ 通过 | docs/evidence/soak/ |
 | 22 | **混沌工程** | tests/chaos.py（WB 交付） | 随机 SIGKILL + 完整性验证 | ✅ 脚本就绪 | 运行输出 |
 | 23 | **并发压力** | tests/waitlist_stress.py | 多用户竞争候补 FIFO 公平性 | ✅ 通过 | docs/evidence/waitlist-stress/ |
