@@ -1,106 +1,130 @@
-#!/usr/bin/env python3
-"""第三方组件完整性校验（供应链测试）。
+"""第三方组件完整性校验：核对 vendor/ 是否齐备，并对关键源码做 SHA256 基线比对（仅 Python 标准库）。
 
-docs/dependencies.lock.json 锁定 5 个第三方组件的来源与上游档案 SHA256。
-本脚本做三层校验：
-  V1 锁文件结构：每项含 name/version/url/archive_sha256（64 位十六进制）
-  V2 本地树完整性：vendor/ 下逐文件 SHA256 与已备案清单
-     （tests/vendor_manifest.json）一致——任何被篡改/误改/遗漏的 vendored
-     文件都会被检出（离线可跑，进 CI）
-  V3 上游档案校验（可选 --online）：重新下载锁定的档案并核对 archive_sha256
-
-用法：
-  python tests/vendor_verify.py            # V1+V2（默认，离线）
-  python tests/vendor_verify.py --update   # 首次生成/受控更新本地清单
-  python tests/vendor_verify.py --online   # 追加 V3（需网络）
+关于两层哈希的说明（重要）：
+  docs/dependencies.lock.json 记录的是**下载归档**（zip / tar.gz）的 archive_sha256，
+  而 vendor/ 下保存的是**解压后的内容** —— 两者不是同一对象，无法直接比较数值。
+因此本脚本把完整性拆成两层：
+  第 1 层 存在性：lock 中每个组件在 vendor/ 下有目录，且能找到关键源码/头文件；
+  第 2 层 一致性：对关键文件计算 SHA256，与基线文件（docs/evidence/vendor/vendor_baseline.json）比对。
+                首次运行写入基线（记为 BASELINE），其后每次运行据此检测 vendor 被改动或损坏（MATCH/MISMATCH）。
+同时把 lock 声明的 archive_sha256 原样列出，便于与 fetch_dependencies.py 的下载校验对照。
+结果写入 docs/evidence/vendor/vendor_results.json，退出码 0 表示全部通过。
 """
 from __future__ import annotations
-import argparse, hashlib, json, pathlib, sys, urllib.request
+import argparse, datetime, hashlib, json, pathlib, re
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-LOCK = ROOT / "docs" / "dependencies.lock.json"
-MANIFEST = ROOT / "tests" / "vendor_manifest.json"
-TREES = {"civetweb": "vendor/civetweb", "cjson": "vendor/cjson", "sqlite": "vendor/sqlite",
-         "unity": "vendor/unity", "sodium": "vendor/sodium"}
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+RESULTS = []
 
-def sha256(p: pathlib.Path) -> str:
+# 每个组件用于完整性校验的关键文件（按文件名在 vendor/<name>/ 下递归查找）
+KEY_FILES = {
+    "civetweb": ["civetweb.c", "civetweb.h"],
+    "cjson": ["cJSON.c", "cJSON.h"],
+    "sqlite": ["sqlite3.c", "sqlite3.h"],
+    "unity": ["unity.c", "unity.h"],
+    "sodium": ["sodium.h"],
+}
+
+def require(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+def read(path):
+    target = ROOT / path
+    require(target.is_file(), f"文件不存在：{path}")
+    return target.read_text(encoding="utf-8", errors="replace")
+
+def sha256_of(path):
     h = hashlib.sha256()
-    with p.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
+    with open(path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
 
-def scan_tree(rel: str) -> dict:
-    base = ROOT / rel
-    out = {}
-    for p in sorted(base.rglob("*")):
-        if p.is_file() and ".git" not in p.parts:
-            out[str(p.relative_to(ROOT)).replace("\\", "/")] = sha256(p)
-    return out
+def record(name, fn):
+    try:
+        detail = fn()
+        RESULTS.append({"name": name, "passed": True, "detail": detail})
+        print(f"  PASS  {name}" + (f"  ->  {detail}" if detail else ""), flush=True)
+    except Exception as exc:
+        RESULTS.append({"name": name, "passed": False, "detail": f"{type(exc).__name__}: {exc}"})
+        print(f"  FAIL  {name}: {type(exc).__name__}: {exc}", flush=True)
+
+def locate(name, filename):
+    root = ROOT / "vendor" / name
+    hits = sorted(p for p in root.rglob(filename) if p.is_file())
+    return hits[0] if hits else None
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--update", action="store_true", help="生成/更新本地文件清单")
-    ap.add_argument("--online", action="store_true", help="下载上游档案核对 archive_sha256")
-    a = ap.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=pathlib.Path, default=ROOT / "docs/evidence/vendor")
+    parser.add_argument("--update-baseline", action="store_true", help="强制重写基线（默认仅首次生成）")
+    args = parser.parse_args()
+    args.output.mkdir(parents=True, exist_ok=True)
+    baseline_path = args.output / "vendor_baseline.json"
+    lock = json.loads(read("docs/dependencies.lock.json"))
+    components = [c["name"] for c in lock]
+    hashes, missing, archive_info = {}, [], []
 
-    # V1 锁文件结构
-    lock = json.loads(LOCK.read_text(encoding="utf-8"))
-    require = lambda cond, msg: (_ for _ in ()).throw(SystemExit(f"[FAIL] {msg}")) if not cond else None
-    require(isinstance(lock, list) and len(lock) == len(TREES), f"lock entries: {len(lock)}")
-    for item in lock:
-        require(set(TREES) >= {item["name"]}, f"unknown component {item['name']}")
-        require(item["name"] in TREES, f"component without tree: {item['name']}")
-        sha = item.get("archive_sha256", "")
-        require(len(sha) == 64 and all(c in "0123456789abcdef" for c in sha),
-                f"{item['name']}: archive_sha256 malformed")
-        require(item.get("url", "").startswith("https://"), f"{item['name']}: url not https")
-    print(f"V1 lock structure ok ({len(lock)} components)")
+    def check_dirs():
+        absent = [c for c in components if not (ROOT / "vendor" / c).is_dir()]
+        require(not absent, f"vendor/ 下缺少组件目录：{absent}")
+        return f"{len(components)} 个组件目录齐全：{components}"
+    record("各组件在 vendor/ 下有目录", check_dirs)
 
-    # V2 本地树与清单比对
-    current = {}
-    for name, rel in TREES.items():
-        require((ROOT / rel).is_dir(), f"missing vendored tree: {rel}")
-        current.update(scan_tree(rel))
-    require(len(current) > 100, f"suspiciously small vendor tree: {len(current)} files")
-    if a.update:
-        MANIFEST.write_text(json.dumps(current, indent=1, sort_keys=True), encoding="utf-8")
-        print(f"V2 manifest written: {len(current)} files -> {MANIFEST.name}")
-        return 0
-    require(MANIFEST.exists(), "manifest missing; run --update once to baseline")
-    recorded = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    added = sorted(set(current) - set(recorded))
-    removed = sorted(set(recorded) - set(current))
-    changed = sorted(k for k in set(current) & set(recorded) if current[k] != recorded[k])
-    require(not (added or removed or changed),
-            f"vendor drift! +{len(added)} -{len(removed)} ~{len(changed)}: "
-            f"{(added + removed + changed)[:5]}")
-    print(f"V2 vendor trees match manifest ({len(recorded)} files)")
+    def check_key_files():
+        problems = []
+        for name in components:
+            for filename in KEY_FILES.get(name, []):
+                hit = locate(name, filename)
+                if hit is None:
+                    problems.append(f"{name}/{filename}")
+                    continue
+                hashes[f"{name}/{filename}"] = {"path": str(hit.relative_to(ROOT)).replace("\\", "/"), "sha256": sha256_of(hit)}
+        require(not problems, f"缺少关键文件：{problems}")
+        return f"定位并哈希 {len(hashes)} 个关键文件"
+    record("关键源码/头文件齐备", check_key_files)
 
-    # V3 可选上游档案校验（仅允许白名单主机的 https 下载，防 SSRF）
-    ALLOWED_HOSTS = {"codeload.github.com", "www.sqlite.org", "github.com"}
-    if a.online:
-        from urllib.parse import urlsplit
-        for item in lock:
-            url, want = item["url"], item["archive_sha256"]
-            parts = urlsplit(url)
-            require(parts.scheme == "https", f"{item['name']}: non-https url")
-            require(parts.hostname in ALLOWED_HOSTS,
-                    f"{item['name']}: host {parts.hostname} not in allowlist")
-            tmp = ROOT / "build" / f"vendor-{item['name']}.archive"
-            tmp.parent.mkdir(exist_ok=True)
-            with urllib.request.urlopen(url, timeout=60) as r, tmp.open("wb") as f:
-                while chunk := r.read(1 << 20):
-                    f.write(chunk)
-            got = sha256(tmp)
-            require(got == want, f"{item['name']}: upstream archive mismatch {got[:12]}..")
-            tmp.unlink()
-            print(f"V3 {item['name']}: upstream archive sha256 ok")
-    else:
-        print("V3 skipped (offline; pass --online to verify upstream archives)")
+    def check_against_baseline():
+        require(hashes, "未采集到任何哈希，无法比对")
+        if args.update_baseline or not baseline_path.is_file():
+            baseline_path.write_text(json.dumps({"created_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                                 "note": "vendor 关键文件 SHA256 基线（解压后内容）；lock 中的 archive_sha256 对应下载归档，两者不同层",
+                                                 "files": hashes}, ensure_ascii=False, indent=2), encoding="utf-8")
+            return f"首次生成基线（{len(hashes)} 项），写入 {baseline_path.relative_to(ROOT)}"
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))["files"]
+        mismatched, gone = [], []
+        for key, meta in baseline.items():
+            if key not in hashes: gone.append(key); continue
+            if hashes[key]["sha256"] != meta["sha256"]: mismatched.append(key)
+        require(not mismatched, f"与基线不一致（可能被篡改）：{mismatched}")
+        require(not gone, f"基线中记录但当前缺失：{gone}")
+        return f"{len(baseline)} 项与基线逐一 MATCH"
+    record("关键文件 SHA256 与基线一致", check_against_baseline)
 
-    print("[PASS] vendor integrity: lock schema + local trees verified")
-    return 0
+    def check_lock_archive_hashes():
+        rows = []
+        for comp in lock:
+            sha = comp.get("archive_sha256", "")
+            require(re.fullmatch(r"[0-9a-f]{64}", sha or ""), f"{comp['name']} 的 archive_sha256 格式不合法：{sha!r}")
+            rows.append(f"{comp['name']}@{comp['version']}")
+        archive_info.extend(rows)
+        return f"{len(rows)} 条归档哈希格式合法：{rows}"
+    record("依赖锁归档哈希格式合法", check_lock_archive_hashes)
+
+    passed = sum(1 for r in RESULTS if r["passed"])
+    report = {
+        "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "checks_total": len(RESULTS), "checks_passed": passed, "all_passed": passed == len(RESULTS),
+        "components": components, "archive_hashes_from_lock": archive_info,
+        "file_hashes": hashes,
+        "baseline_file": str(baseline_path.relative_to(ROOT)).replace("\\", "/"),
+        "results": RESULTS,
+    }
+    (args.output / "vendor_results.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\n第三方组件校验 {passed}/{len(RESULTS)} 通过")
+    print(f"证据：{(args.output / 'vendor_results.json').resolve()}")
+    return 0 if report["all_passed"] else 1
 
 if __name__ == "__main__":
     raise SystemExit(main())

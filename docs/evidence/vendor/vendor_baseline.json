@@ -1,0 +1,42 @@
+{
+  "created_utc": "2026-09-11T15:04:54.080048+00:00",
+  "note": "vendor 关键文件 SHA256 基线（解压后内容）；lock 中的 archive_sha256 对应下载归档，两者不同层",
+  "files": {
+    "civetweb/civetweb.c": {
+      "path": "vendor/civetweb/src/civetweb.c",
+      "sha256": "3902dfc0d366edce1bf62fd168a68293549f43003bbef6b748fa3953e65382f6"
+    },
+    "civetweb/civetweb.h": {
+      "path": "vendor/civetweb/include/civetweb.h",
+      "sha256": "25287dd17eb2aa660b3e2754d68e986373f7286e453eef569de44387f53a7942"
+    },
+    "cjson/cJSON.c": {
+      "path": "vendor/cjson/cJSON.c",
+      "sha256": "7d05ec953edbcff23f06b27f634839f95761b23cc784505b1294a130dfa20d26"
+    },
+    "cjson/cJSON.h": {
+      "path": "vendor/cjson/cJSON.h",
+      "sha256": "254db291898b17874be2503607afe483ecd80274effb427a88da9029b0a26e6b"
+    },
+    "sqlite/sqlite3.c": {
+      "path": "vendor/sqlite/sqlite3.c",
+      "sha256": "ea3304f2cb82a349f364ac99587595b8966bf63f9f9b7411c3a67fc7d09d8949"
+    },
+    "sqlite/sqlite3.h": {
+      "path": "vendor/sqlite/sqlite3.h",
+      "sha256": "ae2adf4845c818d3cc2200b2d8014ae775031f2edf685282dc2bdf008cb23c49"
+    },
+    "unity/unity.c": {
+      "path": "vendor/unity/src/unity.c",
+      "sha256": "f1d631143e4de4cc43aa976670f34f82400b587f2294969a5702791a8b2e5f2a"
+    },
+    "unity/unity.h": {
+      "path": "vendor/unity/src/unity.h",
+      "sha256": "e53b5069bfcf61722dcb47b141bf87c68dd2aa38ce6c7c05d81825f5cb20e968"
+    },
+    "sodium/sodium.h": {
+      "path": "vendor/sodium/libsodium-win64/include/sodium.h",
+      "sha256": "29d5d70a432320fb40bc1234302f2bf59ba2e78c5e61494b894d35b18e0feacf"
+    }
+  }
+}
