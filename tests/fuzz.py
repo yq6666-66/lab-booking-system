@@ -37,7 +37,7 @@ def main():
     with contextlib.ExitStack() as stack:
         server=Server(args.exe,run_dir/"srv",baseline);server.start()
         a=Client(server.port).login("user01")
-        rng=random.Random(20260911)
+        rng=random.SystemRandom()
         def round_robin(n):
             out=[]
             bodies=list(mutated_bodies(rng))

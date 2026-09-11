@@ -1,0 +1,16 @@
+{
+  "injection_payloads_tested": 20,
+  "injection_all_rejected": true,
+  "user_count_unchanged": true,
+  "timing_username": {
+    "valid_ms": 97.9,
+    "invalid_ms": 94.8,
+    "ratio": 1.03
+  },
+  "timing_password": {
+    "correct_ms": 97.6,
+    "wrong_ms": 91.3,
+    "ratio": 1.07
+  },
+  "passed": true
+}
