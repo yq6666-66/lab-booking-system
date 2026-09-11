@@ -30,8 +30,13 @@
 # 接手核验与论文阶段（第四轮）
 - [x] 接手核验：c914495 提交与远端推送属实；本地复跑通过——构建 + 单元测试 16/16、全量集成 25 项全绿（720 次并发零重复占用、20 次中断恢复正确）、-fanalyzer 零告警、加固构建 16+全量全绿
 - [x] 论文大纲与图表清单产出（docs/thesis/论文大纲.md），待确认后展开正文
-- [ ] 论文正文初稿（按确认后的大纲分章撰写，图表同步插入）
-- [ ] 答辩演示材料与演示脚本
+# 第七轮：论文与答辩交付
+- [x] 论文插图 6 张（matplotlib 中文绘制，docs/thesis/figures/）
+- [x] 论文初稿 docx：摘要（中英）+ 7 章 + 参考文献 + 致谢 + 附录，约 1.34 万字，4 表 6 图，实验数据全部对账（docs/thesis/thesis_gen.py）
+- [x] 答辩演示 PPT 13 页（docs/thesis/答辩演示.pptx，ppt_gen.py）
+- [x] 答辩现场演示脚本（docs/thesis/答辩演示脚本.md，8 分钟走查 + 应急预案）
+- [ ] 学校格式模板套排（待模板）与论文定稿修改（待导师意见）
+
 
 # 第五轮：双智能体并发升级（容量制/限流/指标/CI）
 - [x] WorkBuddy 分支 r5/wb：CI 门禁（.github/workflows/ci.yml + README 徽章）、tests/benchmark.py 性能基准实验、src/metrics.c 运行指标（原子计数器 + 延迟直方图）、GET /api/admin/metrics 与管理端指标面板、T25
