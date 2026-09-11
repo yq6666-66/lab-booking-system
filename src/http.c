@@ -65,9 +65,13 @@ static Result login(DB *d,const cJSON *body,char cookie[256]){
  if(!rl_login_gate(name))return result(429,"LOGIN_LOCKED","登录尝试过于频繁，请稍后再试",NULL);
  cJSON *r=db_first(d,"SELECT id,username,role,password_hash FROM users WHERE username=? AND enabled=1","s",name);
  if(d->error)return db_failure(d);
- int found=(r!=NULL);int vfail=0;
+ /* 时序侧信道防护：无论用户是否存在都执行一次 Argon2id 验证，
+    防止通过响应时间枚举用户名（未命中时对首次生成的 dummy hash 验证）。 */
+ static char dummy_hash[crypto_pwhash_STRBYTES];static int dummy_ready;
+ if(!dummy_ready){dummy_ready=(crypto_pwhash_str(dummy_hash,"lab-booking-dummy",17,crypto_pwhash_OPSLIMIT_INTERACTIVE,crypto_pwhash_MEMLIMIT_INTERACTIVE)==0);}
+ int found=(r!=NULL);int vfail;
  if(found)vfail=(crypto_pwhash_str_verify(jstr(r,"password_hash"),pw,strlen(pw))!=0);
- fprintf(stderr,"LOGIN-DBG2 user=%s found=%d vfail=%d stored20=%.20s\n",name,found,vfail,found?jstr(r,"password_hash"):"?");
+ else vfail=(dummy_ready==0)||(crypto_pwhash_str_verify(dummy_hash,pw,strlen(pw))!=0);
  if(!found||vfail){
   rl_login_fail(name);
   Id uid=0;
@@ -202,7 +206,7 @@ send:
  serialized=r.body?cJSON_PrintUnformatted(r.body):NULL;
  if(!serialized){r.status=500;cookie[0]=0;}
  const char *out=serialized?serialized:"{\"code\":\"INTERNAL_ERROR\",\"message\":\"Memory error\",\"data\":{}}";
- mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'self'\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
+ mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'self'\r\nReferrer-Policy: no-referrer\r\nConnection: keep-alive\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
  {LARGE_INTEGER mt1;QueryPerformanceCounter(&mt1);double ms=(double)(mt1.QuadPart-mt0.QuadPart)*1000.0/(double)mfreq.QuadPart;metrics_record_request(r.status,ms);
   int lvl=ms>=(double)cfg->slow_ms?2:1;if(r.status>=500)lvl=3;
   log_write(lvl,"ACCESS %s %s %d %.1fms",ri->request_method,ri->local_uri,r.status,ms);}
@@ -223,7 +227,7 @@ void sweep_start(const Config *config){
 }
 int serve(const Config *cfg){
  char port[48];snprintf(port,sizeof port,"127.0.0.1:%d",cfg->port);
- const char *opts[]={"listening_ports",port,"document_root",cfg->web_path,"num_threads","8","enable_directory_listing","no","request_timeout_ms","5000","enable_keep_alive","no",NULL};
+ const char *opts[]={"listening_ports",port,"document_root",cfg->web_path,"num_threads","8","enable_directory_listing","no","request_timeout_ms","5000","enable_keep_alive","yes","keep_alive_timeout_ms","15000",NULL};
  struct mg_callbacks callbacks;memset(&callbacks,0,sizeof callbacks);mg_init_library(0);
  rl_configure(cfg);log_init("data/logs/app.log",5*1024*1024);app_boot=GetTickCount64();
  rl_configure(cfg);
