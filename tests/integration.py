@@ -338,6 +338,22 @@ def regression(s):
         require(after>before,"metrics requests_total 递增")
         return {"requests_total_before":before,"requests_total_after":after}
     record("T25 admin metrics endpoint and counters",t25) # -- r5/metrics
+    def t31(): # -- r8/login-entry
+        """管理员登录入口：role_hint 校验、兼容性与不建会话保证。"""
+        def raw_login(body): return Client(s.port).request("POST","/api/login",body)
+        def user01_sessions(): return len(s.sql("SELECT token_hash FROM sessions WHERE user_id=(SELECT id FROM users WHERE username='user01')"))
+        st,d=raw_login({"username":"admin","password":PASSWORD,"role_hint":"ADMIN"})
+        require(st==200 and d["data"]["user"]["role"]=="ADMIN",f"admin+ADMIN: {st} {d}")
+        require(raw_login({"username":"admin","password":PASSWORD,"role_hint":"USER"})[0]==200,"admin may use user entry")
+        before=user01_sessions()
+        st,d=raw_login({"username":"user01","password":PASSWORD,"role_hint":"ADMIN"})
+        require(st==403 and d["code"]=="ROLE_MISMATCH",f"user+ADMIN: {st} {d}")
+        require(user01_sessions()==before,"no session created on ROLE_MISMATCH")
+        require(raw_login({"username":"user01","password":PASSWORD})[0]==200,"legacy client without role_hint")
+        st,d=raw_login({"username":"user01","password":PASSWORD,"role_hint":"invalid"})
+        require(st==400 and d["code"]=="INVALID_INPUT",f"invalid role_hint: {st} {d}")
+        return {"role_hint_enforced":True}
+    record("T31 admin login entry and role_hint",t31) # -- r8/login-entry
 
 def races(s, rounds):
     users=[s.user(i) for i in range(1,21)]

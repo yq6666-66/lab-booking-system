@@ -62,12 +62,13 @@ static Result do_register(DB *d,const cJSON *body,char cookie[256]){
 }
 static Result login(DB *d,const cJSON *body,char cookie[256]){
  const char *name=jstr(body,"username"),*pw=jstr(body,"password");if(!text_ok(name,64,0)||!text_ok(pw,128,0))return invalid();
+ const char *hint=jstr(body,"role_hint");if(hint&&strcmp(hint,"ADMIN")&&strcmp(hint,"USER"))return invalid();
+ int want_admin=hint&&!strcmp(hint,"ADMIN");
  if(!rl_login_gate(name))return result(429,"LOGIN_LOCKED","登录尝试过于频繁，请稍后再试",NULL);
  cJSON *r=db_first(d,"SELECT id,username,role,password_hash FROM users WHERE username=? AND enabled=1","s",name);
  if(d->error)return db_failure(d);
  int found=(r!=NULL);int vfail=0;
  if(found)vfail=(crypto_pwhash_str_verify(jstr(r,"password_hash"),pw,strlen(pw))!=0);
- fprintf(stderr,"LOGIN-DBG2 user=%s found=%d vfail=%d stored20=%.20s\n",name,found,vfail,found?jstr(r,"password_hash"):"?");
  if(!found||vfail){
   rl_login_fail(name);
   Id uid=0;
@@ -75,6 +76,8 @@ static Result login(DB *d,const cJSON *body,char cookie[256]){
   cJSON_Delete(r);return result(401,"UNAUTHORIZED","用户名或密码不正确",NULL);
  }
  rl_login_ok(name);
+ /* 口令通过后再校验登录入口：仅"管理员入口"要求账号确为管理员。这不是口令错误，故不计入登录失败，也不建立会话。 */
+ if(want_admin&&strcmp(jstr(r,"role"),"ADMIN")){cJSON_Delete(r);return result(403,"ROLE_MISMATCH","该账号不是管理员，请使用用户入口登录",NULL);}
  User u={0};parse_id(jstr(r,"id"),&u.id);u.admin=!strcmp(jstr(r,"role"),"ADMIN");snprintf(u.username,sizeof u.username,"%s",name);cJSON_Delete(r);
  char token[65],hash[65];random_hex(token);hash_text(token,hash);random_hex(u.csrf);
  db_run(d,"DELETE FROM sessions WHERE expires_at<?","i",now_sec());
