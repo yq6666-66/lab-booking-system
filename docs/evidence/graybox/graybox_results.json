@@ -1,0 +1,49 @@
+{
+  "timestamp_utc": "2026-09-11T15:12:15.738213+00:00",
+  "executable": "C:\\Users\\admin\\Desktop\\r9-wt-wb\\build\\lab-booking.exe",
+  "checks_total": 8,
+  "checks_passed": 8,
+  "all_passed": true,
+  "results": [
+    {
+      "name": "注册落库（argon2id/role/enabled + REGISTER 事件）",
+      "passed": true,
+      "detail": "user=22 role=USER hash=$argon2id$v=19$m=6..."
+    },
+    {
+      "name": "预约落库（CONFIRMED/DIRECT + RESERVE 事件）",
+      "passed": true,
+      "detail": "reservation=1 CONFIRMED/DIRECT"
+    },
+    {
+      "name": "候补落库（WAITING + WAIT 事件）",
+      "passed": true,
+      "detail": "waitlist=1 WAITING"
+    },
+    {
+      "name": "取消落库（cancelled_at/cancel_reason=USER + CANCEL 事件）",
+      "passed": true,
+      "detail": "reservation=1 CANCELLED/USER cancelled_at=1789139535"
+    },
+    {
+      "name": "补位落库（PROMOTED + 新行 WAITLIST + PROMOTE 事件）",
+      "passed": true,
+      "detail": "waitlist=1 PROMOTED -> reservation=2 WAITLIST"
+    },
+    {
+      "name": "通知落库（kind=PROMOTED 且可经接口读出）",
+      "passed": true,
+      "detail": "notification kind=PROMOTED reservation=2"
+    },
+    {
+      "name": "签到落库（checked_in_at 与接口一致 + CHECKIN 事件）",
+      "passed": true,
+      "detail": "reservation=3 checked_in_at=1789139535"
+    },
+    {
+      "name": "改密落库（哈希轮换 + 旧会话失效 + PASSWORD_CHANGE 事件）",
+      "passed": true,
+      "detail": "password_hash 已轮换且旧会话失效"
+    }
+  ]
+}
