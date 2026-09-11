@@ -1,0 +1,211 @@
+{
+  "timestamp_utc": "2026-09-11T15:14:35.912236+00:00",
+  "executable": "C:\\Users\\admin\\Desktop\\r9-wt-wb\\build\\lab-booking.exe",
+  "endpoints_total": 25,
+  "endpoints_passed": 25,
+  "error_cases_total": 14,
+  "error_cases_passed": 14,
+  "all_passed": true,
+  "contract_drift": [
+    "GET /api/admin/records?date={today}&page=1&page_size=5.data.events[]: 实现多返回契约未记录的字段 ['id']",
+    "GET /api/health.data: 实现多返回契约未记录的字段 ['uptime_s', 'version']",
+    "GET /api/me/records?page=1&page_size=5.data.reservations[]: 实现多返回契约未记录的字段 ['username']"
+  ],
+  "results": [
+    {
+      "name": "GET /api/health",
+      "passed": true,
+      "detail": "data 字段 ['status', 'uptime_s', 'version']"
+    },
+    {
+      "name": "POST /api/login",
+      "passed": true,
+      "detail": "data 字段 ['csrf_token', 'user']"
+    },
+    {
+      "name": "GET /api/me",
+      "passed": true,
+      "detail": "data 字段 ['csrf_token', 'user']"
+    },
+    {
+      "name": "POST /api/logout",
+      "passed": true,
+      "detail": "data 字段 []"
+    },
+    {
+      "name": "GET /api/labs",
+      "passed": true,
+      "detail": "data 字段 ['labs']"
+    },
+    {
+      "name": "GET /api/slots?lab_id=1&date={today}",
+      "passed": true,
+      "detail": "data 字段 ['checkin_window', 'slots']"
+    },
+    {
+      "name": "GET /api/me/records?page=1&page_size=5",
+      "passed": true,
+      "detail": "data 字段 ['events', 'has_more', 'page', 'page_size', 'reservations', 'waitlist']"
+    },
+    {
+      "name": "GET /api/me/notifications?page=1&page_size=5",
+      "passed": true,
+      "detail": "data 字段 ['has_more', 'notifications', 'page', 'page_size', 'unread_count']"
+    },
+    {
+      "name": "POST /api/me/notifications/read",
+      "passed": true,
+      "detail": "data 字段 ['updated']"
+    },
+    {
+      "name": "GET /api/me/sessions",
+      "passed": true,
+      "detail": "data 字段 ['sessions']"
+    },
+    {
+      "name": "POST /api/me/password",
+      "passed": true,
+      "detail": "data 字段 ['revoked_sessions']"
+    },
+    {
+      "name": "POST /api/reservations",
+      "passed": true,
+      "detail": "data 字段 ['reservation_id']"
+    },
+    {
+      "name": "POST /api/reservations/{rid}/cancel",
+      "passed": true,
+      "detail": "data 字段 ['promoted_reservation_id', 'reservation_id']"
+    },
+    {
+      "name": "POST /api/waitlist",
+      "passed": true,
+      "detail": "data 字段 ['waitlist_id']"
+    },
+    {
+      "name": "POST /api/waitlist/{wid2}/withdraw",
+      "passed": true,
+      "detail": "data 字段 ['waitlist_id']"
+    },
+    {
+      "name": "POST /api/reservations/{rid2}/checkin",
+      "passed": true,
+      "detail": "data 字段 ['checked_in_at', 'reservation_id']"
+    },
+    {
+      "name": "GET /api/admin/records?date={today}&page=1&page_size=5",
+      "passed": true,
+      "detail": "data 字段 ['events', 'has_more', 'page', 'page_size', 'reservations', 'waitlist']"
+    },
+    {
+      "name": "GET /api/admin/stats?start_date={today}&end_date={today}",
+      "passed": true,
+      "detail": "data 字段 ['stats', 'totals']"
+    },
+    {
+      "name": "GET /api/admin/stats/export?start_date={today}&end_date={today}",
+      "passed": true,
+      "detail": "data 字段 ['content', 'filename']"
+    },
+    {
+      "name": "GET /api/admin/metrics",
+      "passed": true,
+      "detail": "data 字段 ['counters', 'latency_ms']"
+    },
+    {
+      "name": "POST /api/admin/labs",
+      "passed": true,
+      "detail": "data 字段 ['lab_id']"
+    },
+    {
+      "name": "POST /api/admin/labs/{lid}/update",
+      "passed": true,
+      "detail": "data 字段 ['lab_id']"
+    },
+    {
+      "name": "POST /api/admin/slots/publish",
+      "passed": true,
+      "detail": "data 字段 ['created']"
+    },
+    {
+      "name": "POST /api/register",
+      "passed": true,
+      "detail": "data 字段 ['csrf_token', 'user']"
+    },
+    {
+      "name": "POST /api/me/sessions/{sid}/revoke",
+      "passed": true,
+      "detail": "data 字段 []"
+    },
+    {
+      "name": "400 非法 lab_id",
+      "passed": true,
+      "detail": "400 INVALID_INPUT"
+    },
+    {
+      "name": "400 非法日期",
+      "passed": true,
+      "detail": "400 INVALID_INPUT"
+    },
+    {
+      "name": "400 缺 request_id",
+      "passed": true,
+      "detail": "400 INVALID_INPUT"
+    },
+    {
+      "name": "400 page_size 越界",
+      "passed": true,
+      "detail": "400 INVALID_INPUT"
+    },
+    {
+      "name": "401 匿名访问受保护端点",
+      "passed": true,
+      "detail": "401 UNAUTHORIZED"
+    },
+    {
+      "name": "401 错误口令",
+      "passed": true,
+      "detail": "401 UNAUTHORIZED"
+    },
+    {
+      "name": "403 普通用户访问管理端点",
+      "passed": true,
+      "detail": "403 FORBIDDEN"
+    },
+    {
+      "name": "403 CSRF 令牌不匹配",
+      "passed": true,
+      "detail": "403 CSRF"
+    },
+    {
+      "name": "404 不存在的接口",
+      "passed": true,
+      "detail": "404 NOT_FOUND"
+    },
+    {
+      "name": "404 不存在的实验室记录",
+      "passed": true,
+      "detail": "404 NOT_FOUND"
+    },
+    {
+      "name": "404 场次不存在",
+      "passed": true,
+      "detail": "404 NOT_FOUND"
+    },
+    {
+      "name": "405 对登录端点用了 GET",
+      "passed": true,
+      "detail": "405 METHOD_NOT_ALLOWED"
+    },
+    {
+      "name": "409 重复预约同一场次",
+      "passed": true,
+      "detail": "409 ALREADY_RESERVED"
+    },
+    {
+      "name": "413 请求体过大",
+      "passed": true,
+      "detail": "413 TOO_LARGE"
+    }
+  ]
+}

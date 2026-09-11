@@ -1,0 +1,58 @@
+{
+    "timestamp_utc":  "2026-09-11T17:10:46.7671747Z",
+    "source_root":  "C:\\Users\\admin\\Desktop\\r9-wt-wb",
+    "port":  8123,
+    "steps_total":  8,
+    "steps_passed":  5,
+    "all_passed":  false,
+    "results":  [
+                    {
+                        "step":  "prepare temp workspace",
+                        "passed":  true,
+                        "detail":  "copied 233 files to C:\\Users\\admin\\AppData\\Local\\Temp\\lab-booking-install-31620e11",
+                        "seconds":  0.77
+                    },
+                    {
+                        "step":  "build from a clean tree",
+                        "passed":  true,
+                        "detail":  "built 1501 KB executable",
+                        "seconds":  84.24
+                    },
+                    {
+                        "step":  "seed and start via start-demo.ps1",
+                        "passed":  true,
+                        "detail":  "demo database initialized and service launched",
+                        "seconds":  84.36
+                    },
+                    {
+                        "step":  "health check responds OK",
+                        "passed":  false,
+                        "detail":  "health check did not return code=OK within 20s; attempts=9 listening_on_8123=0 lastError=http=0; demo.stdout.log=Lab Booking ready: http://127.0.0.1:8123 |; demo.stderr.log=",
+                        "seconds":  22.56
+                    },
+                    {
+                        "step":  "register a new account through the API",
+                        "passed":  false,
+                        "detail":  "register returned http=0: \r\n000\r",
+                        "seconds":  2.31
+                    },
+                    {
+                        "step":  "log in with the seeded admin and the new account",
+                        "passed":  false,
+                        "detail":  "admin login returned http=0: \r\n000\r",
+                        "seconds":  2.27
+                    },
+                    {
+                        "step":  "stop the service",
+                        "passed":  true,
+                        "detail":  "stopped pid 245256",
+                        "seconds":  0.05
+                    },
+                    {
+                        "step":  "clean up temp workspace",
+                        "passed":  true,
+                        "detail":  "temp workspace removed",
+                        "seconds":  0.41
+                    }
+                ]
+}

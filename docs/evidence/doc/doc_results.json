@@ -1,0 +1,43 @@
+{
+  "timestamp_utc": "2026-09-11T15:04:53.114693+00:00",
+  "checks_total": 7,
+  "checks_passed": 7,
+  "all_passed": true,
+  "results": [
+    {
+      "name": "CONTRACT 声明的端点均在 src/http.c 中有路由",
+      "passed": true,
+      "detail": "25 个端点在 src/http.c 中均有对应路由片段"
+    },
+    {
+      "name": "CONTRACT 的错误码均在服务端源码中出现",
+      "passed": true,
+      "detail": "15 个错误码均在源码中使用：['ALREADY_RESERVED', 'CSRF', 'DATABASE_BUSY', 'FORBIDDEN', 'INTERNAL_ERROR', 'INVALID_INPUT', 'NOT_FOUND', 'RATE_LIMITED', 'REQUEST_ID_CONFLICT', 'SLOT_AVAILABLE', 'SLOT_FULL', 'STATE_CONFLICT', 'TOO_LARGE', 'UNAUTHORIZED', 'USERNAME_TAKEN']"
+    },
+    {
+      "name": "契约声明了各状态码对应的错误码",
+      "passed": true,
+      "detail": "8 组状态码与错误码配对均在契约中声明"
+    },
+    {
+      "name": "README.md 引用的本地文件均存在",
+      "passed": true,
+      "detail": "13 个本地引用全部存在"
+    },
+    {
+      "name": "关键文档齐全",
+      "passed": true,
+      "detail": "7 个关键文档齐全"
+    },
+    {
+      "name": "dependencies.lock.json 的每个组件在 vendor/ 下有目录",
+      "passed": true,
+      "detail": "5 个组件目录齐全：['civetweb', 'cjson', 'sqlite', 'unity', 'sodium']"
+    },
+    {
+      "name": "依赖锁字段完整、哈希格式正确",
+      "passed": true,
+      "detail": "5 条依赖记录字段完整且哈希格式正确"
+    }
+  ]
+}
