@@ -12,7 +12,7 @@
 | 3 | **系统测试（E2E）** | Playwright 驱动 Chromium | 三轮走查（登录/预约/候补/签到/通知/导出） | ✅ 通过 | docs/evidence/ui-r3/, ui-r5/ |
 | 4 | **验收测试（UAT）** | docs/test/UAT_scenarios.md | 8 个正式验收场景 | ✅ 脚本就绪 | 本文档 |
 | 5 | **性能测试** | tests/benchmark.py + soak.py | E1 读性能 + E2 写争用 + 浸泡 60s | ✅ 通过 | docs/evidence/benchmark/, soak/ |
-| 6 | **安全测试** | T23/T24/T05 + fuzz.py + 限流/防爆破/CSRF | 限流/防爆破/越权/注入/CSRF/Origin | ✅ 全过 | results-full-merge/, fuzz/ |
+| 6 | **安全测试** | T23/T24/T05 + fuzz.py + **security_test.py** + 限流/防爆破/CSRF | 限流/防爆破/越权/注入/CSRF/Origin/**SQL 注入 20 载荷**/**时序侧信道** | ✅ 全过 | results-full-merge/, fuzz/, security_results.json |
 | 7 | **白盒测试** | unit.c 直调内部函数（不做 HTTP） | 语句缓存/线程复用/看门狗/迁移实测 | ✅ 全过 | unit-tests.txt |
 | 8 | **黑盒测试** | integration.py 经 HTTP（不知内部实现） | 全部 33 项集成断言组 | ✅ 全过 | results-full-merge/ |
 | 9 | **灰盒测试** | tests/graybox_test.py（WB 交付） | API 驱动 + DB 直查交叉验证 | ✅ 脚本就绪 | 运行输出 |
@@ -56,3 +56,27 @@
 | r7 | sessions INSERT fmt "ssiii"→"sisii" 段错误 | 独立 C 复现 + 插桩 |
 | r7 | op_events fmt 漏绑 created_at | 粘滞错误覆盖 200 |
 | r7 | T24 时序脆弱（限流探测） | 多轮脉冲加固 |
+| r9 | 登录时序侧信道：不存在用户 ~9ms vs 有效用户 ~87ms（9.4x），可枚举用户名 | security_test.py 时序测量 |
+| r9 | 修复：login() 对不存在用户执行等量 Argon2id dummy 验证，ratio 降至 1.11x | security_test.py 复测 |
+
+## r9 安全专项：SQL 注入与时序侧信道（tests/security_test.py）
+
+**SQL 注入抵抗**：20 个载荷（`' OR 1=1 --`、UNION SELECT、 stacked queries、
+盲注时间函数等）经登录/查询端点注入，全部被参数化绑定拦截：无 500、
+users 表行数不变、sqlite_master 无意外表。
+
+**时序侧信道**：测量有效用户名(admin)+正确口令 与 不存在用户名+错误口令
+的登录响应时间中位数（各 30 次）。
+
+| 阶段 | 有效用户 | 不存在用户 | 比值 | 结论 |
+|------|---------|-----------|------|------|
+| 修复前 | 87.4ms | 9.2ms | 9.4x | 泄露用户存在性（短路跳过 Argon2id） |
+| 修复后 | 89.3ms | 80.5ms | 1.11x | < 3.0x 阈值，通过 |
+
+修复（src/http.c login()）：用户不存在时仍执行一次 Argon2id 验证
+（首次调用时惰性生成 dummy hash，同 OPSLIMIT/MEMLIMIT_INTERACTIVE 参数），
+两条路径 KDF 工作量一致，响应时间不再区分用户名是否存在。
+
+**测试方法论修正**：初版对同一不存在用户名连发 30 次，第 6 次起命中登录
+锁定（429 快速路径，1.7ms），测到的是限流而非侧信道；改为轮换不存在的
+用户名并调高 --login-max-fails，确保每次测量都走到完整验证路径。

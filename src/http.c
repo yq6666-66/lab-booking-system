@@ -65,9 +65,13 @@ static Result login(DB *d,const cJSON *body,char cookie[256]){
  if(!rl_login_gate(name))return result(429,"LOGIN_LOCKED","登录尝试过于频繁，请稍后再试",NULL);
  cJSON *r=db_first(d,"SELECT id,username,role,password_hash FROM users WHERE username=? AND enabled=1","s",name);
  if(d->error)return db_failure(d);
- int found=(r!=NULL);int vfail=0;
+ /* 时序侧信道防护：无论用户是否存在都执行一次 Argon2id 验证，
+    防止通过响应时间枚举用户名（未命中时对首次生成的 dummy hash 验证）。 */
+ static char dummy_hash[crypto_pwhash_STRBYTES];static int dummy_ready;
+ if(!dummy_ready){dummy_ready=(crypto_pwhash_str(dummy_hash,"lab-booking-dummy",17,crypto_pwhash_OPSLIMIT_INTERACTIVE,crypto_pwhash_MEMLIMIT_INTERACTIVE)==0);}
+ int found=(r!=NULL);int vfail;
  if(found)vfail=(crypto_pwhash_str_verify(jstr(r,"password_hash"),pw,strlen(pw))!=0);
- fprintf(stderr,"LOGIN-DBG2 user=%s found=%d vfail=%d stored20=%.20s\n",name,found,vfail,found?jstr(r,"password_hash"):"?");
+ else vfail=(dummy_ready==0)||(crypto_pwhash_str_verify(dummy_hash,pw,strlen(pw))!=0);
  if(!found||vfail){
   rl_login_fail(name);
   Id uid=0;
