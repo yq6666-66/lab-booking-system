@@ -289,6 +289,35 @@ def regression(s):
         require(all(st==200 for st in results[2]+results[3]),f"readers all 200: {set(results[2]+results[3])}")
         require(s.sql("SELECT count(*) FROM reservations WHERE status='CONFIRMED' AND slot_id IN (?,?)",(sa,sb))==[(0,)],"writers left no bookings")
     record("T27 connection reuse under mixed read-write load",t27)
+    def t30():
+        # 自助注册：注册即登录、重名 409、弱口令 400、新账号可正常预约
+        c=Client(s.port)
+        st,d=c.request("POST","/api/register",{"username":"stu2026","password":PASSWORD})
+        require(st==200 and d["data"]["user"]["role"]=="USER" and d["data"]["csrf_token"],f"register: {st} {d}")
+        st,_=c.request("GET","/api/me")
+        require(st==200,"auto session after register")
+        st,body=c.request("POST","/api/register",{"username":"stu2026","password":PASSWORD})
+        require(st==409 and body["code"]=="USERNAME_TAKEN",f"duplicate: {st} {body}")
+        st,body=c.request("POST","/api/register",{"username":"stu2026","password":"short"})
+        require(st==400,f"weak password: {st}")
+        st,body=c.request("POST","/api/register",{"username":"ad min","password":PASSWORD})
+        require(st==400,f"invalid username: {st}")
+        ok=Client(s.port).request("POST","/api/login",{"username":"stu2026","password":PASSWORD})
+        require(ok[0]==200,"login with registered account")
+        adm=Client(s.port).login("admin")
+        lab=adm.post("/api/admin/labs",{"name":f"注册验证实验室{uid()[:8]}","location":"实验楼","description":"T30"})["data"]["lab_id"]
+        import datetime as _dt
+        day=(datetime.datetime.now(datetime.timezone.utc)+_dt.timedelta(hours=32)).strftime("%Y-%m-%d")
+        adm.post("/api/admin/slots/publish",{"lab_id":lab,"start_date":day,"end_date":day})
+        slots_list=adm.request("GET","/api/slots?lab_id="+lab+"&date="+day)[1]["data"]["slots"]
+        require(len(slots_list)>0,"slots published for T30")
+        slot=slots_list[0]["id"]
+        res=Client(s.port).login("stu2026")
+        res.post("/api/reservations",{"slot_id":slot,"request_id":uid()})
+        require(res.request("GET","/api/me/records")[1]["data"]["reservations"],"new user can book")
+        events=[e for e in s.sql("SELECT action FROM operation_events WHERE action='REGISTER'")]
+        require(events,"REGISTER audited")
+    record("T30 self-registration flow",t30)
     record("T12 SQLite integrity and relational invariants",s.integrity)
     def t15():
         c=s.user(4)

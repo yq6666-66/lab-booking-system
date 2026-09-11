@@ -26,12 +26,49 @@ static int authenticated(DB *d,struct mg_connection *c,User *u,char hash[65]){
  memset(u,0,sizeof *u);parse_id(jstr(r,"id"),&u->id);u->admin=!strcmp(jstr(r,"role"),"ADMIN");snprintf(u->username,sizeof u->username,"%s",jstr(r,"username"));snprintf(u->csrf,sizeof u->csrf,"%s",jstr(r,"csrf_token"));cJSON_Delete(r);return 1;
 }
 static int text_ok(const char *s,size_t max,int empty){return s&&strlen(s)<=max&&(empty||strlen(s)>0);}
+static int name_ok(const char *s){ /* 用户名 2..64 字节，仅限可见字符（中文/字母/数字/符号均可，禁空白与控制符） */
+ size_t n=s?strlen(s):0;if(n<2||n>64)return 0;
+ for(const char *p=s;*p;p++)if((unsigned char)*p<0x21||(unsigned char)*p==0x7f)return 0;
+ return 1;}
+/* r7 自助注册：创建 USER 角色账号并直接登录（返回与会话、登录同构的响应） */
+static Result do_register(DB *d,const cJSON *body,char cookie[256]){
+ const char *name=jstr(body,"username"),*pw=jstr(body,"password");
+ if(!text_ok(name,64,0)||!text_ok(pw,128,0))return invalid();
+ if(!rl_register_gate())return result(429,"RATE_LIMITED","注册尝试过于频繁，请稍后再试",NULL);
+ if(!name_ok(name))return result(400,"INVALID_INPUT","用户名需为 2..64 个可见字符（不允许空格）",NULL);
+ if(!pw||strlen(pw)<8||strlen(pw)>128)return result(400,"INVALID_INPUT","密码长度需为 8..128 位",NULL);
+ cJSON *dup=db_first(d,"SELECT 1 FROM users WHERE username=?","s",name);
+ if(d->error)return db_failure(d);
+ if(dup){cJSON_Delete(dup);return result(409,"USERNAME_TAKEN","该用户名已被注册",NULL);}
+ char hash[crypto_pwhash_STRBYTES];
+ log_write(1,"REG A gate-ok %s",name);
+ if(crypto_pwhash_str(hash,pw,strlen(pw),crypto_pwhash_OPSLIMIT_INTERACTIVE,crypto_pwhash_MEMLIMIT_INTERACTIVE))return result(500,"INTERNAL_ERROR","密码处理失败",NULL);
+ if(!db_run(d,"INSERT INTO users(username,password_hash,role) VALUES(?,?,?)","sss",name,hash,"USER")){d->error=0;
+   cJSON *chk=db_first(d,"SELECT 1 FROM users WHERE username=?","s",name);
+  if(chk){cJSON_Delete(chk);return result(409,"USERNAME_TAKEN","该用户名已被注册",NULL);}
+  return db_failure(d);}
+ Id uid=db_num(d,"SELECT id FROM users WHERE username=?","s",name);
+ db_run(d,"INSERT INTO operation_events(actor_id,action,entity_id,created_at) VALUES(?,?,?,?)","isii",uid,"REGISTER",uid,now_sec());
+ db_run(d,"DELETE FROM sessions WHERE expires_at<?","i",now_sec());
+ char token[65],thash[65],csrf[65];random_hex(token);hash_text(token,thash);random_hex(csrf);
+ if(!db_run(d,"DELETE FROM sessions WHERE token_hash=?","s",thash)){d->error=0;}
+ if(!db_run(d,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,created_at) VALUES(?,?,?,?,?)","sisii",thash,uid,csrf,now_sec()+7200,now_sec()))return db_failure(d);
+ snprintf(cookie,256,"Set-Cookie: lab_session=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=7200\r\n",token);sodium_memzero(token,sizeof token);
+ User u={0};u.id=uid;snprintf(u.username,sizeof u.username,"%s",name);
+ cJSON *j=cJSON_CreateObject(),*v=cJSON_CreateObject();
+ jid(v,"id",uid);cJSON_AddStringToObject(v,"username",name);cJSON_AddStringToObject(v,"role","USER");
+ cJSON_AddItemToObject(j,"user",v);cJSON_AddStringToObject(j,"csrf_token",csrf);
+ return result(200,"OK","注册成功，已自动登录",j);
+}
 static Result login(DB *d,const cJSON *body,char cookie[256]){
  const char *name=jstr(body,"username"),*pw=jstr(body,"password");if(!text_ok(name,64,0)||!text_ok(pw,128,0))return invalid();
  if(!rl_login_gate(name))return result(429,"LOGIN_LOCKED","登录尝试过于频繁，请稍后再试",NULL);
  cJSON *r=db_first(d,"SELECT id,username,role,password_hash FROM users WHERE username=? AND enabled=1","s",name);
  if(d->error)return db_failure(d);
- if(!r||crypto_pwhash_str_verify(jstr(r,"password_hash"),pw,strlen(pw))){
+ int found=(r!=NULL);int vfail=0;
+ if(found)vfail=(crypto_pwhash_str_verify(jstr(r,"password_hash"),pw,strlen(pw))!=0);
+ fprintf(stderr,"LOGIN-DBG2 user=%s found=%d vfail=%d stored20=%.20s\n",name,found,vfail,found?jstr(r,"password_hash"):"?");
+ if(!found||vfail){
   rl_login_fail(name);
   Id uid=0;
   if(r&&parse_id(jstr(r,"id"),&uid))db_run(d,"INSERT INTO operation_events(actor_id,action,entity_id,created_at) VALUES(?,?,0,?)","isi",uid,"LOGIN_FAILED",now_sec());
@@ -89,6 +126,7 @@ static Result admin(DB *d,const char *path,const cJSON *body){
 static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJSON *body,char cookie[256]){
  const struct mg_request_info *ri=mg_get_request_info(c);const char *path=ri->local_uri;int post=!strcmp(ri->request_method,"POST");
  if(!strcmp(path,"/api/login"))return post?login(d,body,cookie):result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);
+ if(!strcmp(path,"/api/register"))return post?do_register(d,body,cookie):result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);
  User u={0};char tokenhash[65];if(!authenticated(d,c,&u,tokenhash))return d->error?db_failure(d):result(401,"UNAUTHORIZED","请先登录",NULL);
  if(post){const char *csrf=mg_get_header(c,"X-CSRF-Token");if(!csrf||strlen(csrf)!=64||sodium_memcmp(csrf,u.csrf,64))return result(403,"CSRF","请求校验失败，请刷新后重试",NULL);
   if(!rl_consume(u.id))return result(429,"RATE_LIMITED","操作过于频繁，请稍后再试",NULL);}
