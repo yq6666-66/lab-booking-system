@@ -65,3 +65,8 @@ slots 增加 capacity 列（1..200，默认 1），schema user_version=3；v2 �
 - 响应头：X-Frame-Options: DENY、Content-Security-Policy: default-src 'self'、Referrer-Policy: no-referrer。
 - `--backup DEST`：SQLite Backup API 在线备份到 DEST（不阻塞业务），返回 0 表示成功。
 - `--slow-ms MS`（默认 500）：单请求超过阈值记 WARN 日志。日志落 data/logs/app.log（分级 INFO/WARN/ERROR，5MB×3 轮转，含 ACCESS 行与 SWEEP 摘要）。SQLITE_INTERRUPT 映射为 503 DATABASE_BUSY。
+
+## 自助注册（r7）
+- POST /api/register `{username,password}` -> 同登录响应 `{user:{id,username,role:"USER"},csrf_token}` 并直接建立会话（注册即登录）。
+- 规则：用户名 2..64 字节可见字符（禁空白/控制符）；密码 8..128 位；角色恒为 USER。重名 409 USERNAME_TAKEN；弱口令/非法用户名 400。
+- 防刷：全局注册桶（突发 20、每 30 秒补 1）超限 429 RATE_LIMITED。注册成功写 REGISTER 审计事件。事件仅在登录/注册路径写入，本接口无需 CSRF（会话尚未建立）。

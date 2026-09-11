@@ -79,3 +79,12 @@ int rl_consume(Id user_id){
  ReleaseSRWLockExclusive(&rl_lock);
  return ok;
 }
+/* 注册接口闸门：全局桶（回环部署无来源 IP 可区分），防脚本刷注册 */
+int rl_register_gate(void){
+ Id now=now_sec()*1000;int ok=1;
+ AcquireSRWLockExclusive(&rl_lock);
+ Entry *e=entry_get("R:register");
+ if(e)ok=bucket_allow(&e->bucket,now,20,30);
+ ReleaseSRWLockExclusive(&rl_lock);
+ return ok;
+}

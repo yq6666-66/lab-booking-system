@@ -60,6 +60,7 @@ int rl_login_gate(const char *username);
 void rl_login_fail(const char *username);
 void rl_login_ok(const char *username);
 int rl_consume(Id user_id);
+int rl_register_gate(void);
 /* r5/metrics */
 void metrics_init(void);
 void metrics_record_request(int status,double elapsed_ms);

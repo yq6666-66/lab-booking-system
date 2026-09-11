@@ -12,9 +12,11 @@
    防止慢查询长期占用写锁；常规短事务不受影响。单测构建以 -DWATCHDOG_MS=50 收紧验证。 */
 static _Thread_local unsigned long long tls_tick0;
 static int prog_cb(void *p){(void)p;return GetTickCount64()-tls_tick0>WATCHDOG_MS;}
+#ifndef STMT_CACHE_MAX
+#define STMT_CACHE_MAX 32
+#endif
 /* r6 语句缓存：每连接按 SQL 文本缓存预处理语句（LRU，上限 32），消除重复 prepare；
    任一步骤出错即淘汰对应条目，保守优先。 */
-#define STMT_CACHE_MAX 32
 typedef struct { char *sql; sqlite3_stmt *stmt; unsigned lru; } CacheEntry;
 typedef struct { CacheEntry items[STMT_CACHE_MAX]; unsigned tick; } StmtCache;
 static sqlite3_stmt *cache_fetch(DB *d,const char *sql){
@@ -64,7 +66,7 @@ static sqlite3_stmt *prepare(DB *d,const char *sql,const char *fmt,va_list a){
  if(!s){ d->error=d->error?d->error:SQLITE_NOMEM;return NULL; }
  int rc=0;
  for(int i=0;fmt&&fmt[i];i++){
-  if(fmt[i]=='i')rc=sqlite3_bind_int64(s,i+1,va_arg(a,Id));
+   if(fmt[i]=='i')rc=sqlite3_bind_int64(s,i+1,va_arg(a,Id));
   else if(fmt[i]=='s'){const char *v=va_arg(a,const char*);rc=v?sqlite3_bind_text(s,i+1,v,-1,SQLITE_TRANSIENT):sqlite3_bind_null(s,i+1);}
   else rc=SQLITE_MISUSE;
   if(rc!=SQLITE_OK){d->error=rc;stmt_fail(d,s);return NULL;}
