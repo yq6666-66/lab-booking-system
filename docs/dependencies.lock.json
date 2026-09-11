@@ -1,0 +1,32 @@
+[
+  {
+    "name": "civetweb",
+    "version": "588860e30721bf5453b0440c390865a8e85dcae5",
+    "url": "https://codeload.github.com/civetweb/civetweb/zip/588860e30721bf5453b0440c390865a8e85dcae5",
+    "archive_sha256": "d492b2b6cea1b1e793132db3509923821cd3212700f972ae3b4d776bf518dd72"
+  },
+  {
+    "name": "cjson",
+    "version": "1.7.19",
+    "url": "https://codeload.github.com/DaveGamble/cJSON/zip/refs/tags/v1.7.19",
+    "archive_sha256": "83fb7750db0601dca735868b8fb1da1318da2d2a1331a9a7da923cb891d26ea9"
+  },
+  {
+    "name": "sqlite",
+    "version": "3.53.4",
+    "url": "https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip",
+    "archive_sha256": "1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d"
+  },
+  {
+    "name": "unity",
+    "version": "43f5ce1737022eb3f50787f3131ab4ddf5354349",
+    "url": "https://codeload.github.com/ThrowTheSwitch/Unity/zip/43f5ce1737022eb3f50787f3131ab4ddf5354349",
+    "archive_sha256": "ebbbd93c2a47f73cc9e5b82d09b4b6b8a456b856d6117a34665ff2caa574f9ee"
+  },
+  {
+    "name": "sodium",
+    "version": "1.0.22",
+    "url": "https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22-mingw.tar.gz",
+    "archive_sha256": "1d99e0afaf27bce664249232e9dc628ae6bb7b49f0ab53ad6db372b028a35d9d"
+  }
+]

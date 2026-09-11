@@ -1,0 +1,4463 @@
+        -:    0:Source:vendor/cjson/cJSON.c
+        -:    0:Graph:C:\Users\admin\Desktop\毕业设计\build\cov_cJSON.gcno
+        -:    0:Data:C:\Users\admin\Desktop\毕业设计\build\cov_cJSON.gcda
+        -:    0:Runs:3
+        -:    1:/*
+        -:    2:  Copyright (c) 2009-2017 Dave Gamble and cJSON contributors
+        -:    3:
+        -:    4:  Permission is hereby granted, free of charge, to any person obtaining a copy
+        -:    5:  of this software and associated documentation files (the "Software"), to deal
+        -:    6:  in the Software without restriction, including without limitation the rights
+        -:    7:  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        -:    8:  copies of the Software, and to permit persons to whom the Software is
+        -:    9:  furnished to do so, subject to the following conditions:
+        -:   10:
+        -:   11:  The above copyright notice and this permission notice shall be included in
+        -:   12:  all copies or substantial portions of the Software.
+        -:   13:
+        -:   14:  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        -:   15:  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        -:   16:  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        -:   17:  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        -:   18:  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        -:   19:  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+        -:   20:  THE SOFTWARE.
+        -:   21:*/
+        -:   22:
+        -:   23:/* cJSON */
+        -:   24:/* JSON parser in C. */
+        -:   25:
+        -:   26:/* disable warnings about old C89 functions in MSVC */
+        -:   27:#if !defined(_CRT_SECURE_NO_DEPRECATE) && defined(_MSC_VER)
+        -:   28:#define _CRT_SECURE_NO_DEPRECATE
+        -:   29:#endif
+        -:   30:
+        -:   31:#ifdef __GNUC__
+        -:   32:#pragma GCC visibility push(default)
+        -:   33:#endif
+        -:   34:#if defined(_MSC_VER)
+        -:   35:#pragma warning (push)
+        -:   36:/* disable warning about single line comments in system headers */
+        -:   37:#pragma warning (disable : 4001)
+        -:   38:#endif
+        -:   39:
+        -:   40:#include <string.h>
+        -:   41:#include <stdio.h>
+        -:   42:#include <math.h>
+        -:   43:#include <stdlib.h>
+        -:   44:#include <limits.h>
+        -:   45:#include <ctype.h>
+        -:   46:#include <float.h>
+        -:   47:
+        -:   48:#ifdef ENABLE_LOCALES
+        -:   49:#include <locale.h>
+        -:   50:#endif
+        -:   51:
+        -:   52:#if defined(_MSC_VER)
+        -:   53:#pragma warning (pop)
+        -:   54:#endif
+        -:   55:#ifdef __GNUC__
+        -:   56:#pragma GCC visibility pop
+        -:   57:#endif
+        -:   58:
+        -:   59:#include "cJSON.h"
+        -:   60:
+        -:   61:/* define our own boolean type */
+        -:   62:#ifdef true
+        -:   63:#undef true
+        -:   64:#endif
+        -:   65:#define true ((cJSON_bool)1)
+        -:   66:
+        -:   67:#ifdef false
+        -:   68:#undef false
+        -:   69:#endif
+        -:   70:#define false ((cJSON_bool)0)
+        -:   71:
+        -:   72:/* define isnan and isinf for ANSI C, if in C99 or above, isnan and isinf has been defined in math.h */
+        -:   73:#ifndef isinf
+        -:   74:#define isinf(d) (isnan((d - d)) && !isnan(d))
+        -:   75:#endif
+        -:   76:#ifndef isnan
+        -:   77:#define isnan(d) (d != d)
+        -:   78:#endif
+        -:   79:
+        -:   80:#ifndef NAN
+        -:   81:#ifdef _WIN32
+        -:   82:#define NAN sqrt(-1.0)
+        -:   83:#else
+        -:   84:#define NAN 0.0/0.0
+        -:   85:#endif
+        -:   86:#endif
+        -:   87:
+        -:   88:typedef struct {
+        -:   89:    const unsigned char *json;
+        -:   90:    size_t position;
+        -:   91:} error;
+        -:   92:static error global_error = { NULL, 0 };
+        -:   93:
+function cJSON_GetErrorPtr called 0 returned 0% blocks executed 0%
+    #####:   94:CJSON_PUBLIC(const char *) cJSON_GetErrorPtr(void)
+        -:   95:{
+    #####:   96:    return (const char*) (global_error.json + global_error.position);
+        -:   97:}
+        -:   98:
+function cJSON_GetStringValue called 0 returned 0% blocks executed 0%
+    #####:   99:CJSON_PUBLIC(char *) cJSON_GetStringValue(const cJSON * const item)
+        -:  100:{
+    #####:  101:    if (!cJSON_IsString(item))
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -:  102:    {
+    #####:  103:        return NULL;
+        -:  104:    }
+        -:  105:
+    #####:  106:    return item->valuestring;
+        -:  107:}
+        -:  108:
+function cJSON_GetNumberValue called 0 returned 0% blocks executed 0%
+    #####:  109:CJSON_PUBLIC(double) cJSON_GetNumberValue(const cJSON * const item)
+        -:  110:{
+    #####:  111:    if (!cJSON_IsNumber(item))
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -:  112:    {
+    #####:  113:        return (double) NAN;
+        -:  114:    }
+        -:  115:
+    #####:  116:    return item->valuedouble;
+        -:  117:}
+        -:  118:
+        -:  119:/* This is a safeguard to prevent copy-pasters from using incompatible C and header files */
+        -:  120:#if (CJSON_VERSION_MAJOR != 1) || (CJSON_VERSION_MINOR != 7) || (CJSON_VERSION_PATCH != 19)
+        -:  121:    #error cJSON.h and cJSON.c have different versions. Make sure that both have the same.
+        -:  122:#endif
+        -:  123:
+function cJSON_Version called 0 returned 0% blocks executed 0%
+    #####:  124:CJSON_PUBLIC(const char*) cJSON_Version(void)
+        -:  125:{
+        -:  126:    static char version[15];
+    #####:  127:    sprintf(version, "%i.%i.%i", CJSON_VERSION_MAJOR, CJSON_VERSION_MINOR, CJSON_VERSION_PATCH);
+        -:  128:
+    #####:  129:    return version;
+        -:  130:}
+        -:  131:
+        -:  132:/* Case insensitive string comparison, doesn't consider two NULL pointers equal though */
+function case_insensitive_strcmp called 0 returned 0% blocks executed 0%
+    #####:  133:static int case_insensitive_strcmp(const unsigned char *string1, const unsigned char *string2)
+        -:  134:{
+    #####:  135:    if ((string1 == NULL) || (string2 == NULL))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -:  136:    {
+    #####:  137:        return 1;
+        -:  138:    }
+        -:  139:
+    #####:  140:    if (string1 == string2)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  141:    {
+    #####:  142:        return 0;
+        -:  143:    }
+        -:  144:
+    #####:  145:    for(; tolower(*string1) == tolower(*string2); (void)string1++, string2++)
+branch  0 never executed
+branch  1 never executed (fallthrough)
+        -:  146:    {
+    #####:  147:        if (*string1 == '\0')
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  148:        {
+    #####:  149:            return 0;
+        -:  150:        }
+        -:  151:    }
+        -:  152:
+    #####:  153:    return tolower(*string1) - tolower(*string2);
+        -:  154:}
+        -:  155:
+        -:  156:typedef struct internal_hooks
+        -:  157:{
+        -:  158:    void *(CJSON_CDECL *allocate)(size_t size);
+        -:  159:    void (CJSON_CDECL *deallocate)(void *pointer);
+        -:  160:    void *(CJSON_CDECL *reallocate)(void *pointer, size_t size);
+        -:  161:} internal_hooks;
+        -:  162:
+        -:  163:#if defined(_MSC_VER)
+        -:  164:/* work around MSVC error C2322: '...' address of dllimport '...' is not static */
+        -:  165:static void * CJSON_CDECL internal_malloc(size_t size)
+        -:  166:{
+        -:  167:    return malloc(size);
+        -:  168:}
+        -:  169:static void CJSON_CDECL internal_free(void *pointer)
+        -:  170:{
+        -:  171:    free(pointer);
+        -:  172:}
+        -:  173:static void * CJSON_CDECL internal_realloc(void *pointer, size_t size)
+        -:  174:{
+        -:  175:    return realloc(pointer, size);
+        -:  176:}
+        -:  177:#else
+        -:  178:#define internal_malloc malloc
+        -:  179:#define internal_free free
+        -:  180:#define internal_realloc realloc
+        -:  181:#endif
+        -:  182:
+        -:  183:/* strlen of character literals resolved at compile time */
+        -:  184:#define static_strlen(string_literal) (sizeof(string_literal) - sizeof(""))
+        -:  185:
+        -:  186:static internal_hooks global_hooks = { internal_malloc, internal_free, internal_realloc };
+        -:  187:
+function cJSON_strdup called 3735 returned 100% blocks executed 71%
+     3735:  188:static unsigned char* cJSON_strdup(const unsigned char* string, const internal_hooks * const hooks)
+        -:  189:{
+     3735:  190:    size_t length = 0;
+     3735:  191:    unsigned char *copy = NULL;
+        -:  192:
+     3735:  193:    if (string == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  194:    {
+    #####:  195:        return NULL;
+        -:  196:    }
+        -:  197:
+     3735:  198:    length = strlen((const char*)string) + sizeof("");
+     3735:  199:    copy = (unsigned char*)hooks->allocate(length);
+call    0 returned 100%
+     3735:  200:    if (copy == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  201:    {
+    #####:  202:        return NULL;
+        -:  203:    }
+     3735:  204:    memcpy(copy, string, length);
+        -:  205:
+     3735:  206:    return copy;
+        -:  207:}
+        -:  208:
+function cJSON_InitHooks called 0 returned 0% blocks executed 0%
+    #####:  209:CJSON_PUBLIC(void) cJSON_InitHooks(cJSON_Hooks* hooks)
+        -:  210:{
+    #####:  211:    if (hooks == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  212:    {
+        -:  213:        /* Reset hooks */
+    #####:  214:        global_hooks.allocate = malloc;
+    #####:  215:        global_hooks.deallocate = free;
+    #####:  216:        global_hooks.reallocate = realloc;
+    #####:  217:        return;
+        -:  218:    }
+        -:  219:
+    #####:  220:    global_hooks.allocate = malloc;
+    #####:  221:    if (hooks->malloc_fn != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  222:    {
+    #####:  223:        global_hooks.allocate = hooks->malloc_fn;
+        -:  224:    }
+        -:  225:
+    #####:  226:    global_hooks.deallocate = free;
+    #####:  227:    if (hooks->free_fn != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  228:    {
+    #####:  229:        global_hooks.deallocate = hooks->free_fn;
+        -:  230:    }
+        -:  231:
+        -:  232:    /* use realloc only if both free and malloc are used */
+    #####:  233:    global_hooks.reallocate = NULL;
+    #####:  234:    if ((global_hooks.allocate == malloc) && (global_hooks.deallocate == free))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -:  235:    {
+    #####:  236:        global_hooks.reallocate = realloc;
+        -:  237:    }
+        -:  238:}
+        -:  239:
+        -:  240:/* Internal constructor. */
+function cJSON_New_Item called 3448 returned 100% blocks executed 100%
+     3448:  241:static cJSON *cJSON_New_Item(const internal_hooks * const hooks)
+        -:  242:{
+     3448:  243:    cJSON* node = (cJSON*)hooks->allocate(sizeof(cJSON));
+call    0 returned 100%
+     3448:  244:    if (node)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -:  245:    {
+     3448:  246:        memset(node, '\0', sizeof(cJSON));
+        -:  247:    }
+        -:  248:
+     3448:  249:    return node;
+        -:  250:}
+        -:  251:
+        -:  252:/* Delete a cJSON structure. */
+function cJSON_Delete called 1213 returned 100% blocks executed 100%
+     1213:  253:CJSON_PUBLIC(void) cJSON_Delete(cJSON *item)
+        -:  254:{
+     1213:  255:    cJSON *next = NULL;
+     4661:  256:    while (item != NULL)
+branch  0 taken 74%
+branch  1 taken 26% (fallthrough)
+        -:  257:    {
+     3448:  258:        next = item->next;
+     3448:  259:        if (!(item->type & cJSON_IsReference) && (item->child != NULL))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 19% (fallthrough)
+branch  3 taken 81%
+        -:  260:        {
+      660:  261:            cJSON_Delete(item->child);
+call    0 returned 100%
+        -:  262:        }
+     3448:  263:        if (!(item->type & cJSON_IsReference) && (item->valuestring != NULL))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 33% (fallthrough)
+branch  3 taken 67%
+        -:  264:        {
+     1148:  265:            global_hooks.deallocate(item->valuestring);
+call    0 returned 100%
+     1148:  266:            item->valuestring = NULL;
+        -:  267:        }
+     3448:  268:        if (!(item->type & cJSON_StringIsConst) && (item->string != NULL))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 78% (fallthrough)
+branch  3 taken 22%
+        -:  269:        {
+     2696:  270:            global_hooks.deallocate(item->string);
+call    0 returned 100%
+     2696:  271:            item->string = NULL;
+        -:  272:        }
+     3448:  273:        global_hooks.deallocate(item);
+call    0 returned 100%
+     3448:  274:        item = next;
+        -:  275:    }
+     1213:  276:}
+        -:  277:
+        -:  278:/* get the decimal point character of the current locale */
+function get_decimal_point called 234 returned 100% blocks executed 100%
+      234:  279:static unsigned char get_decimal_point(void)
+        -:  280:{
+        -:  281:#ifdef ENABLE_LOCALES
+        -:  282:    struct lconv *lconv = localeconv();
+        -:  283:    return (unsigned char) lconv->decimal_point[0];
+        -:  284:#else
+      234:  285:    return '.';
+        -:  286:#endif
+        -:  287:}
+        -:  288:
+        -:  289:typedef struct
+        -:  290:{
+        -:  291:    const unsigned char *content;
+        -:  292:    size_t length;
+        -:  293:    size_t offset;
+        -:  294:    size_t depth; /* How deeply nested (in arrays/objects) is the input at the current offset. */
+        -:  295:    internal_hooks hooks;
+        -:  296:} parse_buffer;
+        -:  297:
+        -:  298:/* check if the given size is left to read in a given parse buffer (starting with 1) */
+        -:  299:#define can_read(buffer, size) ((buffer != NULL) && (((buffer)->offset + size) <= (buffer)->length))
+        -:  300:/* check if the buffer can be accessed at the given index (starting with 0) */
+        -:  301:#define can_access_at_index(buffer, index) ((buffer != NULL) && (((buffer)->offset + index) < (buffer)->length))
+        -:  302:#define cannot_access_at_index(buffer, index) (!can_access_at_index(buffer, index))
+        -:  303:/* get a pointer to the buffer at the position */
+        -:  304:#define buffer_at_offset(buffer) ((buffer)->content + (buffer)->offset)
+        -:  305:
+        -:  306:/* Parse the input text to generate a number, and populate the result into item. */
+function parse_number called 6 returned 100% blocks executed 61%
+        6:  307:static cJSON_bool parse_number(cJSON * const item, parse_buffer * const input_buffer)
+        -:  308:{
+        6:  309:    double number = 0;
+        6:  310:    unsigned char *after_end = NULL;
+        -:  311:    unsigned char *number_c_string;
+        6:  312:    unsigned char decimal_point = get_decimal_point();
+call    0 returned 100%
+        6:  313:    size_t i = 0;
+        6:  314:    size_t number_string_length = 0;
+        6:  315:    cJSON_bool has_decimal_point = false;
+        -:  316:
+        6:  317:    if ((input_buffer == NULL) || (input_buffer->content == NULL))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -:  318:    {
+    #####:  319:        return false;
+        -:  320:    }
+        -:  321:
+        -:  322:    /* copy the number into a temporary buffer and replace '.' with the decimal point
+        -:  323:     * of the current locale (for strtod)
+        -:  324:     * This also takes care of '\0' not necessarily being available for marking the end of the input */
+       66:  325:    for (i = 0; can_access_at_index(input_buffer, i); i++)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 taken 100%
+branch  3 taken 0% (fallthrough)
+        -:  326:    {
+       66:  327:        switch (buffer_at_offset(input_buffer)[i])
+branch  0 taken 91%
+branch  1 taken 0%
+branch  2 taken 9%
+        -:  328:        {
+       60:  329:            case '0':
+        -:  330:            case '1':
+        -:  331:            case '2':
+        -:  332:            case '3':
+        -:  333:            case '4':
+        -:  334:            case '5':
+        -:  335:            case '6':
+        -:  336:            case '7':
+        -:  337:            case '8':
+        -:  338:            case '9':
+        -:  339:            case '+':
+        -:  340:            case '-':
+        -:  341:            case 'e':
+        -:  342:            case 'E':
+       60:  343:                number_string_length++;
+       60:  344:                break;
+        -:  345:
+    #####:  346:            case '.':
+    #####:  347:                number_string_length++;
+    #####:  348:                has_decimal_point = true;
+    #####:  349:                break;
+        -:  350:
+        6:  351:            default:
+        6:  352:                goto loop_end;
+        -:  353:        }
+        -:  354:    }
+    #####:  355:loop_end:
+        -:  356:    /* malloc for temporary buffer, add 1 for '\0' */
+        6:  357:    number_c_string = (unsigned char *) input_buffer->hooks.allocate(number_string_length + 1);
+call    0 returned 100%
+        6:  358:    if (number_c_string == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  359:    {
+    #####:  360:        return false; /* allocation failure */
+        -:  361:    }
+        -:  362:
+        6:  363:    memcpy(number_c_string, buffer_at_offset(input_buffer), number_string_length);
+        6:  364:    number_c_string[number_string_length] = '\0';
+        -:  365:
+        6:  366:    if (has_decimal_point)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  367:    {
+    #####:  368:        for (i = 0; i < number_string_length; i++)
+branch  0 never executed
+branch  1 never executed (fallthrough)
+        -:  369:        {
+    #####:  370:            if (number_c_string[i] == '.')
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  371:            {
+        -:  372:                /* replace '.' with the decimal point of the current locale (for strtod) */
+    #####:  373:                number_c_string[i] = decimal_point;
+        -:  374:            }
+        -:  375:        }
+        -:  376:    }
+        -:  377:
+        6:  378:    number = strtod((const char*)number_c_string, (char**)&after_end);
+call    0 returned 100%
+        6:  379:    if (number_c_string == after_end)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  380:    {
+        -:  381:        /* free the temporary buffer */
+    #####:  382:        input_buffer->hooks.deallocate(number_c_string);
+call    0 never executed
+    #####:  383:        return false; /* parse_error */
+        -:  384:    }
+        -:  385:
+        6:  386:    item->valuedouble = number;
+        -:  387:
+        -:  388:    /* use saturation in case of overflow */
+        6:  389:    if (number >= INT_MAX)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  390:    {
+    #####:  391:        item->valueint = INT_MAX;
+        -:  392:    }
+        6:  393:    else if (number <= (double)INT_MIN)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  394:    {
+    #####:  395:        item->valueint = INT_MIN;
+        -:  396:    }
+        -:  397:    else
+        -:  398:    {
+        6:  399:        item->valueint = (int)number;
+        -:  400:    }
+        -:  401:
+        6:  402:    item->type = cJSON_Number;
+        -:  403:
+        6:  404:    input_buffer->offset += (size_t)(after_end - number_c_string);
+        -:  405:    /* free the temporary buffer */
+        6:  406:    input_buffer->hooks.deallocate(number_c_string);
+call    0 returned 100%
+        6:  407:    return true;
+        -:  408:}
+        -:  409:
+        -:  410:/* don't ask me, but the original cJSON_SetNumberValue returns an integer or double */
+function cJSON_SetNumberHelper called 0 returned 0% blocks executed 0%
+    #####:  411:CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number)
+        -:  412:{
+    #####:  413:    if (number >= INT_MAX)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  414:    {
+    #####:  415:        object->valueint = INT_MAX;
+        -:  416:    }
+    #####:  417:    else if (number <= (double)INT_MIN)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  418:    {
+    #####:  419:        object->valueint = INT_MIN;
+        -:  420:    }
+        -:  421:    else
+        -:  422:    {
+    #####:  423:        object->valueint = (int)number;
+        -:  424:    }
+        -:  425:
+    #####:  426:    return object->valuedouble = number;
+        -:  427:}
+        -:  428:
+        -:  429:/* Note: when passing a NULL valuestring, cJSON_SetValuestring treats this as an error and return NULL */
+function cJSON_SetValuestring called 0 returned 0% blocks executed 0%
+    #####:  430:CJSON_PUBLIC(char*) cJSON_SetValuestring(cJSON *object, const char *valuestring)
+        -:  431:{
+    #####:  432:    char *copy = NULL;
+        -:  433:    size_t v1_len;
+        -:  434:    size_t v2_len;
+        -:  435:    /* if object's type is not cJSON_String or is cJSON_IsReference, it should not set valuestring */
+    #####:  436:    if ((object == NULL) || !(object->type & cJSON_String) || (object->type & cJSON_IsReference))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+branch  4 never executed (fallthrough)
+branch  5 never executed
+        -:  437:    {
+    #####:  438:        return NULL;
+        -:  439:    }
+        -:  440:    /* return NULL if the object is corrupted or valuestring is NULL */
+    #####:  441:    if (object->valuestring == NULL || valuestring == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -:  442:    {
+    #####:  443:        return NULL;
+        -:  444:    }
+        -:  445:
+    #####:  446:    v1_len = strlen(valuestring);
+    #####:  447:    v2_len = strlen(object->valuestring);
+        -:  448:
+    #####:  449:    if (v1_len <= v2_len)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  450:    {
+        -:  451:        /* strcpy does not handle overlapping string: [X1, X2] [Y1, Y2] => X2 < Y1 or Y2 < X1 */
+    #####:  452:        if (!( valuestring + v1_len < object->valuestring || object->valuestring + v2_len < valuestring ))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -:  453:        {
+    #####:  454:            return NULL;
+        -:  455:        }
+    #####:  456:        strcpy(object->valuestring, valuestring);
+    #####:  457:        return object->valuestring;
+        -:  458:    }
+    #####:  459:    copy = (char*) cJSON_strdup((const unsigned char*)valuestring, &global_hooks);
+call    0 never executed
+    #####:  460:    if (copy == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  461:    {
+    #####:  462:        return NULL;
+        -:  463:    }
+    #####:  464:    if (object->valuestring != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  465:    {
+    #####:  466:        cJSON_free(object->valuestring);
+call    0 never executed
+        -:  467:    }
+    #####:  468:    object->valuestring = copy;
+        -:  469:
+    #####:  470:    return copy;
+        -:  471:}
+        -:  472:
+        -:  473:typedef struct
+        -:  474:{
+        -:  475:    unsigned char *buffer;
+        -:  476:    size_t length;
+        -:  477:    size_t offset;
+        -:  478:    size_t depth; /* current nesting depth (for formatted printing) */
+        -:  479:    cJSON_bool noalloc;
+        -:  480:    cJSON_bool format; /* is this print a formatted print */
+        -:  481:    internal_hooks hooks;
+        -:  482:} printbuffer;
+        -:  483:
+        -:  484:/* realloc printbuffer if necessary to have at least "needed" bytes more */
+function ensure called 4009 returned 100% blocks executed 52%
+     4009:  485:static unsigned char* ensure(printbuffer * const p, size_t needed)
+        -:  486:{
+     4009:  487:    unsigned char *newbuffer = NULL;
+     4009:  488:    size_t newsize = 0;
+        -:  489:
+     4009:  490:    if ((p == NULL) || (p->buffer == NULL))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -:  491:    {
+    #####:  492:        return NULL;
+        -:  493:    }
+        -:  494:
+     4009:  495:    if ((p->length > 0) && (p->offset >= p->length))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -:  496:    {
+        -:  497:        /* make sure that offset is valid */
+    #####:  498:        return NULL;
+        -:  499:    }
+        -:  500:
+     4009:  501:    if (needed > INT_MAX)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  502:    {
+        -:  503:        /* sizes bigger than INT_MAX are currently not supported */
+    #####:  504:        return NULL;
+        -:  505:    }
+        -:  506:
+     4009:  507:    needed += p->offset + 1;
+     4009:  508:    if (needed <= p->length)
+branch  0 taken 99% (fallthrough)
+branch  1 taken 1%
+        -:  509:    {
+     3987:  510:        return p->buffer + p->offset;
+        -:  511:    }
+        -:  512:
+       22:  513:    if (p->noalloc) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####:  514:        return NULL;
+        -:  515:    }
+        -:  516:
+        -:  517:    /* calculate new buffer size */
+       22:  518:    if (needed > (INT_MAX / 2))
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  519:    {
+        -:  520:        /* overflow of int, use INT_MAX if possible */
+    #####:  521:        if (needed <= INT_MAX)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  522:        {
+    #####:  523:            newsize = INT_MAX;
+        -:  524:        }
+        -:  525:        else
+        -:  526:        {
+    #####:  527:            return NULL;
+        -:  528:        }
+        -:  529:    }
+        -:  530:    else
+        -:  531:    {
+       22:  532:        newsize = needed * 2;
+        -:  533:    }
+        -:  534:
+       22:  535:    if (p->hooks.reallocate != NULL)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -:  536:    {
+        -:  537:        /* reallocate with realloc if available */
+       22:  538:        newbuffer = (unsigned char*)p->hooks.reallocate(p->buffer, newsize);
+call    0 returned 100%
+       22:  539:        if (newbuffer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  540:        {
+    #####:  541:            p->hooks.deallocate(p->buffer);
+call    0 never executed
+    #####:  542:            p->length = 0;
+    #####:  543:            p->buffer = NULL;
+        -:  544:
+    #####:  545:            return NULL;
+        -:  546:        }
+        -:  547:    }
+        -:  548:    else
+        -:  549:    {
+        -:  550:        /* otherwise reallocate manually */
+    #####:  551:        newbuffer = (unsigned char*)p->hooks.allocate(newsize);
+call    0 never executed
+    #####:  552:        if (!newbuffer)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  553:        {
+    #####:  554:            p->hooks.deallocate(p->buffer);
+call    0 never executed
+    #####:  555:            p->length = 0;
+    #####:  556:            p->buffer = NULL;
+        -:  557:
+    #####:  558:            return NULL;
+        -:  559:        }
+        -:  560:
+    #####:  561:        memcpy(newbuffer, p->buffer, p->offset + 1);
+    #####:  562:        p->hooks.deallocate(p->buffer);
+call    0 never executed
+        -:  563:    }
+       22:  564:    p->length = newsize;
+       22:  565:    p->buffer = newbuffer;
+        -:  566:
+       22:  567:    return newbuffer + p->offset;
+        -:  568:}
+        -:  569:
+        -:  570:/* calculate the new length of the string in a printbuffer and update the offset */
+function update_offset called 1915 returned 100% blocks executed 80%
+     1915:  571:static void update_offset(printbuffer * const buffer)
+        -:  572:{
+     1915:  573:    const unsigned char *buffer_pointer = NULL;
+     1915:  574:    if ((buffer == NULL) || (buffer->buffer == NULL))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -:  575:    {
+    #####:  576:        return;
+        -:  577:    }
+     1915:  578:    buffer_pointer = buffer->buffer + buffer->offset;
+        -:  579:
+     1915:  580:    buffer->offset += strlen((const char*)buffer_pointer);
+        -:  581:}
+        -:  582:
+        -:  583:/* securely comparison of floating-point variables */
+function compare_double called 2 returned 100% blocks executed 80%
+        2:  584:static cJSON_bool compare_double(double a, double b)
+        -:  585:{
+       2*:  586:    double maxVal = fabs(a) > fabs(b) ? fabs(a) : fabs(b);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        2:  587:    return (fabs(a - b) <= maxVal * DBL_EPSILON);
+        -:  588:}
+        -:  589:
+        -:  590:/* Render the number nicely from the given item into a string. */
+function print_number called 228 returned 100% blocks executed 83%
+      228:  591:static cJSON_bool print_number(const cJSON * const item, printbuffer * const output_buffer)
+        -:  592:{
+      228:  593:    unsigned char *output_pointer = NULL;
+      228:  594:    double d = item->valuedouble;
+      228:  595:    int length = 0;
+      228:  596:    size_t i = 0;
+      228:  597:    unsigned char number_buffer[26] = {0}; /* temporary buffer to print the number into */
+      228:  598:    unsigned char decimal_point = get_decimal_point();
+call    0 returned 100%
+      228:  599:    double test = 0.0;
+        -:  600:
+      228:  601:    if (output_buffer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  602:    {
+    #####:  603:        return false;
+        -:  604:    }
+        -:  605:
+        -:  606:    /* This checks for NaN and Infinity */
+      228:  607:    if (isnan(d) || isinf(d))
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+        -:  608:    {
+    #####:  609:        length = sprintf((char*)number_buffer, "null");
+        -:  610:    }
+      228:  611:    else if(d == (double)item->valueint)
+branch  0 taken 99% (fallthrough)
+branch  1 taken 1%
+        -:  612:    {
+      226:  613:        length = sprintf((char*)number_buffer, "%d", item->valueint);
+        -:  614:    }
+        -:  615:    else
+        -:  616:    {
+        -:  617:        /* Try 15 decimal places of precision to avoid nonsignificant nonzero digits */
+        2:  618:        length = sprintf((char*)number_buffer, "%1.15g", d);
+        -:  619:
+        -:  620:        /* Check whether the original double can be recovered */
+        2:  621:        if ((sscanf((char*)number_buffer, "%lg", &test) != 1) || !compare_double((double)test, d))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+call    2 returned 100%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+        -:  622:        {
+        -:  623:            /* If not, print with 17 decimal places of precision */
+    #####:  624:            length = sprintf((char*)number_buffer, "%1.17g", d);
+        -:  625:        }
+        -:  626:    }
+        -:  627:
+        -:  628:    /* sprintf failed or buffer overrun occurred */
+      228:  629:    if ((length < 0) || (length > (int)(sizeof(number_buffer) - 1)))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -:  630:    {
+    #####:  631:        return false;
+        -:  632:    }
+        -:  633:
+        -:  634:    /* reserve appropriate space in the output */
+      228:  635:    output_pointer = ensure(output_buffer, (size_t)length + sizeof(""));
+call    0 returned 100%
+      228:  636:    if (output_pointer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  637:    {
+    #####:  638:        return false;
+        -:  639:    }
+        -:  640:
+        -:  641:    /* copy the printed number to the output and replace locale
+        -:  642:     * dependent decimal point with '.' */
+     1347:  643:    for (i = 0; i < ((size_t)length); i++)
+branch  0 taken 83%
+branch  1 taken 17% (fallthrough)
+        -:  644:    {
+     1119:  645:        if (number_buffer[i] == decimal_point)
+branch  0 taken 1% (fallthrough)
+branch  1 taken 100%
+        -:  646:        {
+        2:  647:            output_pointer[i] = '.';
+        2:  648:            continue;
+        -:  649:        }
+        -:  650:
+     1117:  651:        output_pointer[i] = number_buffer[i];
+        -:  652:    }
+      228:  653:    output_pointer[i] = '\0';
+        -:  654:
+      228:  655:    output_buffer->offset += (size_t)length;
+        -:  656:
+      228:  657:    return true;
+        -:  658:}
+        -:  659:
+        -:  660:/* parse 4 digit hexadecimal number */
+function parse_hex4 called 32 returned 100% blocks executed 88%
+       32:  661:static unsigned parse_hex4(const unsigned char * const input)
+        -:  662:{
+       32:  663:    unsigned int h = 0;
+       32:  664:    size_t i = 0;
+        -:  665:
+      160:  666:    for (i = 0; i < 4; i++)
+branch  0 taken 80%
+branch  1 taken 20% (fallthrough)
+        -:  667:    {
+        -:  668:        /* parse digit */
+      128:  669:        if ((input[i] >= '0') && (input[i] <= '9'))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 62% (fallthrough)
+branch  3 taken 38%
+        -:  670:        {
+       80:  671:            h += (unsigned int) input[i] - '0';
+        -:  672:        }
+       48:  673:        else if ((input[i] >= 'A') && (input[i] <= 'F'))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -:  674:        {
+    #####:  675:            h += (unsigned int) 10 + input[i] - 'A';
+        -:  676:        }
+       48:  677:        else if ((input[i] >= 'a') && (input[i] <= 'f'))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+        -:  678:        {
+       48:  679:            h += (unsigned int) 10 + input[i] - 'a';
+        -:  680:        }
+        -:  681:        else /* invalid */
+        -:  682:        {
+    #####:  683:            return 0;
+        -:  684:        }
+        -:  685:
+      128:  686:        if (i < 3)
+branch  0 taken 75% (fallthrough)
+branch  1 taken 25%
+        -:  687:        {
+        -:  688:            /* shift left to make place for the next nibble */
+       96:  689:            h = h << 4;
+        -:  690:        }
+        -:  691:    }
+        -:  692:
+       32:  693:    return h;
+        -:  694:}
+        -:  695:
+        -:  696:/* converts a UTF-16 literal to UTF-8
+        -:  697: * A literal can be one or two sequences of the form \uXXXX */
+function utf16_literal_to_utf8 called 32 returned 100% blocks executed 46%
+       32:  698:static unsigned char utf16_literal_to_utf8(const unsigned char * const input_pointer, const unsigned char * const input_end, unsigned char **output_pointer)
+        -:  699:{
+       32:  700:    long unsigned int codepoint = 0;
+       32:  701:    unsigned int first_code = 0;
+       32:  702:    const unsigned char *first_sequence = input_pointer;
+       32:  703:    unsigned char utf8_length = 0;
+       32:  704:    unsigned char utf8_position = 0;
+       32:  705:    unsigned char sequence_length = 0;
+       32:  706:    unsigned char first_byte_mark = 0;
+        -:  707:
+       32:  708:    if ((input_end - first_sequence) < 6)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  709:    {
+        -:  710:        /* input ends unexpectedly */
+    #####:  711:        goto fail;
+        -:  712:    }
+        -:  713:
+        -:  714:    /* get the first utf16 sequence */
+       32:  715:    first_code = parse_hex4(first_sequence + 2);
+call    0 returned 100%
+        -:  716:
+        -:  717:    /* check that the code is valid */
+      32*:  718:    if (((first_code >= 0xDC00) && (first_code <= 0xDFFF)))
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -:  719:    {
+    #####:  720:        goto fail;
+        -:  721:    }
+        -:  722:
+        -:  723:    /* UTF16 surrogate pair */
+      32*:  724:    if ((first_code >= 0xD800) && (first_code <= 0xDBFF))
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####:  725:    {
+    #####:  726:        const unsigned char *second_sequence = first_sequence + 6;
+    #####:  727:        unsigned int second_code = 0;
+    #####:  728:        sequence_length = 12; /* \uXXXX\uXXXX */
+        -:  729:
+    #####:  730:        if ((input_end - second_sequence) < 6)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  731:        {
+        -:  732:            /* input ends unexpectedly */
+    #####:  733:            goto fail;
+        -:  734:        }
+        -:  735:
+    #####:  736:        if ((second_sequence[0] != '\\') || (second_sequence[1] != 'u'))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -:  737:        {
+        -:  738:            /* missing second half of the surrogate pair */
+    #####:  739:            goto fail;
+        -:  740:        }
+        -:  741:
+        -:  742:        /* get the second utf16 sequence */
+    #####:  743:        second_code = parse_hex4(second_sequence + 2);
+call    0 never executed
+        -:  744:        /* check that the code is valid */
+    #####:  745:        if ((second_code < 0xDC00) || (second_code > 0xDFFF))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -:  746:        {
+        -:  747:            /* invalid second half of the surrogate pair */
+    #####:  748:            goto fail;
+        -:  749:        }
+        -:  750:
+        -:  751:
+        -:  752:        /* calculate the unicode codepoint from the surrogate pair */
+    #####:  753:        codepoint = 0x10000 + (((first_code & 0x3FF) << 10) | (second_code & 0x3FF));
+        -:  754:    }
+        -:  755:    else
+        -:  756:    {
+       32:  757:        sequence_length = 6; /* \uXXXX */
+       32:  758:        codepoint = first_code;
+        -:  759:    }
+        -:  760:
+        -:  761:    /* encode as UTF-8
+        -:  762:     * takes at maximum 4 bytes to encode:
+        -:  763:     * 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
+       32:  764:    if (codepoint < 0x80)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  765:    {
+        -:  766:        /* normal ascii, encoding 0xxxxxxx */
+    #####:  767:        utf8_length = 1;
+        -:  768:    }
+       32:  769:    else if (codepoint < 0x800)
+branch  0 taken 3% (fallthrough)
+branch  1 taken 97%
+        -:  770:    {
+        -:  771:        /* two bytes, encoding 110xxxxx 10xxxxxx */
+        1:  772:        utf8_length = 2;
+        1:  773:        first_byte_mark = 0xC0; /* 11000000 */
+        -:  774:    }
+       31:  775:    else if (codepoint < 0x10000)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -:  776:    {
+        -:  777:        /* three bytes, encoding 1110xxxx 10xxxxxx 10xxxxxx */
+       31:  778:        utf8_length = 3;
+       31:  779:        first_byte_mark = 0xE0; /* 11100000 */
+        -:  780:    }
+    #####:  781:    else if (codepoint <= 0x10FFFF)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  782:    {
+        -:  783:        /* four bytes, encoding 1110xxxx 10xxxxxx 10xxxxxx 10xxxxxx */
+    #####:  784:        utf8_length = 4;
+    #####:  785:        first_byte_mark = 0xF0; /* 11110000 */
+        -:  786:    }
+        -:  787:    else
+        -:  788:    {
+        -:  789:        /* invalid unicode codepoint */
+    #####:  790:        goto fail;
+        -:  791:    }
+        -:  792:
+        -:  793:    /* encode as utf8 */
+       95:  794:    for (utf8_position = (unsigned char)(utf8_length - 1); utf8_position > 0; utf8_position--)
+branch  0 taken 66%
+branch  1 taken 34% (fallthrough)
+        -:  795:    {
+        -:  796:        /* 10xxxxxx */
+       63:  797:        (*output_pointer)[utf8_position] = (unsigned char)((codepoint | 0x80) & 0xBF);
+       63:  798:        codepoint >>= 6;
+        -:  799:    }
+        -:  800:    /* encode first byte */
+       32:  801:    if (utf8_length > 1)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -:  802:    {
+       32:  803:        (*output_pointer)[0] = (unsigned char)((codepoint | first_byte_mark) & 0xFF);
+        -:  804:    }
+        -:  805:    else
+        -:  806:    {
+    #####:  807:        (*output_pointer)[0] = (unsigned char)(codepoint & 0x7F);
+        -:  808:    }
+        -:  809:
+       32:  810:    *output_pointer += utf8_length;
+        -:  811:
+       32:  812:    return sequence_length;
+        -:  813:
+    #####:  814:fail:
+    #####:  815:    return 0;
+        -:  816:}
+        -:  817:
+        -:  818:/* Parse the input text into an unescaped cinput, and populate item. */
+function parse_string called 109 returned 100% blocks executed 57%
+      109:  819:static cJSON_bool parse_string(cJSON * const item, parse_buffer * const input_buffer)
+        -:  820:{
+      109:  821:    const unsigned char *input_pointer = buffer_at_offset(input_buffer) + 1;
+      109:  822:    const unsigned char *input_end = buffer_at_offset(input_buffer) + 1;
+      109:  823:    unsigned char *output_pointer = NULL;
+      109:  824:    unsigned char *output = NULL;
+        -:  825:
+        -:  826:    /* not a string */
+      109:  827:    if (buffer_at_offset(input_buffer)[0] != '\"')
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  828:    {
+    #####:  829:        goto fail;
+        -:  830:    }
+        -:  831:
+        -:  832:    {
+        -:  833:        /* calculate approximate size of the output (overestimate) */
+      109:  834:        size_t allocation_length = 0;
+      109:  835:        size_t skipped_bytes = 0;
+     1419:  836:        while (((size_t)(input_end - input_buffer->content) < input_buffer->length) && (*input_end != '\"'))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 92%
+branch  3 taken 8% (fallthrough)
+        -:  837:        {
+        -:  838:            /* is escape sequence */
+     1310:  839:            if (input_end[0] == '\\')
+branch  0 taken 2% (fallthrough)
+branch  1 taken 98%
+        -:  840:            {
+       32:  841:                if ((size_t)(input_end + 1 - input_buffer->content) >= input_buffer->length)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  842:                {
+        -:  843:                    /* prevent buffer overflow when last input character is a backslash */
+    #####:  844:                    goto fail;
+        -:  845:                }
+       32:  846:                skipped_bytes++;
+       32:  847:                input_end++;
+        -:  848:            }
+     1310:  849:            input_end++;
+        -:  850:        }
+      109:  851:        if (((size_t)(input_end - input_buffer->content) >= input_buffer->length) || (*input_end != '\"'))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -:  852:        {
+    #####:  853:            goto fail; /* string ended unexpectedly */
+        -:  854:        }
+        -:  855:
+        -:  856:        /* This is at most how much we need for the output */
+      109:  857:        allocation_length = (size_t) (input_end - buffer_at_offset(input_buffer)) - skipped_bytes;
+      109:  858:        output = (unsigned char*)input_buffer->hooks.allocate(allocation_length + sizeof(""));
+call    0 returned 100%
+      109:  859:        if (output == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  860:        {
+    #####:  861:            goto fail; /* allocation failure */
+        -:  862:        }
+        -:  863:    }
+        -:  864:
+      109:  865:    output_pointer = output;
+        -:  866:    /* loop through the string literal */
+     1291:  867:    while (input_pointer < input_end)
+branch  0 taken 92%
+branch  1 taken 8% (fallthrough)
+        -:  868:    {
+     1182:  869:        if (*input_pointer != '\\')
+branch  0 taken 97% (fallthrough)
+branch  1 taken 3%
+        -:  870:        {
+     1150:  871:            *output_pointer++ = *input_pointer++;
+        -:  872:        }
+        -:  873:        /* escape sequence */
+        -:  874:        else
+        -:  875:        {
+       32:  876:            unsigned char sequence_length = 2;
+       32:  877:            if ((input_end - input_pointer) < 1)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  878:            {
+    #####:  879:                goto fail;
+        -:  880:            }
+        -:  881:
+       32:  882:            switch (input_pointer[1])
+branch  0 taken 0%
+branch  1 taken 0%
+branch  2 taken 0%
+branch  3 taken 0%
+branch  4 taken 0%
+branch  5 taken 0%
+branch  6 taken 100%
+branch  7 taken 0%
+        -:  883:            {
+    #####:  884:                case 'b':
+    #####:  885:                    *output_pointer++ = '\b';
+    #####:  886:                    break;
+    #####:  887:                case 'f':
+    #####:  888:                    *output_pointer++ = '\f';
+    #####:  889:                    break;
+    #####:  890:                case 'n':
+    #####:  891:                    *output_pointer++ = '\n';
+    #####:  892:                    break;
+    #####:  893:                case 'r':
+    #####:  894:                    *output_pointer++ = '\r';
+    #####:  895:                    break;
+    #####:  896:                case 't':
+    #####:  897:                    *output_pointer++ = '\t';
+    #####:  898:                    break;
+    #####:  899:                case '\"':
+        -:  900:                case '\\':
+        -:  901:                case '/':
+    #####:  902:                    *output_pointer++ = input_pointer[1];
+    #####:  903:                    break;
+        -:  904:
+        -:  905:                /* UTF-16 literal */
+       32:  906:                case 'u':
+       32:  907:                    sequence_length = utf16_literal_to_utf8(input_pointer, input_end, &output_pointer);
+call    0 returned 100%
+       32:  908:                    if (sequence_length == 0)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  909:                    {
+        -:  910:                        /* failed to convert UTF16-literal to UTF-8 */
+    #####:  911:                        goto fail;
+        -:  912:                    }
+       32:  913:                    break;
+        -:  914:
+    #####:  915:                default:
+    #####:  916:                    goto fail;
+        -:  917:            }
+       32:  918:            input_pointer += sequence_length;
+        -:  919:        }
+        -:  920:    }
+        -:  921:
+        -:  922:    /* zero terminate the output */
+      109:  923:    *output_pointer = '\0';
+        -:  924:
+      109:  925:    item->type = cJSON_String;
+      109:  926:    item->valuestring = (char*)output;
+        -:  927:
+      109:  928:    input_buffer->offset = (size_t) (input_end - input_buffer->content);
+      109:  929:    input_buffer->offset++;
+        -:  930:
+      109:  931:    return true;
+        -:  932:
+    #####:  933:fail:
+    #####:  934:    if (output != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  935:    {
+    #####:  936:        input_buffer->hooks.deallocate(output);
+call    0 never executed
+    #####:  937:        output = NULL;
+        -:  938:    }
+        -:  939:
+    #####:  940:    if (input_pointer != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  941:    {
+    #####:  942:        input_buffer->offset = (size_t)(input_pointer - input_buffer->content);
+        -:  943:    }
+        -:  944:
+    #####:  945:    return false;
+        -:  946:}
+        -:  947:
+        -:  948:/* Render the cstring provided to an escaped version that can be printed. */
+function print_string_ptr called 1256 returned 100% blocks executed 63%
+     1256:  949:static cJSON_bool print_string_ptr(const unsigned char * const input, printbuffer * const output_buffer)
+        -:  950:{
+     1256:  951:    const unsigned char *input_pointer = NULL;
+     1256:  952:    unsigned char *output = NULL;
+     1256:  953:    unsigned char *output_pointer = NULL;
+     1256:  954:    size_t output_length = 0;
+        -:  955:    /* numbers of additional characters needed for escaping */
+     1256:  956:    size_t escape_characters = 0;
+        -:  957:
+     1256:  958:    if (output_buffer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  959:    {
+    #####:  960:        return false;
+        -:  961:    }
+        -:  962:
+        -:  963:    /* empty string */
+     1256:  964:    if (input == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  965:    {
+    #####:  966:        output = ensure(output_buffer, sizeof("\"\""));
+call    0 never executed
+    #####:  967:        if (output == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  968:        {
+    #####:  969:            return false;
+        -:  970:        }
+    #####:  971:        strcpy((char*)output, "\"\"");
+        -:  972:
+    #####:  973:        return true;
+        -:  974:    }
+        -:  975:
+        -:  976:    /* set "flag" to 1 if something needs to be escaped */
+    12164:  977:    for (input_pointer = input; *input_pointer; input_pointer++)
+branch  0 taken 90%
+branch  1 taken 10% (fallthrough)
+        -:  978:    {
+    10908:  979:        switch (*input_pointer)
+branch  0 taken 1%
+branch  1 taken 100%
+        -:  980:        {
+        3:  981:            case '\"':
+        -:  982:            case '\\':
+        -:  983:            case '\b':
+        -:  984:            case '\f':
+        -:  985:            case '\n':
+        -:  986:            case '\r':
+        -:  987:            case '\t':
+        -:  988:                /* one character escape sequence */
+        3:  989:                escape_characters++;
+        3:  990:                break;
+    10905:  991:            default:
+    10905:  992:                if (*input_pointer < 32)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -:  993:                {
+        -:  994:                    /* UTF-16 escape sequence uXXXX */
+    #####:  995:                    escape_characters += 5;
+        -:  996:                }
+    10905:  997:                break;
+        -:  998:        }
+        -:  999:    }
+     1256: 1000:    output_length = (size_t)(input_pointer - input) + escape_characters;
+        -: 1001:
+     1256: 1002:    output = ensure(output_buffer, output_length + sizeof("\"\""));
+call    0 returned 100%
+     1256: 1003:    if (output == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1004:    {
+    #####: 1005:        return false;
+        -: 1006:    }
+        -: 1007:
+        -: 1008:    /* no characters have to be escaped */
+     1256: 1009:    if (escape_characters == 0)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 1%
+        -: 1010:    {
+     1255: 1011:        output[0] = '\"';
+     1255: 1012:        memcpy(output + 1, input, output_length);
+     1255: 1013:        output[output_length + 1] = '\"';
+     1255: 1014:        output[output_length + 2] = '\0';
+        -: 1015:
+     1255: 1016:        return true;
+        -: 1017:    }
+        -: 1018:
+        1: 1019:    output[0] = '\"';
+        1: 1020:    output_pointer = output + 1;
+        -: 1021:    /* copy the string */
+      124: 1022:    for (input_pointer = input; *input_pointer != '\0'; (void)input_pointer++, output_pointer++)
+branch  0 taken 99%
+branch  1 taken 1% (fallthrough)
+        -: 1023:    {
+      123: 1024:        if ((*input_pointer > 31) && (*input_pointer != '\"') && (*input_pointer != '\\'))
+branch  0 taken 98% (fallthrough)
+branch  1 taken 2%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+        -: 1025:        {
+        -: 1026:            /* normal character, copy */
+      120: 1027:            *output_pointer = *input_pointer;
+        -: 1028:        }
+        -: 1029:        else
+        -: 1030:        {
+        -: 1031:            /* character needs to be escaped */
+        3: 1032:            *output_pointer++ = '\\';
+        3: 1033:            switch (*input_pointer)
+branch  0 taken 0%
+branch  1 taken 0%
+branch  2 taken 0%
+branch  3 taken 0%
+branch  4 taken 100%
+branch  5 taken 0%
+branch  6 taken 0%
+branch  7 taken 0%
+        -: 1034:            {
+    #####: 1035:                case '\\':
+    #####: 1036:                    *output_pointer = '\\';
+    #####: 1037:                    break;
+    #####: 1038:                case '\"':
+    #####: 1039:                    *output_pointer = '\"';
+    #####: 1040:                    break;
+    #####: 1041:                case '\b':
+    #####: 1042:                    *output_pointer = 'b';
+    #####: 1043:                    break;
+    #####: 1044:                case '\f':
+    #####: 1045:                    *output_pointer = 'f';
+    #####: 1046:                    break;
+        3: 1047:                case '\n':
+        3: 1048:                    *output_pointer = 'n';
+        3: 1049:                    break;
+    #####: 1050:                case '\r':
+    #####: 1051:                    *output_pointer = 'r';
+    #####: 1052:                    break;
+    #####: 1053:                case '\t':
+    #####: 1054:                    *output_pointer = 't';
+    #####: 1055:                    break;
+    #####: 1056:                default:
+        -: 1057:                    /* escape and print as unicode codepoint */
+    #####: 1058:                    sprintf((char*)output_pointer, "u%04x", *input_pointer);
+    #####: 1059:                    output_pointer += 4;
+    #####: 1060:                    break;
+        -: 1061:            }
+        -: 1062:        }
+        -: 1063:    }
+        1: 1064:    output[output_length + 1] = '\"';
+        1: 1065:    output[output_length + 2] = '\0';
+        -: 1066:
+        1: 1067:    return true;
+        -: 1068:}
+        -: 1069:
+        -: 1070:/* Invoke print_string_ptr (which is useful) on an item. */
+function print_string called 377 returned 100% blocks executed 100%
+      377: 1071:static cJSON_bool print_string(const cJSON * const item, printbuffer * const p)
+        -: 1072:{
+      377: 1073:    return print_string_ptr((unsigned char*)item->valuestring, p);
+call    0 returned 100%
+        -: 1074:}
+        -: 1075:
+        -: 1076:/* Predeclare these prototypes. */
+        -: 1077:static cJSON_bool parse_value(cJSON * const item, parse_buffer * const input_buffer);
+        -: 1078:static cJSON_bool print_value(const cJSON * const item, printbuffer * const output_buffer);
+        -: 1079:static cJSON_bool parse_array(cJSON * const item, parse_buffer * const input_buffer);
+        -: 1080:static cJSON_bool print_array(const cJSON * const item, printbuffer * const output_buffer);
+        -: 1081:static cJSON_bool parse_object(cJSON * const item, parse_buffer * const input_buffer);
+        -: 1082:static cJSON_bool print_object(const cJSON * const item, printbuffer * const output_buffer);
+        -: 1083:
+        -: 1084:/* Utility to jump whitespace and cr/lf */
+function buffer_skip_whitespace called 319 returned 100% blocks executed 87%
+      319: 1085:static parse_buffer *buffer_skip_whitespace(parse_buffer * const buffer)
+        -: 1086:{
+      319: 1087:    if ((buffer == NULL) || (buffer->content == NULL))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -: 1088:    {
+    #####: 1089:        return NULL;
+        -: 1090:    }
+        -: 1091:
+      319: 1092:    if (cannot_access_at_index(buffer, 0))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -: 1093:    {
+    #####: 1094:        return buffer;
+        -: 1095:    }
+        -: 1096:
+      408: 1097:    while (can_access_at_index(buffer, 0) && (buffer_at_offset(buffer)[0] <= 32))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 95% (fallthrough)
+branch  3 taken 5%
+branch  4 taken 23%
+branch  5 taken 77% (fallthrough)
+        -: 1098:    {
+       89: 1099:       buffer->offset++;
+        -: 1100:    }
+        -: 1101:
+      319: 1102:    if (buffer->offset == buffer->length)
+branch  0 taken 7% (fallthrough)
+branch  1 taken 93%
+        -: 1103:    {
+       21: 1104:        buffer->offset--;
+        -: 1105:    }
+        -: 1106:
+      319: 1107:    return buffer;
+        -: 1108:}
+        -: 1109:
+        -: 1110:/* skip the UTF-8 BOM (byte order mark) if it is at the beginning of a buffer */
+function skip_utf8_bom called 23 returned 100% blocks executed 80%
+       23: 1111:static parse_buffer *skip_utf8_bom(parse_buffer * const buffer)
+        -: 1112:{
+       23: 1113:    if ((buffer == NULL) || (buffer->content == NULL) || (buffer->offset != 0))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+        -: 1114:    {
+    #####: 1115:        return NULL;
+        -: 1116:    }
+        -: 1117:
+       23: 1118:    if (can_access_at_index(buffer, 4) && (strncmp((const char*)buffer_at_offset(buffer), "\xEF\xBB\xBF", 3) == 0))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 87% (fallthrough)
+branch  3 taken 13%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+        -: 1119:    {
+    #####: 1120:        buffer->offset += 3;
+        -: 1121:    }
+        -: 1122:
+       23: 1123:    return buffer;
+        -: 1124:}
+        -: 1125:
+function cJSON_ParseWithOpts called 2 returned 100% blocks executed 75%
+        2: 1126:CJSON_PUBLIC(cJSON *) cJSON_ParseWithOpts(const char *value, const char **return_parse_end, cJSON_bool require_null_terminated)
+        -: 1127:{
+        -: 1128:    size_t buffer_length;
+        -: 1129:
+        2: 1130:    if (NULL == value)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1131:    {
+    #####: 1132:        return NULL;
+        -: 1133:    }
+        -: 1134:
+        -: 1135:    /* Adding null character size due to require_null_terminated. */
+        2: 1136:    buffer_length = strlen(value) + sizeof("");
+        -: 1137:
+        2: 1138:    return cJSON_ParseWithLengthOpts(value, buffer_length, return_parse_end, require_null_terminated);
+call    0 returned 100%
+        -: 1139:}
+        -: 1140:
+        -: 1141:/* Parse an object - create a new root, and populate. */
+function cJSON_ParseWithLengthOpts called 23 returned 100% blocks executed 53%
+       23: 1142:CJSON_PUBLIC(cJSON *) cJSON_ParseWithLengthOpts(const char *value, size_t buffer_length, const char **return_parse_end, cJSON_bool require_null_terminated)
+        -: 1143:{
+       23: 1144:    parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
+       23: 1145:    cJSON *item = NULL;
+        -: 1146:
+        -: 1147:    /* reset error position */
+       23: 1148:    global_error.json = NULL;
+       23: 1149:    global_error.position = 0;
+        -: 1150:
+       23: 1151:    if (value == NULL || 0 == buffer_length)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -: 1152:    {
+    #####: 1153:        goto fail;
+        -: 1154:    }
+        -: 1155:
+       23: 1156:    buffer.content = (const unsigned char*)value;
+       23: 1157:    buffer.length = buffer_length;
+       23: 1158:    buffer.offset = 0;
+       23: 1159:    buffer.hooks = global_hooks;
+        -: 1160:
+       23: 1161:    item = cJSON_New_Item(&global_hooks);
+call    0 returned 100%
+       23: 1162:    if (item == NULL) /* memory fail */
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1163:    {
+    #####: 1164:        goto fail;
+        -: 1165:    }
+        -: 1166:
+       23: 1167:    if (!parse_value(item, buffer_skip_whitespace(skip_utf8_bom(&buffer))))
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+        -: 1168:    {
+        -: 1169:        /* parse failure. ep is set. */
+    #####: 1170:        goto fail;
+        -: 1171:    }
+        -: 1172:
+        -: 1173:    /* if we require null-terminated JSON without appended garbage, skip and then check for a null terminator */
+       23: 1174:    if (require_null_terminated)
+branch  0 taken 91% (fallthrough)
+branch  1 taken 9%
+        -: 1175:    {
+       21: 1176:        buffer_skip_whitespace(&buffer);
+call    0 returned 100%
+       21: 1177:        if ((buffer.offset >= buffer.length) || buffer_at_offset(&buffer)[0] != '\0')
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -: 1178:        {
+    #####: 1179:            goto fail;
+        -: 1180:        }
+        -: 1181:    }
+       23: 1182:    if (return_parse_end)
+branch  0 taken 91% (fallthrough)
+branch  1 taken 9%
+        -: 1183:    {
+       21: 1184:        *return_parse_end = (const char*)buffer_at_offset(&buffer);
+        -: 1185:    }
+        -: 1186:
+       23: 1187:    return item;
+        -: 1188:
+    #####: 1189:fail:
+    #####: 1190:    if (item != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1191:    {
+    #####: 1192:        cJSON_Delete(item);
+call    0 never executed
+        -: 1193:    }
+        -: 1194:
+    #####: 1195:    if (value != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1196:    {
+        -: 1197:        error local_error;
+    #####: 1198:        local_error.json = (const unsigned char*)value;
+    #####: 1199:        local_error.position = 0;
+        -: 1200:
+    #####: 1201:        if (buffer.offset < buffer.length)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1202:        {
+    #####: 1203:            local_error.position = buffer.offset;
+        -: 1204:        }
+    #####: 1205:        else if (buffer.length > 0)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1206:        {
+    #####: 1207:            local_error.position = buffer.length - 1;
+        -: 1208:        }
+        -: 1209:
+    #####: 1210:        if (return_parse_end != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1211:        {
+    #####: 1212:            *return_parse_end = (const char*)local_error.json + local_error.position;
+        -: 1213:        }
+        -: 1214:
+    #####: 1215:        global_error = local_error;
+        -: 1216:    }
+        -: 1217:
+    #####: 1218:    return NULL;
+        -: 1219:}
+        -: 1220:
+        -: 1221:/* Default options for cJSON_Parse */
+function cJSON_Parse called 2 returned 100% blocks executed 100%
+        2: 1222:CJSON_PUBLIC(cJSON *) cJSON_Parse(const char *value)
+        -: 1223:{
+        2: 1224:    return cJSON_ParseWithOpts(value, 0, 0);
+call    0 returned 100%
+        -: 1225:}
+        -: 1226:
+function cJSON_ParseWithLength called 0 returned 0% blocks executed 0%
+    #####: 1227:CJSON_PUBLIC(cJSON *) cJSON_ParseWithLength(const char *value, size_t buffer_length)
+        -: 1228:{
+    #####: 1229:    return cJSON_ParseWithLengthOpts(value, buffer_length, 0, 0);
+call    0 never executed
+        -: 1230:}
+        -: 1231:
+        -: 1232:#define cjson_min(a, b) (((a) < (b)) ? (a) : (b))
+        -: 1233:
+function print called 81 returned 100% blocks executed 44%
+       81: 1234:static unsigned char *print(const cJSON * const item, cJSON_bool format, const internal_hooks * const hooks)
+        -: 1235:{
+        -: 1236:    static const size_t default_buffer_size = 256;
+        -: 1237:    printbuffer buffer[1];
+       81: 1238:    unsigned char *printed = NULL;
+        -: 1239:
+       81: 1240:    memset(buffer, 0, sizeof(buffer));
+        -: 1241:
+        -: 1242:    /* create buffer */
+       81: 1243:    buffer->buffer = (unsigned char*) hooks->allocate(default_buffer_size);
+call    0 returned 100%
+       81: 1244:    buffer->length = default_buffer_size;
+       81: 1245:    buffer->format = format;
+       81: 1246:    buffer->hooks = *hooks;
+       81: 1247:    if (buffer->buffer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1248:    {
+    #####: 1249:        goto fail;
+        -: 1250:    }
+        -: 1251:
+        -: 1252:    /* print the value */
+       81: 1253:    if (!print_value(item, buffer))
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -: 1254:    {
+    #####: 1255:        goto fail;
+        -: 1256:    }
+       81: 1257:    update_offset(buffer);
+call    0 returned 100%
+        -: 1258:
+        -: 1259:    /* check if reallocate is available */
+       81: 1260:    if (hooks->reallocate != NULL)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -: 1261:    {
+       81: 1262:        printed = (unsigned char*) hooks->reallocate(buffer->buffer, buffer->offset + 1);
+call    0 returned 100%
+       81: 1263:        if (printed == NULL) {
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+    #####: 1264:            goto fail;
+        -: 1265:        }
+       81: 1266:        buffer->buffer = NULL;
+        -: 1267:    }
+        -: 1268:    else /* otherwise copy the JSON over to a new buffer */
+        -: 1269:    {
+    #####: 1270:        printed = (unsigned char*) hooks->allocate(buffer->offset + 1);
+call    0 never executed
+    #####: 1271:        if (printed == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1272:        {
+    #####: 1273:            goto fail;
+        -: 1274:        }
+    #####: 1275:        memcpy(printed, buffer->buffer, cjson_min(buffer->length, buffer->offset + 1));
+    #####: 1276:        printed[buffer->offset] = '\0'; /* just to be sure */
+        -: 1277:
+        -: 1278:        /* free the buffer */
+    #####: 1279:        hooks->deallocate(buffer->buffer);
+call    0 never executed
+    #####: 1280:        buffer->buffer = NULL;
+        -: 1281:    }
+        -: 1282:
+       81: 1283:    return printed;
+        -: 1284:
+    #####: 1285:fail:
+    #####: 1286:    if (buffer->buffer != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1287:    {
+    #####: 1288:        hooks->deallocate(buffer->buffer);
+call    0 never executed
+    #####: 1289:        buffer->buffer = NULL;
+        -: 1290:    }
+        -: 1291:
+    #####: 1292:    if (printed != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1293:    {
+    #####: 1294:        hooks->deallocate(printed);
+call    0 never executed
+    #####: 1295:        printed = NULL;
+        -: 1296:    }
+        -: 1297:
+    #####: 1298:    return NULL;
+        -: 1299:}
+        -: 1300:
+        -: 1301:/* Render a cJSON item/entity/structure to text. */
+function cJSON_Print called 0 returned 0% blocks executed 0%
+    #####: 1302:CJSON_PUBLIC(char *) cJSON_Print(const cJSON *item)
+        -: 1303:{
+    #####: 1304:    return (char*)print(item, true, &global_hooks);
+call    0 never executed
+        -: 1305:}
+        -: 1306:
+function cJSON_PrintUnformatted called 81 returned 100% blocks executed 100%
+       81: 1307:CJSON_PUBLIC(char *) cJSON_PrintUnformatted(const cJSON *item)
+        -: 1308:{
+       81: 1309:    return (char*)print(item, false, &global_hooks);
+call    0 returned 100%
+        -: 1310:}
+        -: 1311:
+function cJSON_PrintBuffered called 0 returned 0% blocks executed 0%
+    #####: 1312:CJSON_PUBLIC(char *) cJSON_PrintBuffered(const cJSON *item, int prebuffer, cJSON_bool fmt)
+        -: 1313:{
+    #####: 1314:    printbuffer p = { 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };
+        -: 1315:
+    #####: 1316:    if (prebuffer < 0)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1317:    {
+    #####: 1318:        return NULL;
+        -: 1319:    }
+        -: 1320:
+    #####: 1321:    p.buffer = (unsigned char*)global_hooks.allocate((size_t)prebuffer);
+call    0 never executed
+    #####: 1322:    if (!p.buffer)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1323:    {
+    #####: 1324:        return NULL;
+        -: 1325:    }
+        -: 1326:
+    #####: 1327:    p.length = (size_t)prebuffer;
+    #####: 1328:    p.offset = 0;
+    #####: 1329:    p.noalloc = false;
+    #####: 1330:    p.format = fmt;
+    #####: 1331:    p.hooks = global_hooks;
+        -: 1332:
+    #####: 1333:    if (!print_value(item, &p))
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -: 1334:    {
+    #####: 1335:        global_hooks.deallocate(p.buffer);
+call    0 never executed
+    #####: 1336:        p.buffer = NULL;
+    #####: 1337:        return NULL;
+        -: 1338:    }
+        -: 1339:
+    #####: 1340:    return (char*)p.buffer;
+        -: 1341:}
+        -: 1342:
+function cJSON_PrintPreallocated called 0 returned 0% blocks executed 0%
+    #####: 1343:CJSON_PUBLIC(cJSON_bool) cJSON_PrintPreallocated(cJSON *item, char *buffer, const int length, const cJSON_bool format)
+        -: 1344:{
+    #####: 1345:    printbuffer p = { 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };
+        -: 1346:
+    #####: 1347:    if ((length < 0) || (buffer == NULL))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 1348:    {
+    #####: 1349:        return false;
+        -: 1350:    }
+        -: 1351:
+    #####: 1352:    p.buffer = (unsigned char*)buffer;
+    #####: 1353:    p.length = (size_t)length;
+    #####: 1354:    p.offset = 0;
+    #####: 1355:    p.noalloc = true;
+    #####: 1356:    p.format = format;
+    #####: 1357:    p.hooks = global_hooks;
+        -: 1358:
+    #####: 1359:    return print_value(item, &p);
+call    0 never executed
+        -: 1360:}
+        -: 1361:
+        -: 1362:/* Parser core - when encountering text, process appropriately. */
+function parse_value called 86 returned 100% blocks executed 90%
+       86: 1363:static cJSON_bool parse_value(cJSON * const item, parse_buffer * const input_buffer)
+        -: 1364:{
+       86: 1365:    if ((input_buffer == NULL) || (input_buffer->content == NULL))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -: 1366:    {
+    #####: 1367:        return false; /* no input */
+        -: 1368:    }
+        -: 1369:
+        -: 1370:    /* parse the different types of values */
+        -: 1371:    /* null */
+       86: 1372:    if (can_read(input_buffer, 4) && (strncmp((const char*)buffer_at_offset(input_buffer), "null", 4) == 0))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 97% (fallthrough)
+branch  3 taken 3%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+        -: 1373:    {
+    #####: 1374:        item->type = cJSON_NULL;
+    #####: 1375:        input_buffer->offset += 4;
+    #####: 1376:        return true;
+        -: 1377:    }
+        -: 1378:    /* false */
+       86: 1379:    if (can_read(input_buffer, 5) && (strncmp((const char*)buffer_at_offset(input_buffer), "false", 5) == 0))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 97% (fallthrough)
+branch  3 taken 3%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+        -: 1380:    {
+    #####: 1381:        item->type = cJSON_False;
+    #####: 1382:        input_buffer->offset += 5;
+    #####: 1383:        return true;
+        -: 1384:    }
+        -: 1385:    /* true */
+       86: 1386:    if (can_read(input_buffer, 4) && (strncmp((const char*)buffer_at_offset(input_buffer), "true", 4) == 0))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 97% (fallthrough)
+branch  3 taken 3%
+branch  4 taken 2% (fallthrough)
+branch  5 taken 98%
+        -: 1387:    {
+        2: 1388:        item->type = cJSON_True;
+        2: 1389:        item->valueint = 1;
+        2: 1390:        input_buffer->offset += 4;
+        2: 1391:        return true;
+        -: 1392:    }
+        -: 1393:    /* string */
+       84: 1394:    if (can_access_at_index(input_buffer, 0) && (buffer_at_offset(input_buffer)[0] == '\"'))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 58% (fallthrough)
+branch  5 taken 42%
+        -: 1395:    {
+       49: 1396:        return parse_string(item, input_buffer);
+call    0 returned 100%
+        -: 1397:    }
+        -: 1398:    /* number */
+       35: 1399:    if (can_access_at_index(input_buffer, 0) && ((buffer_at_offset(input_buffer)[0] == '-') || ((buffer_at_offset(input_buffer)[0] >= '0') && (buffer_at_offset(input_buffer)[0] <= '9'))))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+branch  6 taken 100% (fallthrough)
+branch  7 taken 0%
+branch  8 taken 17% (fallthrough)
+branch  9 taken 83%
+        -: 1400:    {
+        6: 1401:        return parse_number(item, input_buffer);
+call    0 returned 100%
+        -: 1402:    }
+        -: 1403:    /* array */
+       29: 1404:    if (can_access_at_index(input_buffer, 0) && (buffer_at_offset(input_buffer)[0] == '['))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 3% (fallthrough)
+branch  5 taken 97%
+        -: 1405:    {
+        1: 1406:        return parse_array(item, input_buffer);
+call    0 returned 100%
+        -: 1407:    }
+        -: 1408:    /* object */
+       28: 1409:    if (can_access_at_index(input_buffer, 0) && (buffer_at_offset(input_buffer)[0] == '{'))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+        -: 1410:    {
+       28: 1411:        return parse_object(item, input_buffer);
+call    0 returned 100%
+        -: 1412:    }
+        -: 1413:
+    #####: 1414:    return false;
+        -: 1415:}
+        -: 1416:
+        -: 1417:/* Render a value to text. */
+function print_value called 1036 returned 100% blocks executed 61%
+     1036: 1418:static cJSON_bool print_value(const cJSON * const item, printbuffer * const output_buffer)
+        -: 1419:{
+     1036: 1420:    unsigned char *output = NULL;
+        -: 1421:
+     1036: 1422:    if ((item == NULL) || (output_buffer == NULL))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -: 1423:    {
+    #####: 1424:        return false;
+        -: 1425:    }
+        -: 1426:
+     1036: 1427:    switch ((item->type) & 0xFF)
+branch  0 taken 8%
+branch  1 taken 1%
+branch  2 taken 6%
+branch  3 taken 22%
+branch  4 taken 0%
+branch  5 taken 36%
+branch  6 taken 4%
+branch  7 taken 23%
+branch  8 taken 0%
+        -: 1428:    {
+       78: 1429:        case cJSON_NULL:
+       78: 1430:            output = ensure(output_buffer, 5);
+call    0 returned 100%
+       78: 1431:            if (output == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1432:            {
+    #####: 1433:                return false;
+        -: 1434:            }
+       78: 1435:            strcpy((char*)output, "null");
+       78: 1436:            return true;
+        -: 1437:
+        8: 1438:        case cJSON_False:
+        8: 1439:            output = ensure(output_buffer, 6);
+call    0 returned 100%
+        8: 1440:            if (output == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1441:            {
+    #####: 1442:                return false;
+        -: 1443:            }
+        8: 1444:            strcpy((char*)output, "false");
+        8: 1445:            return true;
+        -: 1446:
+       65: 1447:        case cJSON_True:
+       65: 1448:            output = ensure(output_buffer, 5);
+call    0 returned 100%
+       65: 1449:            if (output == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1450:            {
+    #####: 1451:                return false;
+        -: 1452:            }
+       65: 1453:            strcpy((char*)output, "true");
+       65: 1454:            return true;
+        -: 1455:
+      228: 1456:        case cJSON_Number:
+      228: 1457:            return print_number(item, output_buffer);
+call    0 returned 100%
+        -: 1458:
+    #####: 1459:        case cJSON_Raw:
+        -: 1460:        {
+    #####: 1461:            size_t raw_length = 0;
+    #####: 1462:            if (item->valuestring == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1463:            {
+    #####: 1464:                return false;
+        -: 1465:            }
+        -: 1466:
+    #####: 1467:            raw_length = strlen(item->valuestring) + sizeof("");
+    #####: 1468:            output = ensure(output_buffer, raw_length);
+call    0 never executed
+    #####: 1469:            if (output == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1470:            {
+    #####: 1471:                return false;
+        -: 1472:            }
+    #####: 1473:            memcpy(output, item->valuestring, raw_length);
+    #####: 1474:            return true;
+        -: 1475:        }
+        -: 1476:
+      377: 1477:        case cJSON_String:
+      377: 1478:            return print_string(item, output_buffer);
+call    0 returned 100%
+        -: 1479:
+       41: 1480:        case cJSON_Array:
+       41: 1481:            return print_array(item, output_buffer);
+call    0 returned 100%
+        -: 1482:
+      239: 1483:        case cJSON_Object:
+      239: 1484:            return print_object(item, output_buffer);
+call    0 returned 100%
+        -: 1485:
+    #####: 1486:        default:
+    #####: 1487:            return false;
+        -: 1488:    }
+        -: 1489:}
+        -: 1490:
+        -: 1491:/* Build an array from input text. */
+function parse_array called 1 returned 100% blocks executed 74%
+        1: 1492:static cJSON_bool parse_array(cJSON * const item, parse_buffer * const input_buffer)
+        -: 1493:{
+        1: 1494:    cJSON *head = NULL; /* head of the linked list */
+        1: 1495:    cJSON *current_item = NULL;
+        -: 1496:
+        1: 1497:    if (input_buffer->depth >= CJSON_NESTING_LIMIT)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1498:    {
+    #####: 1499:        return false; /* to deeply nested */
+        -: 1500:    }
+        1: 1501:    input_buffer->depth++;
+        -: 1502:
+        1: 1503:    if (buffer_at_offset(input_buffer)[0] != '[')
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1504:    {
+        -: 1505:        /* not an array */
+    #####: 1506:        goto fail;
+        -: 1507:    }
+        -: 1508:
+        1: 1509:    input_buffer->offset++;
+        1: 1510:    buffer_skip_whitespace(input_buffer);
+call    0 returned 100%
+        1: 1511:    if (can_access_at_index(input_buffer, 0) && (buffer_at_offset(input_buffer)[0] == ']'))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+        -: 1512:    {
+        -: 1513:        /* empty array */
+    #####: 1514:        goto success;
+        -: 1515:    }
+        -: 1516:
+        -: 1517:    /* check if we skipped to the end of the buffer */
+        1: 1518:    if (cannot_access_at_index(input_buffer, 0))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -: 1519:    {
+    #####: 1520:        input_buffer->offset--;
+    #####: 1521:        goto fail;
+        -: 1522:    }
+        -: 1523:
+        -: 1524:    /* step back to character in front of the first element */
+        1: 1525:    input_buffer->offset--;
+        -: 1526:    /* loop through the comma separated array elements */
+        -: 1527:    do
+        -: 1528:    {
+        -: 1529:        /* allocate next item */
+        3: 1530:        cJSON *new_item = cJSON_New_Item(&(input_buffer->hooks));
+call    0 returned 100%
+        3: 1531:        if (new_item == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1532:        {
+    #####: 1533:            goto fail; /* allocation failure */
+        -: 1534:        }
+        -: 1535:
+        -: 1536:        /* attach next item to list */
+        3: 1537:        if (head == NULL)
+branch  0 taken 33% (fallthrough)
+branch  1 taken 67%
+        -: 1538:        {
+        -: 1539:            /* start the linked list */
+        1: 1540:            current_item = head = new_item;
+        -: 1541:        }
+        -: 1542:        else
+        -: 1543:        {
+        -: 1544:            /* add to the end and advance */
+        2: 1545:            current_item->next = new_item;
+        2: 1546:            new_item->prev = current_item;
+        2: 1547:            current_item = new_item;
+        -: 1548:        }
+        -: 1549:
+        -: 1550:        /* parse next value */
+        3: 1551:        input_buffer->offset++;
+        3: 1552:        buffer_skip_whitespace(input_buffer);
+call    0 returned 100%
+        3: 1553:        if (!parse_value(current_item, input_buffer))
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -: 1554:        {
+    #####: 1555:            goto fail; /* failed to parse value */
+        -: 1556:        }
+        3: 1557:        buffer_skip_whitespace(input_buffer);
+call    0 returned 100%
+        -: 1558:    }
+        3: 1559:    while (can_access_at_index(input_buffer, 0) && (buffer_at_offset(input_buffer)[0] == ','));
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 67%
+branch  5 taken 33% (fallthrough)
+        -: 1560:
+        1: 1561:    if (cannot_access_at_index(input_buffer, 0) || buffer_at_offset(input_buffer)[0] != ']')
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+        -: 1562:    {
+    #####: 1563:        goto fail; /* expected end of array */
+        -: 1564:    }
+        -: 1565:
+        1: 1566:success:
+        1: 1567:    input_buffer->depth--;
+        -: 1568:
+        1: 1569:    if (head != NULL) {
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        1: 1570:        head->prev = current_item;
+        -: 1571:    }
+        -: 1572:
+        1: 1573:    item->type = cJSON_Array;
+        1: 1574:    item->child = head;
+        -: 1575:
+        1: 1576:    input_buffer->offset++;
+        -: 1577:
+        1: 1578:    return true;
+        -: 1579:
+    #####: 1580:fail:
+    #####: 1581:    if (head != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1582:    {
+    #####: 1583:        cJSON_Delete(head);
+call    0 never executed
+        -: 1584:    }
+        -: 1585:
+    #####: 1586:    return false;
+        -: 1587:}
+        -: 1588:
+        -: 1589:/* Render an array to text */
+function print_array called 41 returned 100% blocks executed 74%
+       41: 1590:static cJSON_bool print_array(const cJSON * const item, printbuffer * const output_buffer)
+        -: 1591:{
+       41: 1592:    unsigned char *output_pointer = NULL;
+       41: 1593:    size_t length = 0;
+       41: 1594:    cJSON *current_element = item->child;
+        -: 1595:
+       41: 1596:    if (output_buffer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1597:    {
+    #####: 1598:        return false;
+        -: 1599:    }
+        -: 1600:
+        -: 1601:    /* Compose the output array. */
+        -: 1602:    /* opening square bracket */
+       41: 1603:    output_pointer = ensure(output_buffer, 1);
+call    0 returned 100%
+       41: 1604:    if (output_pointer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1605:    {
+    #####: 1606:        return false;
+        -: 1607:    }
+        -: 1608:
+       41: 1609:    *output_pointer = '[';
+       41: 1610:    output_buffer->offset++;
+       41: 1611:    output_buffer->depth++;
+        -: 1612:
+      117: 1613:    while (current_element != NULL)
+branch  0 taken 65%
+branch  1 taken 35% (fallthrough)
+        -: 1614:    {
+       76: 1615:        if (!print_value(current_element, output_buffer))
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -: 1616:        {
+    #####: 1617:            return false;
+        -: 1618:        }
+       76: 1619:        update_offset(output_buffer);
+call    0 returned 100%
+       76: 1620:        if (current_element->next)
+branch  0 taken 74% (fallthrough)
+branch  1 taken 26%
+        -: 1621:        {
+      56*: 1622:            length = (size_t) (output_buffer->format ? 2 : 1);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+       56: 1623:            output_pointer = ensure(output_buffer, length + 1);
+call    0 returned 100%
+       56: 1624:            if (output_pointer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1625:            {
+    #####: 1626:                return false;
+        -: 1627:            }
+       56: 1628:            *output_pointer++ = ',';
+       56: 1629:            if(output_buffer->format)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1630:            {
+    #####: 1631:                *output_pointer++ = ' ';
+        -: 1632:            }
+       56: 1633:            *output_pointer = '\0';
+       56: 1634:            output_buffer->offset += length;
+        -: 1635:        }
+       76: 1636:        current_element = current_element->next;
+        -: 1637:    }
+        -: 1638:
+       41: 1639:    output_pointer = ensure(output_buffer, 2);
+call    0 returned 100%
+       41: 1640:    if (output_pointer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1641:    {
+    #####: 1642:        return false;
+        -: 1643:    }
+       41: 1644:    *output_pointer++ = ']';
+       41: 1645:    *output_pointer = '\0';
+       41: 1646:    output_buffer->depth--;
+        -: 1647:
+       41: 1648:    return true;
+        -: 1649:}
+        -: 1650:
+        -: 1651:/* Build an object from the text. */
+function parse_object called 28 returned 100% blocks executed 77%
+       28: 1652:static cJSON_bool parse_object(cJSON * const item, parse_buffer * const input_buffer)
+        -: 1653:{
+       28: 1654:    cJSON *head = NULL; /* linked list head */
+       28: 1655:    cJSON *current_item = NULL;
+        -: 1656:
+       28: 1657:    if (input_buffer->depth >= CJSON_NESTING_LIMIT)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1658:    {
+    #####: 1659:        return false; /* to deeply nested */
+        -: 1660:    }
+       28: 1661:    input_buffer->depth++;
+        -: 1662:
+       28: 1663:    if (cannot_access_at_index(input_buffer, 0) || (buffer_at_offset(input_buffer)[0] != '{'))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+        -: 1664:    {
+    #####: 1665:        goto fail; /* not an object */
+        -: 1666:    }
+        -: 1667:
+       28: 1668:    input_buffer->offset++;
+       28: 1669:    buffer_skip_whitespace(input_buffer);
+call    0 returned 100%
+       28: 1670:    if (can_access_at_index(input_buffer, 0) && (buffer_at_offset(input_buffer)[0] == '}'))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 11% (fallthrough)
+branch  5 taken 89%
+        -: 1671:    {
+        3: 1672:        goto success; /* empty object */
+        -: 1673:    }
+        -: 1674:
+        -: 1675:    /* check if we skipped to the end of the buffer */
+       25: 1676:    if (cannot_access_at_index(input_buffer, 0))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -: 1677:    {
+    #####: 1678:        input_buffer->offset--;
+    #####: 1679:        goto fail;
+        -: 1680:    }
+        -: 1681:
+        -: 1682:    /* step back to character in front of the first element */
+       25: 1683:    input_buffer->offset--;
+        -: 1684:    /* loop through the comma separated array elements */
+        -: 1685:    do
+        -: 1686:    {
+        -: 1687:        /* allocate next item */
+       60: 1688:        cJSON *new_item = cJSON_New_Item(&(input_buffer->hooks));
+call    0 returned 100%
+       60: 1689:        if (new_item == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1690:        {
+    #####: 1691:            goto fail; /* allocation failure */
+        -: 1692:        }
+        -: 1693:
+        -: 1694:        /* attach next item to list */
+       60: 1695:        if (head == NULL)
+branch  0 taken 42% (fallthrough)
+branch  1 taken 58%
+        -: 1696:        {
+        -: 1697:            /* start the linked list */
+       25: 1698:            current_item = head = new_item;
+        -: 1699:        }
+        -: 1700:        else
+        -: 1701:        {
+        -: 1702:            /* add to the end and advance */
+       35: 1703:            current_item->next = new_item;
+       35: 1704:            new_item->prev = current_item;
+       35: 1705:            current_item = new_item;
+        -: 1706:        }
+        -: 1707:
+       60: 1708:        if (cannot_access_at_index(input_buffer, 1))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -: 1709:        {
+    #####: 1710:            goto fail; /* nothing comes after the comma */
+        -: 1711:        }
+        -: 1712:
+        -: 1713:        /* parse the name of the child */
+       60: 1714:        input_buffer->offset++;
+       60: 1715:        buffer_skip_whitespace(input_buffer);
+call    0 returned 100%
+       60: 1716:        if (!parse_string(current_item, input_buffer))
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -: 1717:        {
+    #####: 1718:            goto fail; /* failed to parse name */
+        -: 1719:        }
+       60: 1720:        buffer_skip_whitespace(input_buffer);
+call    0 returned 100%
+        -: 1721:
+        -: 1722:        /* swap valuestring and string, because we parsed the name */
+       60: 1723:        current_item->string = current_item->valuestring;
+       60: 1724:        current_item->valuestring = NULL;
+        -: 1725:
+       60: 1726:        if (cannot_access_at_index(input_buffer, 0) || (buffer_at_offset(input_buffer)[0] != ':'))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+        -: 1727:        {
+    #####: 1728:            goto fail; /* invalid object */
+        -: 1729:        }
+        -: 1730:
+        -: 1731:        /* parse the value */
+       60: 1732:        input_buffer->offset++;
+       60: 1733:        buffer_skip_whitespace(input_buffer);
+call    0 returned 100%
+       60: 1734:        if (!parse_value(current_item, input_buffer))
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -: 1735:        {
+    #####: 1736:            goto fail; /* failed to parse value */
+        -: 1737:        }
+       60: 1738:        buffer_skip_whitespace(input_buffer);
+call    0 returned 100%
+        -: 1739:    }
+       60: 1740:    while (can_access_at_index(input_buffer, 0) && (buffer_at_offset(input_buffer)[0] == ','));
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 58%
+branch  5 taken 42% (fallthrough)
+        -: 1741:
+       25: 1742:    if (cannot_access_at_index(input_buffer, 0) || (buffer_at_offset(input_buffer)[0] != '}'))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+        -: 1743:    {
+    #####: 1744:        goto fail; /* expected end of object */
+        -: 1745:    }
+        -: 1746:
+       25: 1747:success:
+       28: 1748:    input_buffer->depth--;
+        -: 1749:
+       28: 1750:    if (head != NULL) {
+branch  0 taken 89% (fallthrough)
+branch  1 taken 11%
+       25: 1751:        head->prev = current_item;
+        -: 1752:    }
+        -: 1753:
+       28: 1754:    item->type = cJSON_Object;
+       28: 1755:    item->child = head;
+        -: 1756:
+       28: 1757:    input_buffer->offset++;
+       28: 1758:    return true;
+        -: 1759:
+    #####: 1760:fail:
+    #####: 1761:    if (head != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1762:    {
+    #####: 1763:        cJSON_Delete(head);
+call    0 never executed
+        -: 1764:    }
+        -: 1765:
+    #####: 1766:    return false;
+        -: 1767:}
+        -: 1768:
+        -: 1769:/* Render an object to text. */
+function print_object called 239 returned 100% blocks executed 61%
+      239: 1770:static cJSON_bool print_object(const cJSON * const item, printbuffer * const output_buffer)
+        -: 1771:{
+      239: 1772:    unsigned char *output_pointer = NULL;
+      239: 1773:    size_t length = 0;
+      239: 1774:    cJSON *current_item = item->child;
+        -: 1775:
+      239: 1776:    if (output_buffer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1777:    {
+    #####: 1778:        return false;
+        -: 1779:    }
+        -: 1780:
+        -: 1781:    /* Compose the output: */
+     239*: 1782:    length = (size_t) (output_buffer->format ? 2 : 1); /* fmt: {\n */
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+      239: 1783:    output_pointer = ensure(output_buffer, length + 1);
+call    0 returned 100%
+      239: 1784:    if (output_pointer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1785:    {
+    #####: 1786:        return false;
+        -: 1787:    }
+        -: 1788:
+      239: 1789:    *output_pointer++ = '{';
+      239: 1790:    output_buffer->depth++;
+      239: 1791:    if (output_buffer->format)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1792:    {
+    #####: 1793:        *output_pointer++ = '\n';
+        -: 1794:    }
+      239: 1795:    output_buffer->offset += length;
+        -: 1796:
+     1118: 1797:    while (current_item)
+branch  0 taken 79%
+branch  1 taken 21% (fallthrough)
+        -: 1798:    {
+      879: 1799:        if (output_buffer->format)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1800:        {
+        -: 1801:            size_t i;
+    #####: 1802:            output_pointer = ensure(output_buffer, output_buffer->depth);
+call    0 never executed
+    #####: 1803:            if (output_pointer == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1804:            {
+    #####: 1805:                return false;
+        -: 1806:            }
+    #####: 1807:            for (i = 0; i < output_buffer->depth; i++)
+branch  0 never executed
+branch  1 never executed (fallthrough)
+        -: 1808:            {
+    #####: 1809:                *output_pointer++ = '\t';
+        -: 1810:            }
+    #####: 1811:            output_buffer->offset += output_buffer->depth;
+        -: 1812:        }
+        -: 1813:
+        -: 1814:        /* print key */
+      879: 1815:        if (!print_string_ptr((unsigned char*)current_item->string, output_buffer))
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -: 1816:        {
+    #####: 1817:            return false;
+        -: 1818:        }
+      879: 1819:        update_offset(output_buffer);
+call    0 returned 100%
+        -: 1820:
+     879*: 1821:        length = (size_t) (output_buffer->format ? 2 : 1);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+      879: 1822:        output_pointer = ensure(output_buffer, length);
+call    0 returned 100%
+      879: 1823:        if (output_pointer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1824:        {
+    #####: 1825:            return false;
+        -: 1826:        }
+      879: 1827:        *output_pointer++ = ':';
+      879: 1828:        if (output_buffer->format)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1829:        {
+    #####: 1830:            *output_pointer++ = '\t';
+        -: 1831:        }
+      879: 1832:        output_buffer->offset += length;
+        -: 1833:
+        -: 1834:        /* print value */
+      879: 1835:        if (!print_value(current_item, output_buffer))
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -: 1836:        {
+    #####: 1837:            return false;
+        -: 1838:        }
+      879: 1839:        update_offset(output_buffer);
+call    0 returned 100%
+        -: 1840:
+        -: 1841:        /* print comma if not last */
+     879*: 1842:        length = ((size_t)(output_buffer->format ? 1 : 0) + (size_t)(current_item->next ? 1 : 0));
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 taken 74% (fallthrough)
+branch  3 taken 26%
+      879: 1843:        output_pointer = ensure(output_buffer, length + 1);
+call    0 returned 100%
+      879: 1844:        if (output_pointer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1845:        {
+    #####: 1846:            return false;
+        -: 1847:        }
+      879: 1848:        if (current_item->next)
+branch  0 taken 74% (fallthrough)
+branch  1 taken 26%
+        -: 1849:        {
+      648: 1850:            *output_pointer++ = ',';
+        -: 1851:        }
+        -: 1852:
+      879: 1853:        if (output_buffer->format)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1854:        {
+    #####: 1855:            *output_pointer++ = '\n';
+        -: 1856:        }
+      879: 1857:        *output_pointer = '\0';
+      879: 1858:        output_buffer->offset += length;
+        -: 1859:
+      879: 1860:        current_item = current_item->next;
+        -: 1861:    }
+        -: 1862:
+     239*: 1863:    output_pointer = ensure(output_buffer, output_buffer->format ? (output_buffer->depth + 1) : 2);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 returned 100%
+      239: 1864:    if (output_pointer == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1865:    {
+    #####: 1866:        return false;
+        -: 1867:    }
+      239: 1868:    if (output_buffer->format)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1869:    {
+        -: 1870:        size_t i;
+    #####: 1871:        for (i = 0; i < (output_buffer->depth - 1); i++)
+branch  0 never executed
+branch  1 never executed (fallthrough)
+        -: 1872:        {
+    #####: 1873:            *output_pointer++ = '\t';
+        -: 1874:        }
+        -: 1875:    }
+      239: 1876:    *output_pointer++ = '}';
+      239: 1877:    *output_pointer = '\0';
+      239: 1878:    output_buffer->depth--;
+        -: 1879:
+      239: 1880:    return true;
+        -: 1881:}
+        -: 1882:
+        -: 1883:/* Get Array size/item / object item. */
+function cJSON_GetArraySize called 29 returned 100% blocks executed 86%
+       29: 1884:CJSON_PUBLIC(int) cJSON_GetArraySize(const cJSON *array)
+        -: 1885:{
+       29: 1886:    cJSON *child = NULL;
+       29: 1887:    size_t size = 0;
+        -: 1888:
+       29: 1889:    if (array == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1890:    {
+    #####: 1891:        return 0;
+        -: 1892:    }
+        -: 1893:
+       29: 1894:    child = array->child;
+        -: 1895:
+       51: 1896:    while(child != NULL)
+branch  0 taken 43%
+branch  1 taken 57% (fallthrough)
+        -: 1897:    {
+       22: 1898:        size++;
+       22: 1899:        child = child->next;
+        -: 1900:    }
+        -: 1901:
+        -: 1902:    /* FIXME: Can overflow here. Cannot be fixed without breaking the API */
+        -: 1903:
+       29: 1904:    return (int)size;
+        -: 1905:}
+        -: 1906:
+function get_array_item called 179 returned 100% blocks executed 75%
+      179: 1907:static cJSON* get_array_item(const cJSON *array, size_t index)
+        -: 1908:{
+      179: 1909:    cJSON *current_child = NULL;
+        -: 1910:
+      179: 1911:    if (array == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 1912:    {
+    #####: 1913:        return NULL;
+        -: 1914:    }
+        -: 1915:
+      179: 1916:    current_child = array->child;
+      179: 1917:    while ((current_child != NULL) && (index > 0))
+branch  0 taken 77% (fallthrough)
+branch  1 taken 23%
+branch  2 taken 0%
+branch  3 taken 100% (fallthrough)
+        -: 1918:    {
+    #####: 1919:        index--;
+    #####: 1920:        current_child = current_child->next;
+        -: 1921:    }
+        -: 1922:
+      179: 1923:    return current_child;
+        -: 1924:}
+        -: 1925:
+function cJSON_GetArrayItem called 0 returned 0% blocks executed 0%
+    #####: 1926:CJSON_PUBLIC(cJSON *) cJSON_GetArrayItem(const cJSON *array, int index)
+        -: 1927:{
+    #####: 1928:    if (index < 0)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1929:    {
+    #####: 1930:        return NULL;
+        -: 1931:    }
+        -: 1932:
+    #####: 1933:    return get_array_item(array, (size_t)index);
+call    0 never executed
+        -: 1934:}
+        -: 1935:
+function get_object_item called 1030 returned 100% blocks executed 68%
+     1030: 1936:static cJSON *get_object_item(const cJSON * const object, const char * const name, const cJSON_bool case_sensitive)
+        -: 1937:{
+     1030: 1938:    cJSON *current_element = NULL;
+        -: 1939:
+     1030: 1940:    if ((object == NULL) || (name == NULL))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -: 1941:    {
+    #####: 1942:        return NULL;
+        -: 1943:    }
+        -: 1944:
+     1030: 1945:    current_element = object->child;
+     1030: 1946:    if (case_sensitive)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -: 1947:    {
+     2386: 1948:        while ((current_element != NULL) && (current_element->string != NULL) && (strcmp(name, current_element->string) != 0))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 1%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 57%
+branch  5 taken 43%
+        -: 1949:        {
+     1356: 1950:            current_element = current_element->next;
+        -: 1951:        }
+        -: 1952:    }
+        -: 1953:    else
+        -: 1954:    {
+    #####: 1955:        while ((current_element != NULL) && (case_insensitive_strcmp((const unsigned char*)name, (const unsigned char*)(current_element->string)) != 0))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+branch  3 never executed
+branch  4 never executed (fallthrough)
+        -: 1956:        {
+    #####: 1957:            current_element = current_element->next;
+        -: 1958:        }
+        -: 1959:    }
+        -: 1960:
+     1030: 1961:    if ((current_element == NULL) || (current_element->string == NULL)) {
+branch  0 taken 99% (fallthrough)
+branch  1 taken 1%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        8: 1962:        return NULL;
+        -: 1963:    }
+        -: 1964:
+     1022: 1965:    return current_element;
+        -: 1966:}
+        -: 1967:
+function cJSON_GetObjectItem called 0 returned 0% blocks executed 0%
+    #####: 1968:CJSON_PUBLIC(cJSON *) cJSON_GetObjectItem(const cJSON * const object, const char * const string)
+        -: 1969:{
+    #####: 1970:    return get_object_item(object, string, false);
+call    0 never executed
+        -: 1971:}
+        -: 1972:
+function cJSON_GetObjectItemCaseSensitive called 1030 returned 100% blocks executed 100%
+     1030: 1973:CJSON_PUBLIC(cJSON *) cJSON_GetObjectItemCaseSensitive(const cJSON * const object, const char * const string)
+        -: 1974:{
+     1030: 1975:    return get_object_item(object, string, true);
+call    0 returned 100%
+        -: 1976:}
+        -: 1977:
+function cJSON_HasObjectItem called 0 returned 0% blocks executed 0%
+    #####: 1978:CJSON_PUBLIC(cJSON_bool) cJSON_HasObjectItem(const cJSON *object, const char *string)
+        -: 1979:{
+    #####: 1980:    return cJSON_GetObjectItem(object, string) ? 1 : 0;
+call    0 never executed
+        -: 1981:}
+        -: 1982:
+        -: 1983:/* Utility for array list handling. */
+function suffix_object called 2282 returned 100% blocks executed 100%
+     2282: 1984:static void suffix_object(cJSON *prev, cJSON *item)
+        -: 1985:{
+     2282: 1986:    prev->next = item;
+     2282: 1987:    item->prev = prev;
+     2282: 1988:}
+        -: 1989:
+        -: 1990:/* Utility for handling references. */
+function create_reference called 0 returned 0% blocks executed 0%
+    #####: 1991:static cJSON *create_reference(const cJSON *item, const internal_hooks * const hooks)
+        -: 1992:{
+    #####: 1993:    cJSON *reference = NULL;
+    #####: 1994:    if (item == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 1995:    {
+    #####: 1996:        return NULL;
+        -: 1997:    }
+        -: 1998:
+    #####: 1999:    reference = cJSON_New_Item(hooks);
+call    0 never executed
+    #####: 2000:    if (reference == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2001:    {
+    #####: 2002:        return NULL;
+        -: 2003:    }
+        -: 2004:
+    #####: 2005:    memcpy(reference, item, sizeof(cJSON));
+    #####: 2006:    reference->string = NULL;
+    #####: 2007:    reference->type |= cJSON_IsReference;
+    #####: 2008:    reference->next = reference->prev = NULL;
+    #####: 2009:    return reference;
+        -: 2010:}
+        -: 2011:
+function add_item_to_array called 3053 returned 100% blocks executed 91%
+     3053: 2012:static cJSON_bool add_item_to_array(cJSON *array, cJSON *item)
+        -: 2013:{
+     3053: 2014:    cJSON *child = NULL;
+        -: 2015:
+     3053: 2016:    if ((item == NULL) || (array == NULL) || (array == item))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+        -: 2017:    {
+    #####: 2018:        return false;
+        -: 2019:    }
+        -: 2020:
+     3053: 2021:    child = array->child;
+        -: 2022:    /*
+        -: 2023:     * To find the last item in array quickly, we use prev in array
+        -: 2024:     */
+     3053: 2025:    if (child == NULL)
+branch  0 taken 25% (fallthrough)
+branch  1 taken 75%
+        -: 2026:    {
+        -: 2027:        /* list is empty, start new one */
+      771: 2028:        array->child = item;
+      771: 2029:        item->prev = item;
+      771: 2030:        item->next = NULL;
+        -: 2031:    }
+        -: 2032:    else
+        -: 2033:    {
+        -: 2034:        /* append to the end */
+     2282: 2035:        if (child->prev)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -: 2036:        {
+     2282: 2037:            suffix_object(child->prev, item);
+call    0 returned 100%
+     2282: 2038:            array->child->prev = item;
+        -: 2039:        }
+        -: 2040:    }
+        -: 2041:
+     3053: 2042:    return true;
+        -: 2043:}
+        -: 2044:
+        -: 2045:/* Add item to array/object. */
+function cJSON_AddItemToArray called 417 returned 100% blocks executed 100%
+      417: 2046:CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToArray(cJSON *array, cJSON *item)
+        -: 2047:{
+      417: 2048:    return add_item_to_array(array, item);
+call    0 returned 100%
+        -: 2049:}
+        -: 2050:
+        -: 2051:#if defined(__clang__) || (defined(__GNUC__)  && ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ > 5))))
+        -: 2052:    #pragma GCC diagnostic push
+        -: 2053:#endif
+        -: 2054:#ifdef __GNUC__
+        -: 2055:#pragma GCC diagnostic ignored "-Wcast-qual"
+        -: 2056:#endif
+        -: 2057:/* helper function to cast away const */
+function cast_away_const called 0 returned 0% blocks executed 0%
+    #####: 2058:static void* cast_away_const(const void* string)
+        -: 2059:{
+    #####: 2060:    return (void*)string;
+        -: 2061:}
+        -: 2062:#if defined(__clang__) || (defined(__GNUC__)  && ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ > 5))))
+        -: 2063:    #pragma GCC diagnostic pop
+        -: 2064:#endif
+        -: 2065:
+        -: 2066:
+function add_item_to_object called 2636 returned 100% blocks executed 71%
+     2636: 2067:static cJSON_bool add_item_to_object(cJSON * const object, const char * const string, cJSON * const item, const internal_hooks * const hooks, const cJSON_bool constant_key)
+        -: 2068:{
+     2636: 2069:    char *new_key = NULL;
+     2636: 2070:    int new_type = cJSON_Invalid;
+        -: 2071:
+     2636: 2072:    if ((object == NULL) || (string == NULL) || (item == NULL) || (object == item))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+branch  6 taken 0% (fallthrough)
+branch  7 taken 100%
+        -: 2073:    {
+    #####: 2074:        return false;
+        -: 2075:    }
+        -: 2076:
+     2636: 2077:    if (constant_key)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 2078:    {
+    #####: 2079:        new_key = (char*)cast_away_const(string);
+call    0 never executed
+    #####: 2080:        new_type = item->type | cJSON_StringIsConst;
+        -: 2081:    }
+        -: 2082:    else
+        -: 2083:    {
+     2636: 2084:        new_key = (char*)cJSON_strdup((const unsigned char*)string, hooks);
+call    0 returned 100%
+     2636: 2085:        if (new_key == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 2086:        {
+    #####: 2087:            return false;
+        -: 2088:        }
+        -: 2089:
+     2636: 2090:        new_type = item->type & ~cJSON_StringIsConst;
+        -: 2091:    }
+        -: 2092:
+     2636: 2093:    if (!(item->type & cJSON_StringIsConst) && (item->string != NULL))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+        -: 2094:    {
+    #####: 2095:        hooks->deallocate(item->string);
+call    0 never executed
+        -: 2096:    }
+        -: 2097:
+     2636: 2098:    item->string = new_key;
+     2636: 2099:    item->type = new_type;
+        -: 2100:
+     2636: 2101:    return add_item_to_array(object, item);
+call    0 returned 100%
+        -: 2102:}
+        -: 2103:
+function cJSON_AddItemToObject called 145 returned 100% blocks executed 100%
+      145: 2104:CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObject(cJSON *object, const char *string, cJSON *item)
+        -: 2105:{
+      145: 2106:    return add_item_to_object(object, string, item, &global_hooks, false);
+call    0 returned 100%
+        -: 2107:}
+        -: 2108:
+        -: 2109:/* Add an item to an object with constant string as key */
+function cJSON_AddItemToObjectCS called 0 returned 0% blocks executed 0%
+    #####: 2110:CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObjectCS(cJSON *object, const char *string, cJSON *item)
+        -: 2111:{
+    #####: 2112:    return add_item_to_object(object, string, item, &global_hooks, true);
+call    0 never executed
+        -: 2113:}
+        -: 2114:
+function cJSON_AddItemReferenceToArray called 0 returned 0% blocks executed 0%
+    #####: 2115:CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToArray(cJSON *array, cJSON *item)
+        -: 2116:{
+    #####: 2117:    if (array == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2118:    {
+    #####: 2119:        return false;
+        -: 2120:    }
+        -: 2121:
+    #####: 2122:    return add_item_to_array(array, create_reference(item, &global_hooks));
+call    0 never executed
+call    1 never executed
+        -: 2123:}
+        -: 2124:
+function cJSON_AddItemReferenceToObject called 0 returned 0% blocks executed 0%
+    #####: 2125:CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToObject(cJSON *object, const char *string, cJSON *item)
+        -: 2126:{
+    #####: 2127:    if ((object == NULL) || (string == NULL))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 2128:    {
+    #####: 2129:        return false;
+        -: 2130:    }
+        -: 2131:
+    #####: 2132:    return add_item_to_object(object, string, create_reference(item, &global_hooks), &global_hooks, false);
+call    0 never executed
+call    1 never executed
+        -: 2133:}
+        -: 2134:
+function cJSON_AddNullToObject called 248 returned 100% blocks executed 71%
+      248: 2135:CJSON_PUBLIC(cJSON*) cJSON_AddNullToObject(cJSON * const object, const char * const name)
+        -: 2136:{
+      248: 2137:    cJSON *null = cJSON_CreateNull();
+call    0 returned 100%
+      248: 2138:    if (add_item_to_object(object, name, null, &global_hooks, false))
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+        -: 2139:    {
+      248: 2140:        return null;
+        -: 2141:    }
+        -: 2142:
+    #####: 2143:    cJSON_Delete(null);
+call    0 never executed
+    #####: 2144:    return NULL;
+        -: 2145:}
+        -: 2146:
+function cJSON_AddTrueToObject called 0 returned 0% blocks executed 0%
+    #####: 2147:CJSON_PUBLIC(cJSON*) cJSON_AddTrueToObject(cJSON * const object, const char * const name)
+        -: 2148:{
+    #####: 2149:    cJSON *true_item = cJSON_CreateTrue();
+call    0 never executed
+    #####: 2150:    if (add_item_to_object(object, name, true_item, &global_hooks, false))
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -: 2151:    {
+    #####: 2152:        return true_item;
+        -: 2153:    }
+        -: 2154:
+    #####: 2155:    cJSON_Delete(true_item);
+call    0 never executed
+    #####: 2156:    return NULL;
+        -: 2157:}
+        -: 2158:
+function cJSON_AddFalseToObject called 0 returned 0% blocks executed 0%
+    #####: 2159:CJSON_PUBLIC(cJSON*) cJSON_AddFalseToObject(cJSON * const object, const char * const name)
+        -: 2160:{
+    #####: 2161:    cJSON *false_item = cJSON_CreateFalse();
+call    0 never executed
+    #####: 2162:    if (add_item_to_object(object, name, false_item, &global_hooks, false))
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -: 2163:    {
+    #####: 2164:        return false_item;
+        -: 2165:    }
+        -: 2166:
+    #####: 2167:    cJSON_Delete(false_item);
+call    0 never executed
+    #####: 2168:    return NULL;
+        -: 2169:}
+        -: 2170:
+function cJSON_AddBoolToObject called 135 returned 100% blocks executed 71%
+      135: 2171:CJSON_PUBLIC(cJSON*) cJSON_AddBoolToObject(cJSON * const object, const char * const name, const cJSON_bool boolean)
+        -: 2172:{
+      135: 2173:    cJSON *bool_item = cJSON_CreateBool(boolean);
+call    0 returned 100%
+      135: 2174:    if (add_item_to_object(object, name, bool_item, &global_hooks, false))
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+        -: 2175:    {
+      135: 2176:        return bool_item;
+        -: 2177:    }
+        -: 2178:
+    #####: 2179:    cJSON_Delete(bool_item);
+call    0 never executed
+    #####: 2180:    return NULL;
+        -: 2181:}
+        -: 2182:
+function cJSON_AddNumberToObject called 1009 returned 100% blocks executed 71%
+     1009: 2183:CJSON_PUBLIC(cJSON*) cJSON_AddNumberToObject(cJSON * const object, const char * const name, const double number)
+        -: 2184:{
+     1009: 2185:    cJSON *number_item = cJSON_CreateNumber(number);
+call    0 returned 100%
+     1009: 2186:    if (add_item_to_object(object, name, number_item, &global_hooks, false))
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+        -: 2187:    {
+     1009: 2188:        return number_item;
+        -: 2189:    }
+        -: 2190:
+    #####: 2191:    cJSON_Delete(number_item);
+call    0 never executed
+    #####: 2192:    return NULL;
+        -: 2193:}
+        -: 2194:
+function cJSON_AddStringToObject called 1099 returned 100% blocks executed 71%
+     1099: 2195:CJSON_PUBLIC(cJSON*) cJSON_AddStringToObject(cJSON * const object, const char * const name, const char * const string)
+        -: 2196:{
+     1099: 2197:    cJSON *string_item = cJSON_CreateString(string);
+call    0 returned 100%
+     1099: 2198:    if (add_item_to_object(object, name, string_item, &global_hooks, false))
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+        -: 2199:    {
+     1099: 2200:        return string_item;
+        -: 2201:    }
+        -: 2202:
+    #####: 2203:    cJSON_Delete(string_item);
+call    0 never executed
+    #####: 2204:    return NULL;
+        -: 2205:}
+        -: 2206:
+function cJSON_AddRawToObject called 0 returned 0% blocks executed 0%
+    #####: 2207:CJSON_PUBLIC(cJSON*) cJSON_AddRawToObject(cJSON * const object, const char * const name, const char * const raw)
+        -: 2208:{
+    #####: 2209:    cJSON *raw_item = cJSON_CreateRaw(raw);
+call    0 never executed
+    #####: 2210:    if (add_item_to_object(object, name, raw_item, &global_hooks, false))
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -: 2211:    {
+    #####: 2212:        return raw_item;
+        -: 2213:    }
+        -: 2214:
+    #####: 2215:    cJSON_Delete(raw_item);
+call    0 never executed
+    #####: 2216:    return NULL;
+        -: 2217:}
+        -: 2218:
+function cJSON_AddObjectToObject called 0 returned 0% blocks executed 0%
+    #####: 2219:CJSON_PUBLIC(cJSON*) cJSON_AddObjectToObject(cJSON * const object, const char * const name)
+        -: 2220:{
+    #####: 2221:    cJSON *object_item = cJSON_CreateObject();
+call    0 never executed
+    #####: 2222:    if (add_item_to_object(object, name, object_item, &global_hooks, false))
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -: 2223:    {
+    #####: 2224:        return object_item;
+        -: 2225:    }
+        -: 2226:
+    #####: 2227:    cJSON_Delete(object_item);
+call    0 never executed
+    #####: 2228:    return NULL;
+        -: 2229:}
+        -: 2230:
+function cJSON_AddArrayToObject called 0 returned 0% blocks executed 0%
+    #####: 2231:CJSON_PUBLIC(cJSON*) cJSON_AddArrayToObject(cJSON * const object, const char * const name)
+        -: 2232:{
+    #####: 2233:    cJSON *array = cJSON_CreateArray();
+call    0 never executed
+    #####: 2234:    if (add_item_to_object(object, name, array, &global_hooks, false))
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -: 2235:    {
+    #####: 2236:        return array;
+        -: 2237:    }
+        -: 2238:
+    #####: 2239:    cJSON_Delete(array);
+call    0 never executed
+    #####: 2240:    return NULL;
+        -: 2241:}
+        -: 2242:
+function cJSON_DetachItemViaPointer called 179 returned 100% blocks executed 67%
+      179: 2243:CJSON_PUBLIC(cJSON *) cJSON_DetachItemViaPointer(cJSON *parent, cJSON * const item)
+        -: 2244:{
+     179*: 2245:    if ((parent == NULL) || (item == NULL) || (item != parent->child && item->prev == NULL))
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 77% (fallthrough)
+branch  3 taken 23%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+branch  6 never executed (fallthrough)
+branch  7 never executed
+        -: 2246:    {
+       42: 2247:        return NULL;
+        -: 2248:    }
+        -: 2249:
+      137: 2250:    if (item != parent->child)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 2251:    {
+        -: 2252:        /* not the first element */
+    #####: 2253:        item->prev->next = item->next;
+        -: 2254:    }
+      137: 2255:    if (item->next != NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 2256:    {
+        -: 2257:        /* not the last element */
+    #####: 2258:        item->next->prev = item->prev;
+        -: 2259:    }
+        -: 2260:
+      137: 2261:    if (item == parent->child)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -: 2262:    {
+        -: 2263:        /* first element */
+      137: 2264:        parent->child = item->next;
+        -: 2265:    }
+    #####: 2266:    else if (item->next == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2267:    {
+        -: 2268:        /* last element */
+    #####: 2269:        parent->child->prev = item->prev;
+        -: 2270:    }
+        -: 2271:
+        -: 2272:    /* make sure the detached item doesn't point anywhere anymore */
+      137: 2273:    item->prev = NULL;
+      137: 2274:    item->next = NULL;
+        -: 2275:
+      137: 2276:    return item;
+        -: 2277:}
+        -: 2278:
+function cJSON_DetachItemFromArray called 179 returned 100% blocks executed 80%
+      179: 2279:CJSON_PUBLIC(cJSON *) cJSON_DetachItemFromArray(cJSON *array, int which)
+        -: 2280:{
+      179: 2281:    if (which < 0)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 2282:    {
+    #####: 2283:        return NULL;
+        -: 2284:    }
+        -: 2285:
+      179: 2286:    return cJSON_DetachItemViaPointer(array, get_array_item(array, (size_t)which));
+call    0 returned 100%
+call    1 returned 100%
+        -: 2287:}
+        -: 2288:
+function cJSON_DeleteItemFromArray called 0 returned 0% blocks executed 0%
+    #####: 2289:CJSON_PUBLIC(void) cJSON_DeleteItemFromArray(cJSON *array, int which)
+        -: 2290:{
+    #####: 2291:    cJSON_Delete(cJSON_DetachItemFromArray(array, which));
+call    0 never executed
+call    1 never executed
+    #####: 2292:}
+        -: 2293:
+function cJSON_DetachItemFromObject called 0 returned 0% blocks executed 0%
+    #####: 2294:CJSON_PUBLIC(cJSON *) cJSON_DetachItemFromObject(cJSON *object, const char *string)
+        -: 2295:{
+    #####: 2296:    cJSON *to_detach = cJSON_GetObjectItem(object, string);
+call    0 never executed
+        -: 2297:
+    #####: 2298:    return cJSON_DetachItemViaPointer(object, to_detach);
+call    0 never executed
+        -: 2299:}
+        -: 2300:
+function cJSON_DetachItemFromObjectCaseSensitive called 0 returned 0% blocks executed 0%
+    #####: 2301:CJSON_PUBLIC(cJSON *) cJSON_DetachItemFromObjectCaseSensitive(cJSON *object, const char *string)
+        -: 2302:{
+    #####: 2303:    cJSON *to_detach = cJSON_GetObjectItemCaseSensitive(object, string);
+call    0 never executed
+        -: 2304:
+    #####: 2305:    return cJSON_DetachItemViaPointer(object, to_detach);
+call    0 never executed
+        -: 2306:}
+        -: 2307:
+function cJSON_DeleteItemFromObject called 0 returned 0% blocks executed 0%
+    #####: 2308:CJSON_PUBLIC(void) cJSON_DeleteItemFromObject(cJSON *object, const char *string)
+        -: 2309:{
+    #####: 2310:    cJSON_Delete(cJSON_DetachItemFromObject(object, string));
+call    0 never executed
+call    1 never executed
+    #####: 2311:}
+        -: 2312:
+function cJSON_DeleteItemFromObjectCaseSensitive called 0 returned 0% blocks executed 0%
+    #####: 2313:CJSON_PUBLIC(void) cJSON_DeleteItemFromObjectCaseSensitive(cJSON *object, const char *string)
+        -: 2314:{
+    #####: 2315:    cJSON_Delete(cJSON_DetachItemFromObjectCaseSensitive(object, string));
+call    0 never executed
+call    1 never executed
+    #####: 2316:}
+        -: 2317:
+        -: 2318:/* Replace array/object items with new ones. */
+function cJSON_InsertItemInArray called 0 returned 0% blocks executed 0%
+    #####: 2319:CJSON_PUBLIC(cJSON_bool) cJSON_InsertItemInArray(cJSON *array, int which, cJSON *newitem)
+        -: 2320:{
+    #####: 2321:    cJSON *after_inserted = NULL;
+        -: 2322:
+    #####: 2323:    if (which < 0 || newitem == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 2324:    {
+    #####: 2325:        return false;
+        -: 2326:    }
+        -: 2327:
+    #####: 2328:    after_inserted = get_array_item(array, (size_t)which);
+call    0 never executed
+    #####: 2329:    if (after_inserted == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2330:    {
+    #####: 2331:        return add_item_to_array(array, newitem);
+call    0 never executed
+        -: 2332:    }
+        -: 2333:
+    #####: 2334:    if (after_inserted != array->child && after_inserted->prev == NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 2335:        /* return false if after_inserted is a corrupted array item */
+    #####: 2336:        return false;
+        -: 2337:    }
+        -: 2338:
+    #####: 2339:    newitem->next = after_inserted;
+    #####: 2340:    newitem->prev = after_inserted->prev;
+    #####: 2341:    after_inserted->prev = newitem;
+    #####: 2342:    if (after_inserted == array->child)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2343:    {
+    #####: 2344:        array->child = newitem;
+        -: 2345:    }
+        -: 2346:    else
+        -: 2347:    {
+    #####: 2348:        newitem->prev->next = newitem;
+        -: 2349:    }
+    #####: 2350:    return true;
+        -: 2351:}
+        -: 2352:
+function cJSON_ReplaceItemViaPointer called 0 returned 0% blocks executed 0%
+    #####: 2353:CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemViaPointer(cJSON * const parent, cJSON * const item, cJSON * replacement)
+        -: 2354:{
+    #####: 2355:    if ((parent == NULL) || (parent->child == NULL) || (replacement == NULL) || (item == NULL))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+branch  4 never executed (fallthrough)
+branch  5 never executed
+branch  6 never executed (fallthrough)
+branch  7 never executed
+        -: 2356:    {
+    #####: 2357:        return false;
+        -: 2358:    }
+        -: 2359:
+    #####: 2360:    if (replacement == item)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2361:    {
+    #####: 2362:        return true;
+        -: 2363:    }
+        -: 2364:
+    #####: 2365:    replacement->next = item->next;
+    #####: 2366:    replacement->prev = item->prev;
+        -: 2367:
+    #####: 2368:    if (replacement->next != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2369:    {
+    #####: 2370:        replacement->next->prev = replacement;
+        -: 2371:    }
+    #####: 2372:    if (parent->child == item)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2373:    {
+    #####: 2374:        if (parent->child->prev == parent->child)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2375:        {
+    #####: 2376:            replacement->prev = replacement;
+        -: 2377:        }
+    #####: 2378:        parent->child = replacement;
+        -: 2379:    }
+        -: 2380:    else
+        -: 2381:    {   /*
+        -: 2382:         * To find the last item in array quickly, we use prev in array.
+        -: 2383:         * We can't modify the last item's next pointer where this item was the parent's child
+        -: 2384:         */
+    #####: 2385:        if (replacement->prev != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2386:        {
+    #####: 2387:            replacement->prev->next = replacement;
+        -: 2388:        }
+    #####: 2389:        if (replacement->next == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2390:        {
+    #####: 2391:            parent->child->prev = replacement;
+        -: 2392:        }
+        -: 2393:    }
+        -: 2394:
+    #####: 2395:    item->next = NULL;
+    #####: 2396:    item->prev = NULL;
+    #####: 2397:    cJSON_Delete(item);
+call    0 never executed
+        -: 2398:
+    #####: 2399:    return true;
+        -: 2400:}
+        -: 2401:
+function cJSON_ReplaceItemInArray called 0 returned 0% blocks executed 0%
+    #####: 2402:CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInArray(cJSON *array, int which, cJSON *newitem)
+        -: 2403:{
+    #####: 2404:    if (which < 0)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2405:    {
+    #####: 2406:        return false;
+        -: 2407:    }
+        -: 2408:
+    #####: 2409:    return cJSON_ReplaceItemViaPointer(array, get_array_item(array, (size_t)which), newitem);
+call    0 never executed
+call    1 never executed
+        -: 2410:}
+        -: 2411:
+function replace_item_in_object called 0 returned 0% blocks executed 0%
+    #####: 2412:static cJSON_bool replace_item_in_object(cJSON *object, const char *string, cJSON *replacement, cJSON_bool case_sensitive)
+        -: 2413:{
+    #####: 2414:    if ((replacement == NULL) || (string == NULL))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 2415:    {
+    #####: 2416:        return false;
+        -: 2417:    }
+        -: 2418:
+        -: 2419:    /* replace the name in the replacement */
+    #####: 2420:    if (!(replacement->type & cJSON_StringIsConst) && (replacement->string != NULL))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 2421:    {
+    #####: 2422:        cJSON_free(replacement->string);
+call    0 never executed
+        -: 2423:    }
+    #####: 2424:    replacement->string = (char*)cJSON_strdup((const unsigned char*)string, &global_hooks);
+call    0 never executed
+    #####: 2425:    if (replacement->string == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2426:    {
+    #####: 2427:        return false;
+        -: 2428:    }
+        -: 2429:
+    #####: 2430:    replacement->type &= ~cJSON_StringIsConst;
+        -: 2431:
+    #####: 2432:    return cJSON_ReplaceItemViaPointer(object, get_object_item(object, string, case_sensitive), replacement);
+call    0 never executed
+call    1 never executed
+        -: 2433:}
+        -: 2434:
+function cJSON_ReplaceItemInObject called 0 returned 0% blocks executed 0%
+    #####: 2435:CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInObject(cJSON *object, const char *string, cJSON *newitem)
+        -: 2436:{
+    #####: 2437:    return replace_item_in_object(object, string, newitem, false);
+call    0 never executed
+        -: 2438:}
+        -: 2439:
+function cJSON_ReplaceItemInObjectCaseSensitive called 0 returned 0% blocks executed 0%
+    #####: 2440:CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInObjectCaseSensitive(cJSON *object, const char *string, cJSON *newitem)
+        -: 2441:{
+    #####: 2442:    return replace_item_in_object(object, string, newitem, true);
+call    0 never executed
+        -: 2443:}
+        -: 2444:
+        -: 2445:/* Create basic types: */
+function cJSON_CreateNull called 248 returned 100% blocks executed 100%
+      248: 2446:CJSON_PUBLIC(cJSON *) cJSON_CreateNull(void)
+        -: 2447:{
+      248: 2448:    cJSON *item = cJSON_New_Item(&global_hooks);
+call    0 returned 100%
+      248: 2449:    if(item)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -: 2450:    {
+      248: 2451:        item->type = cJSON_NULL;
+        -: 2452:    }
+        -: 2453:
+      248: 2454:    return item;
+        -: 2455:}
+        -: 2456:
+function cJSON_CreateTrue called 0 returned 0% blocks executed 0%
+    #####: 2457:CJSON_PUBLIC(cJSON *) cJSON_CreateTrue(void)
+        -: 2458:{
+    #####: 2459:    cJSON *item = cJSON_New_Item(&global_hooks);
+call    0 never executed
+    #####: 2460:    if(item)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2461:    {
+    #####: 2462:        item->type = cJSON_True;
+        -: 2463:    }
+        -: 2464:
+    #####: 2465:    return item;
+        -: 2466:}
+        -: 2467:
+function cJSON_CreateFalse called 0 returned 0% blocks executed 0%
+    #####: 2468:CJSON_PUBLIC(cJSON *) cJSON_CreateFalse(void)
+        -: 2469:{
+    #####: 2470:    cJSON *item = cJSON_New_Item(&global_hooks);
+call    0 never executed
+    #####: 2471:    if(item)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2472:    {
+    #####: 2473:        item->type = cJSON_False;
+        -: 2474:    }
+        -: 2475:
+    #####: 2476:    return item;
+        -: 2477:}
+        -: 2478:
+function cJSON_CreateBool called 135 returned 100% blocks executed 100%
+      135: 2479:CJSON_PUBLIC(cJSON *) cJSON_CreateBool(cJSON_bool boolean)
+        -: 2480:{
+      135: 2481:    cJSON *item = cJSON_New_Item(&global_hooks);
+call    0 returned 100%
+      135: 2482:    if(item)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -: 2483:    {
+      135: 2484:        item->type = boolean ? cJSON_True : cJSON_False;
+branch  0 taken 93% (fallthrough)
+branch  1 taken 7%
+        -: 2485:    }
+        -: 2486:
+      135: 2487:    return item;
+        -: 2488:}
+        -: 2489:
+function cJSON_CreateNumber called 1021 returned 100% blocks executed 78%
+     1021: 2490:CJSON_PUBLIC(cJSON *) cJSON_CreateNumber(double num)
+        -: 2491:{
+     1021: 2492:    cJSON *item = cJSON_New_Item(&global_hooks);
+call    0 returned 100%
+     1021: 2493:    if(item)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -: 2494:    {
+     1021: 2495:        item->type = cJSON_Number;
+     1021: 2496:        item->valuedouble = num;
+        -: 2497:
+        -: 2498:        /* use saturation in case of overflow */
+     1021: 2499:        if (num >= INT_MAX)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 2500:        {
+    #####: 2501:            item->valueint = INT_MAX;
+        -: 2502:        }
+     1021: 2503:        else if (num <= (double)INT_MIN)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 2504:        {
+    #####: 2505:            item->valueint = INT_MIN;
+        -: 2506:        }
+        -: 2507:        else
+        -: 2508:        {
+     1021: 2509:            item->valueint = (int)num;
+        -: 2510:        }
+        -: 2511:    }
+        -: 2512:
+     1021: 2513:    return item;
+        -: 2514:}
+        -: 2515:
+function cJSON_CreateString called 1099 returned 100% blocks executed 75%
+     1099: 2516:CJSON_PUBLIC(cJSON *) cJSON_CreateString(const char *string)
+        -: 2517:{
+     1099: 2518:    cJSON *item = cJSON_New_Item(&global_hooks);
+call    0 returned 100%
+     1099: 2519:    if(item)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -: 2520:    {
+     1099: 2521:        item->type = cJSON_String;
+     1099: 2522:        item->valuestring = (char*)cJSON_strdup((const unsigned char*)string, &global_hooks);
+call    0 returned 100%
+     1099: 2523:        if(!item->valuestring)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 2524:        {
+    #####: 2525:            cJSON_Delete(item);
+call    0 never executed
+    #####: 2526:            return NULL;
+        -: 2527:        }
+        -: 2528:    }
+        -: 2529:
+     1099: 2530:    return item;
+        -: 2531:}
+        -: 2532:
+function cJSON_CreateStringReference called 0 returned 0% blocks executed 0%
+    #####: 2533:CJSON_PUBLIC(cJSON *) cJSON_CreateStringReference(const char *string)
+        -: 2534:{
+    #####: 2535:    cJSON *item = cJSON_New_Item(&global_hooks);
+call    0 never executed
+    #####: 2536:    if (item != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2537:    {
+    #####: 2538:        item->type = cJSON_String | cJSON_IsReference;
+    #####: 2539:        item->valuestring = (char*)cast_away_const(string);
+call    0 never executed
+        -: 2540:    }
+        -: 2541:
+    #####: 2542:    return item;
+        -: 2543:}
+        -: 2544:
+function cJSON_CreateObjectReference called 0 returned 0% blocks executed 0%
+    #####: 2545:CJSON_PUBLIC(cJSON *) cJSON_CreateObjectReference(const cJSON *child)
+        -: 2546:{
+    #####: 2547:    cJSON *item = cJSON_New_Item(&global_hooks);
+call    0 never executed
+    #####: 2548:    if (item != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2549:        item->type = cJSON_Object | cJSON_IsReference;
+    #####: 2550:        item->child = (cJSON*)cast_away_const(child);
+call    0 never executed
+        -: 2551:    }
+        -: 2552:
+    #####: 2553:    return item;
+        -: 2554:}
+        -: 2555:
+function cJSON_CreateArrayReference called 0 returned 0% blocks executed 0%
+    #####: 2556:CJSON_PUBLIC(cJSON *) cJSON_CreateArrayReference(const cJSON *child) {
+    #####: 2557:    cJSON *item = cJSON_New_Item(&global_hooks);
+call    0 never executed
+    #####: 2558:    if (item != NULL) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2559:        item->type = cJSON_Array | cJSON_IsReference;
+    #####: 2560:        item->child = (cJSON*)cast_away_const(child);
+call    0 never executed
+        -: 2561:    }
+        -: 2562:
+    #####: 2563:    return item;
+        -: 2564:}
+        -: 2565:
+function cJSON_CreateRaw called 0 returned 0% blocks executed 0%
+    #####: 2566:CJSON_PUBLIC(cJSON *) cJSON_CreateRaw(const char *raw)
+        -: 2567:{
+    #####: 2568:    cJSON *item = cJSON_New_Item(&global_hooks);
+call    0 never executed
+    #####: 2569:    if(item)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2570:    {
+    #####: 2571:        item->type = cJSON_Raw;
+    #####: 2572:        item->valuestring = (char*)cJSON_strdup((const unsigned char*)raw, &global_hooks);
+call    0 never executed
+    #####: 2573:        if(!item->valuestring)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2574:        {
+    #####: 2575:            cJSON_Delete(item);
+call    0 never executed
+    #####: 2576:            return NULL;
+        -: 2577:        }
+        -: 2578:    }
+        -: 2579:
+    #####: 2580:    return item;
+        -: 2581:}
+        -: 2582:
+function cJSON_CreateArray called 264 returned 100% blocks executed 100%
+      264: 2583:CJSON_PUBLIC(cJSON *) cJSON_CreateArray(void)
+        -: 2584:{
+      264: 2585:    cJSON *item = cJSON_New_Item(&global_hooks);
+call    0 returned 100%
+      264: 2586:    if(item)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -: 2587:    {
+      264: 2588:        item->type=cJSON_Array;
+        -: 2589:    }
+        -: 2590:
+      264: 2591:    return item;
+        -: 2592:}
+        -: 2593:
+function cJSON_CreateObject called 595 returned 100% blocks executed 100%
+      595: 2594:CJSON_PUBLIC(cJSON *) cJSON_CreateObject(void)
+        -: 2595:{
+      595: 2596:    cJSON *item = cJSON_New_Item(&global_hooks);
+call    0 returned 100%
+      595: 2597:    if (item)
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+        -: 2598:    {
+      595: 2599:        item->type = cJSON_Object;
+        -: 2600:    }
+        -: 2601:
+      595: 2602:    return item;
+        -: 2603:}
+        -: 2604:
+        -: 2605:/* Create Arrays: */
+function cJSON_CreateIntArray called 0 returned 0% blocks executed 0%
+    #####: 2606:CJSON_PUBLIC(cJSON *) cJSON_CreateIntArray(const int *numbers, int count)
+        -: 2607:{
+    #####: 2608:    size_t i = 0;
+    #####: 2609:    cJSON *n = NULL;
+    #####: 2610:    cJSON *p = NULL;
+    #####: 2611:    cJSON *a = NULL;
+        -: 2612:
+    #####: 2613:    if ((count < 0) || (numbers == NULL))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 2614:    {
+    #####: 2615:        return NULL;
+        -: 2616:    }
+        -: 2617:
+    #####: 2618:    a = cJSON_CreateArray();
+call    0 never executed
+        -: 2619:
+    #####: 2620:    for(i = 0; a && (i < (size_t)count); i++)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+        -: 2621:    {
+    #####: 2622:        n = cJSON_CreateNumber(numbers[i]);
+call    0 never executed
+    #####: 2623:        if (!n)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2624:        {
+    #####: 2625:            cJSON_Delete(a);
+call    0 never executed
+    #####: 2626:            return NULL;
+        -: 2627:        }
+    #####: 2628:        if(!i)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2629:        {
+    #####: 2630:            a->child = n;
+        -: 2631:        }
+        -: 2632:        else
+        -: 2633:        {
+    #####: 2634:            suffix_object(p, n);
+call    0 never executed
+        -: 2635:        }
+    #####: 2636:        p = n;
+        -: 2637:    }
+        -: 2638:
+    #####: 2639:    if (a && a->child) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 2640:        a->child->prev = n;
+        -: 2641:    }
+        -: 2642:
+    #####: 2643:    return a;
+        -: 2644:}
+        -: 2645:
+function cJSON_CreateFloatArray called 0 returned 0% blocks executed 0%
+    #####: 2646:CJSON_PUBLIC(cJSON *) cJSON_CreateFloatArray(const float *numbers, int count)
+        -: 2647:{
+    #####: 2648:    size_t i = 0;
+    #####: 2649:    cJSON *n = NULL;
+    #####: 2650:    cJSON *p = NULL;
+    #####: 2651:    cJSON *a = NULL;
+        -: 2652:
+    #####: 2653:    if ((count < 0) || (numbers == NULL))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 2654:    {
+    #####: 2655:        return NULL;
+        -: 2656:    }
+        -: 2657:
+    #####: 2658:    a = cJSON_CreateArray();
+call    0 never executed
+        -: 2659:
+    #####: 2660:    for(i = 0; a && (i < (size_t)count); i++)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+        -: 2661:    {
+    #####: 2662:        n = cJSON_CreateNumber((double)numbers[i]);
+call    0 never executed
+    #####: 2663:        if(!n)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2664:        {
+    #####: 2665:            cJSON_Delete(a);
+call    0 never executed
+    #####: 2666:            return NULL;
+        -: 2667:        }
+    #####: 2668:        if(!i)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2669:        {
+    #####: 2670:            a->child = n;
+        -: 2671:        }
+        -: 2672:        else
+        -: 2673:        {
+    #####: 2674:            suffix_object(p, n);
+call    0 never executed
+        -: 2675:        }
+    #####: 2676:        p = n;
+        -: 2677:    }
+        -: 2678:
+    #####: 2679:    if (a && a->child) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 2680:        a->child->prev = n;
+        -: 2681:    }
+        -: 2682:
+    #####: 2683:    return a;
+        -: 2684:}
+        -: 2685:
+function cJSON_CreateDoubleArray called 0 returned 0% blocks executed 0%
+    #####: 2686:CJSON_PUBLIC(cJSON *) cJSON_CreateDoubleArray(const double *numbers, int count)
+        -: 2687:{
+    #####: 2688:    size_t i = 0;
+    #####: 2689:    cJSON *n = NULL;
+    #####: 2690:    cJSON *p = NULL;
+    #####: 2691:    cJSON *a = NULL;
+        -: 2692:
+    #####: 2693:    if ((count < 0) || (numbers == NULL))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 2694:    {
+    #####: 2695:        return NULL;
+        -: 2696:    }
+        -: 2697:
+    #####: 2698:    a = cJSON_CreateArray();
+call    0 never executed
+        -: 2699:
+    #####: 2700:    for(i = 0; a && (i < (size_t)count); i++)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+        -: 2701:    {
+    #####: 2702:        n = cJSON_CreateNumber(numbers[i]);
+call    0 never executed
+    #####: 2703:        if(!n)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2704:        {
+    #####: 2705:            cJSON_Delete(a);
+call    0 never executed
+    #####: 2706:            return NULL;
+        -: 2707:        }
+    #####: 2708:        if(!i)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2709:        {
+    #####: 2710:            a->child = n;
+        -: 2711:        }
+        -: 2712:        else
+        -: 2713:        {
+    #####: 2714:            suffix_object(p, n);
+call    0 never executed
+        -: 2715:        }
+    #####: 2716:        p = n;
+        -: 2717:    }
+        -: 2718:
+    #####: 2719:    if (a && a->child) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 2720:        a->child->prev = n;
+        -: 2721:    }
+        -: 2722:
+    #####: 2723:    return a;
+        -: 2724:}
+        -: 2725:
+function cJSON_CreateStringArray called 0 returned 0% blocks executed 0%
+    #####: 2726:CJSON_PUBLIC(cJSON *) cJSON_CreateStringArray(const char *const *strings, int count)
+        -: 2727:{
+    #####: 2728:    size_t i = 0;
+    #####: 2729:    cJSON *n = NULL;
+    #####: 2730:    cJSON *p = NULL;
+    #####: 2731:    cJSON *a = NULL;
+        -: 2732:
+    #####: 2733:    if ((count < 0) || (strings == NULL))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 2734:    {
+    #####: 2735:        return NULL;
+        -: 2736:    }
+        -: 2737:
+    #####: 2738:    a = cJSON_CreateArray();
+call    0 never executed
+        -: 2739:
+    #####: 2740:    for (i = 0; a && (i < (size_t)count); i++)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+        -: 2741:    {
+    #####: 2742:        n = cJSON_CreateString(strings[i]);
+call    0 never executed
+    #####: 2743:        if(!n)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2744:        {
+    #####: 2745:            cJSON_Delete(a);
+call    0 never executed
+    #####: 2746:            return NULL;
+        -: 2747:        }
+    #####: 2748:        if(!i)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2749:        {
+    #####: 2750:            a->child = n;
+        -: 2751:        }
+        -: 2752:        else
+        -: 2753:        {
+    #####: 2754:            suffix_object(p,n);
+call    0 never executed
+        -: 2755:        }
+    #####: 2756:        p = n;
+        -: 2757:    }
+        -: 2758:
+    #####: 2759:    if (a && a->child) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 2760:        a->child->prev = n;
+        -: 2761:    }
+        -: 2762:
+    #####: 2763:    return a;
+        -: 2764:}
+        -: 2765:
+        -: 2766:/* Duplication */
+        -: 2767:cJSON * cJSON_Duplicate_rec(const cJSON *item, size_t depth, cJSON_bool recurse);
+        -: 2768:
+function cJSON_Duplicate called 0 returned 0% blocks executed 0%
+    #####: 2769:CJSON_PUBLIC(cJSON *) cJSON_Duplicate(const cJSON *item, cJSON_bool recurse)
+        -: 2770:{
+    #####: 2771:    return cJSON_Duplicate_rec(item, 0, recurse );
+call    0 never executed
+        -: 2772:}
+        -: 2773:
+function cJSON_Duplicate_rec called 0 returned 0% blocks executed 0%
+    #####: 2774:cJSON * cJSON_Duplicate_rec(const cJSON *item, size_t depth, cJSON_bool recurse)
+        -: 2775:{
+    #####: 2776:    cJSON *newitem = NULL;
+    #####: 2777:    cJSON *child = NULL;
+    #####: 2778:    cJSON *next = NULL;
+    #####: 2779:    cJSON *newchild = NULL;
+        -: 2780:
+        -: 2781:    /* Bail on bad ptr */
+    #####: 2782:    if (!item)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2783:    {
+    #####: 2784:        goto fail;
+        -: 2785:    }
+        -: 2786:    /* Create new item */
+    #####: 2787:    newitem = cJSON_New_Item(&global_hooks);
+call    0 never executed
+    #####: 2788:    if (!newitem)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2789:    {
+    #####: 2790:        goto fail;
+        -: 2791:    }
+        -: 2792:    /* Copy over all vars */
+    #####: 2793:    newitem->type = item->type & (~cJSON_IsReference);
+    #####: 2794:    newitem->valueint = item->valueint;
+    #####: 2795:    newitem->valuedouble = item->valuedouble;
+    #####: 2796:    if (item->valuestring)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2797:    {
+    #####: 2798:        newitem->valuestring = (char*)cJSON_strdup((unsigned char*)item->valuestring, &global_hooks);
+call    0 never executed
+    #####: 2799:        if (!newitem->valuestring)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2800:        {
+    #####: 2801:            goto fail;
+        -: 2802:        }
+        -: 2803:    }
+    #####: 2804:    if (item->string)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2805:    {
+    #####: 2806:        newitem->string = (item->type&cJSON_StringIsConst) ? item->string : (char*)cJSON_strdup((unsigned char*)item->string, &global_hooks);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+    #####: 2807:        if (!newitem->string)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2808:        {
+    #####: 2809:            goto fail;
+        -: 2810:        }
+        -: 2811:    }
+        -: 2812:    /* If non-recursive, then we're done! */
+    #####: 2813:    if (!recurse)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2814:    {
+    #####: 2815:        return newitem;
+        -: 2816:    }
+        -: 2817:    /* Walk the ->next chain for the child. */
+    #####: 2818:    child = item->child;
+    #####: 2819:    while (child != NULL)
+branch  0 never executed
+branch  1 never executed (fallthrough)
+        -: 2820:    {
+    #####: 2821:        if(depth >= CJSON_CIRCULAR_LIMIT) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2822:            goto fail;
+        -: 2823:        }
+    #####: 2824:        newchild = cJSON_Duplicate_rec(child, depth + 1, true); /* Duplicate (with recurse) each item in the ->next chain */
+call    0 never executed
+    #####: 2825:        if (!newchild)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2826:        {
+    #####: 2827:            goto fail;
+        -: 2828:        }
+    #####: 2829:        if (next != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2830:        {
+        -: 2831:            /* If newitem->child already set, then crosswire ->prev and ->next and move on */
+    #####: 2832:            next->next = newchild;
+    #####: 2833:            newchild->prev = next;
+    #####: 2834:            next = newchild;
+        -: 2835:        }
+        -: 2836:        else
+        -: 2837:        {
+        -: 2838:            /* Set newitem->child and move to it */
+    #####: 2839:            newitem->child = newchild;
+    #####: 2840:            next = newchild;
+        -: 2841:        }
+    #####: 2842:        child = child->next;
+        -: 2843:    }
+    #####: 2844:    if (newitem && newitem->child)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 2845:    {
+    #####: 2846:        newitem->child->prev = newchild;
+        -: 2847:    }
+        -: 2848:
+    #####: 2849:    return newitem;
+        -: 2850:
+    #####: 2851:fail:
+    #####: 2852:    if (newitem != NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2853:    {
+    #####: 2854:        cJSON_Delete(newitem);
+call    0 never executed
+        -: 2855:    }
+        -: 2856:
+    #####: 2857:    return NULL;
+        -: 2858:}
+        -: 2859:
+function skip_oneline_comment called 0 returned 0% blocks executed 0%
+    #####: 2860:static void skip_oneline_comment(char **input)
+        -: 2861:{
+    #####: 2862:    *input += static_strlen("//");
+        -: 2863:
+    #####: 2864:    for (; (*input)[0] != '\0'; ++(*input))
+branch  0 never executed
+branch  1 never executed (fallthrough)
+        -: 2865:    {
+    #####: 2866:        if ((*input)[0] == '\n') {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2867:            *input += static_strlen("\n");
+    #####: 2868:            return;
+        -: 2869:        }
+        -: 2870:    }
+        -: 2871:}
+        -: 2872:
+function skip_multiline_comment called 0 returned 0% blocks executed 0%
+    #####: 2873:static void skip_multiline_comment(char **input)
+        -: 2874:{
+    #####: 2875:    *input += static_strlen("/*");
+        -: 2876:
+    #####: 2877:    for (; (*input)[0] != '\0'; ++(*input))
+branch  0 never executed
+branch  1 never executed (fallthrough)
+        -: 2878:    {
+    #####: 2879:        if (((*input)[0] == '*') && ((*input)[1] == '/'))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 2880:        {
+    #####: 2881:            *input += static_strlen("*/");
+    #####: 2882:            return;
+        -: 2883:        }
+        -: 2884:    }
+        -: 2885:}
+        -: 2886:
+function minify_string called 0 returned 0% blocks executed 0%
+    #####: 2887:static void minify_string(char **input, char **output) {
+    #####: 2888:    (*output)[0] = (*input)[0];
+    #####: 2889:    *input += static_strlen("\"");
+    #####: 2890:    *output += static_strlen("\"");
+        -: 2891:
+        -: 2892:
+    #####: 2893:    for (; (*input)[0] != '\0'; (void)++(*input), ++(*output)) {
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####: 2894:        (*output)[0] = (*input)[0];
+        -: 2895:
+    #####: 2896:        if ((*input)[0] == '\"') {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 2897:            (*output)[0] = '\"';
+    #####: 2898:            *input += static_strlen("\"");
+    #####: 2899:            *output += static_strlen("\"");
+    #####: 2900:            return;
+    #####: 2901:        } else if (((*input)[0] == '\\') && ((*input)[1] == '\"')) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####: 2902:            (*output)[1] = (*input)[1];
+    #####: 2903:            *input += static_strlen("\"");
+    #####: 2904:            *output += static_strlen("\"");
+        -: 2905:        }
+        -: 2906:    }
+        -: 2907:}
+        -: 2908:
+function cJSON_Minify called 0 returned 0% blocks executed 0%
+    #####: 2909:CJSON_PUBLIC(void) cJSON_Minify(char *json)
+        -: 2910:{
+    #####: 2911:    char *into = json;
+        -: 2912:
+    #####: 2913:    if (json == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2914:    {
+    #####: 2915:        return;
+        -: 2916:    }
+        -: 2917:
+    #####: 2918:    while (json[0] != '\0')
+branch  0 never executed
+branch  1 never executed (fallthrough)
+        -: 2919:    {
+    #####: 2920:        switch (json[0])
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+        -: 2921:        {
+    #####: 2922:            case ' ':
+        -: 2923:            case '\t':
+        -: 2924:            case '\r':
+        -: 2925:            case '\n':
+    #####: 2926:                json++;
+    #####: 2927:                break;
+        -: 2928:
+    #####: 2929:            case '/':
+    #####: 2930:                if (json[1] == '/')
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2931:                {
+    #####: 2932:                    skip_oneline_comment(&json);
+call    0 never executed
+        -: 2933:                }
+    #####: 2934:                else if (json[1] == '*')
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2935:                {
+    #####: 2936:                    skip_multiline_comment(&json);
+call    0 never executed
+        -: 2937:                } else {
+    #####: 2938:                    json++;
+        -: 2939:                }
+    #####: 2940:                break;
+        -: 2941:
+    #####: 2942:            case '\"':
+    #####: 2943:                minify_string(&json, (char**)&into);
+call    0 never executed
+    #####: 2944:                break;
+        -: 2945:
+    #####: 2946:            default:
+    #####: 2947:                into[0] = json[0];
+    #####: 2948:                json++;
+    #####: 2949:                into++;
+        -: 2950:        }
+        -: 2951:    }
+        -: 2952:
+        -: 2953:    /* and null-terminate. */
+    #####: 2954:    *into = '\0';
+        -: 2955:}
+        -: 2956:
+function cJSON_IsInvalid called 0 returned 0% blocks executed 0%
+    #####: 2957:CJSON_PUBLIC(cJSON_bool) cJSON_IsInvalid(const cJSON * const item)
+        -: 2958:{
+    #####: 2959:    if (item == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2960:    {
+    #####: 2961:        return false;
+        -: 2962:    }
+        -: 2963:
+    #####: 2964:    return (item->type & 0xFF) == cJSON_Invalid;
+        -: 2965:}
+        -: 2966:
+function cJSON_IsFalse called 0 returned 0% blocks executed 0%
+    #####: 2967:CJSON_PUBLIC(cJSON_bool) cJSON_IsFalse(const cJSON * const item)
+        -: 2968:{
+    #####: 2969:    if (item == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 2970:    {
+    #####: 2971:        return false;
+        -: 2972:    }
+        -: 2973:
+    #####: 2974:    return (item->type & 0xFF) == cJSON_False;
+        -: 2975:}
+        -: 2976:
+function cJSON_IsTrue called 46 returned 100% blocks executed 75%
+       46: 2977:CJSON_PUBLIC(cJSON_bool) cJSON_IsTrue(const cJSON * const item)
+        -: 2978:{
+       46: 2979:    if (item == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 2980:    {
+    #####: 2981:        return false;
+        -: 2982:    }
+        -: 2983:
+       46: 2984:    return (item->type & 0xff) == cJSON_True;
+        -: 2985:}
+        -: 2986:
+        -: 2987:
+function cJSON_IsBool called 1 returned 100% blocks executed 75%
+        1: 2988:CJSON_PUBLIC(cJSON_bool) cJSON_IsBool(const cJSON * const item)
+        -: 2989:{
+        1: 2990:    if (item == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 2991:    {
+    #####: 2992:        return false;
+        -: 2993:    }
+        -: 2994:
+        1: 2995:    return (item->type & (cJSON_True | cJSON_False)) != 0;
+        -: 2996:}
+function cJSON_IsNull called 0 returned 0% blocks executed 0%
+    #####: 2997:CJSON_PUBLIC(cJSON_bool) cJSON_IsNull(const cJSON * const item)
+        -: 2998:{
+    #####: 2999:    if (item == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 3000:    {
+    #####: 3001:        return false;
+        -: 3002:    }
+        -: 3003:
+    #####: 3004:    return (item->type & 0xFF) == cJSON_NULL;
+        -: 3005:}
+        -: 3006:
+function cJSON_IsNumber called 8 returned 100% blocks executed 75%
+        8: 3007:CJSON_PUBLIC(cJSON_bool) cJSON_IsNumber(const cJSON * const item)
+        -: 3008:{
+        8: 3009:    if (item == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 3010:    {
+    #####: 3011:        return false;
+        -: 3012:    }
+        -: 3013:
+        8: 3014:    return (item->type & 0xFF) == cJSON_Number;
+        -: 3015:}
+        -: 3016:
+function cJSON_IsString called 733 returned 100% blocks executed 100%
+      733: 3017:CJSON_PUBLIC(cJSON_bool) cJSON_IsString(const cJSON * const item)
+        -: 3018:{
+      733: 3019:    if (item == NULL)
+branch  0 taken 1% (fallthrough)
+branch  1 taken 99%
+        -: 3020:    {
+        4: 3021:        return false;
+        -: 3022:    }
+        -: 3023:
+      729: 3024:    return (item->type & 0xFF) == cJSON_String;
+        -: 3025:}
+        -: 3026:
+function cJSON_IsArray called 2 returned 100% blocks executed 75%
+        2: 3027:CJSON_PUBLIC(cJSON_bool) cJSON_IsArray(const cJSON * const item)
+        -: 3028:{
+        2: 3029:    if (item == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 3030:    {
+    #####: 3031:        return false;
+        -: 3032:    }
+        -: 3033:
+        2: 3034:    return (item->type & 0xFF) == cJSON_Array;
+        -: 3035:}
+        -: 3036:
+function cJSON_IsObject called 22 returned 100% blocks executed 75%
+       22: 3037:CJSON_PUBLIC(cJSON_bool) cJSON_IsObject(const cJSON * const item)
+        -: 3038:{
+       22: 3039:    if (item == NULL)
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        -: 3040:    {
+    #####: 3041:        return false;
+        -: 3042:    }
+        -: 3043:
+       22: 3044:    return (item->type & 0xFF) == cJSON_Object;
+        -: 3045:}
+        -: 3046:
+function cJSON_IsRaw called 0 returned 0% blocks executed 0%
+    #####: 3047:CJSON_PUBLIC(cJSON_bool) cJSON_IsRaw(const cJSON * const item)
+        -: 3048:{
+    #####: 3049:    if (item == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 3050:    {
+    #####: 3051:        return false;
+        -: 3052:    }
+        -: 3053:
+    #####: 3054:    return (item->type & 0xFF) == cJSON_Raw;
+        -: 3055:}
+        -: 3056:
+function cJSON_Compare called 0 returned 0% blocks executed 0%
+    #####: 3057:CJSON_PUBLIC(cJSON_bool) cJSON_Compare(const cJSON * const a, const cJSON * const b, const cJSON_bool case_sensitive)
+        -: 3058:{
+    #####: 3059:    if ((a == NULL) || (b == NULL) || ((a->type & 0xFF) != (b->type & 0xFF)))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+branch  4 never executed (fallthrough)
+branch  5 never executed
+        -: 3060:    {
+    #####: 3061:        return false;
+        -: 3062:    }
+        -: 3063:
+        -: 3064:    /* check if type is valid */
+    #####: 3065:    switch (a->type & 0xFF)
+branch  0 never executed
+branch  1 never executed
+        -: 3066:    {
+    #####: 3067:        case cJSON_False:
+        -: 3068:        case cJSON_True:
+        -: 3069:        case cJSON_NULL:
+        -: 3070:        case cJSON_Number:
+        -: 3071:        case cJSON_String:
+        -: 3072:        case cJSON_Raw:
+        -: 3073:        case cJSON_Array:
+        -: 3074:        case cJSON_Object:
+    #####: 3075:            break;
+        -: 3076:
+    #####: 3077:        default:
+    #####: 3078:            return false;
+        -: 3079:    }
+        -: 3080:
+        -: 3081:    /* identical objects are equal */
+    #####: 3082:    if (a == b)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 3083:    {
+    #####: 3084:        return true;
+        -: 3085:    }
+        -: 3086:
+    #####: 3087:    switch (a->type & 0xFF)
+branch  0 never executed
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed
+branch  4 never executed
+branch  5 never executed
+        -: 3088:    {
+        -: 3089:        /* in these cases and equal type is enough */
+    #####: 3090:        case cJSON_False:
+        -: 3091:        case cJSON_True:
+        -: 3092:        case cJSON_NULL:
+    #####: 3093:            return true;
+        -: 3094:
+    #####: 3095:        case cJSON_Number:
+    #####: 3096:            if (compare_double(a->valuedouble, b->valuedouble))
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -: 3097:            {
+    #####: 3098:                return true;
+        -: 3099:            }
+    #####: 3100:            return false;
+        -: 3101:
+    #####: 3102:        case cJSON_String:
+        -: 3103:        case cJSON_Raw:
+    #####: 3104:            if ((a->valuestring == NULL) || (b->valuestring == NULL))
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+        -: 3105:            {
+    #####: 3106:                return false;
+        -: 3107:            }
+    #####: 3108:            if (strcmp(a->valuestring, b->valuestring) == 0)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 3109:            {
+    #####: 3110:                return true;
+        -: 3111:            }
+        -: 3112:
+    #####: 3113:            return false;
+        -: 3114:
+    #####: 3115:        case cJSON_Array:
+        -: 3116:        {
+    #####: 3117:            cJSON *a_element = a->child;
+    #####: 3118:            cJSON *b_element = b->child;
+        -: 3119:
+    #####: 3120:            for (; (a_element != NULL) && (b_element != NULL);)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+        -: 3121:            {
+    #####: 3122:                if (!cJSON_Compare(a_element, b_element, case_sensitive))
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -: 3123:                {
+    #####: 3124:                    return false;
+        -: 3125:                }
+        -: 3126:
+    #####: 3127:                a_element = a_element->next;
+    #####: 3128:                b_element = b_element->next;
+        -: 3129:            }
+        -: 3130:
+        -: 3131:            /* one of the arrays is longer than the other */
+    #####: 3132:            if (a_element != b_element) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####: 3133:                return false;
+        -: 3134:            }
+        -: 3135:
+    #####: 3136:            return true;
+        -: 3137:        }
+        -: 3138:
+    #####: 3139:        case cJSON_Object:
+        -: 3140:        {
+    #####: 3141:            cJSON *a_element = NULL;
+    #####: 3142:            cJSON *b_element = NULL;
+    #####: 3143:            cJSON_ArrayForEach(a_element, a)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+        -: 3144:            {
+        -: 3145:                /* TODO This has O(n^2) runtime, which is horrible! */
+    #####: 3146:                b_element = get_object_item(b, a_element->string, case_sensitive);
+call    0 never executed
+    #####: 3147:                if (b_element == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 3148:                {
+    #####: 3149:                    return false;
+        -: 3150:                }
+        -: 3151:
+    #####: 3152:                if (!cJSON_Compare(a_element, b_element, case_sensitive))
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -: 3153:                {
+    #####: 3154:                    return false;
+        -: 3155:                }
+        -: 3156:            }
+        -: 3157:
+        -: 3158:            /* doing this twice, once on a and b to prevent true comparison if a subset of b
+        -: 3159:             * TODO: Do this the proper way, this is just a fix for now */
+    #####: 3160:            cJSON_ArrayForEach(b_element, b)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+        -: 3161:            {
+    #####: 3162:                a_element = get_object_item(a, b_element->string, case_sensitive);
+call    0 never executed
+    #####: 3163:                if (a_element == NULL)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -: 3164:                {
+    #####: 3165:                    return false;
+        -: 3166:                }
+        -: 3167:
+    #####: 3168:                if (!cJSON_Compare(b_element, a_element, case_sensitive))
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -: 3169:                {
+    #####: 3170:                    return false;
+        -: 3171:                }
+        -: 3172:            }
+        -: 3173:
+    #####: 3174:            return true;
+        -: 3175:        }
+        -: 3176:
+    #####: 3177:        default:
+    #####: 3178:            return false;
+        -: 3179:    }
+        -: 3180:}
+        -: 3181:
+function cJSON_malloc called 0 returned 0% blocks executed 0%
+    #####: 3182:CJSON_PUBLIC(void *) cJSON_malloc(size_t size)
+        -: 3183:{
+    #####: 3184:    return global_hooks.allocate(size);
+call    0 never executed
+        -: 3185:}
+        -: 3186:
+function cJSON_free called 81 returned 100% blocks executed 100%
+       81: 3187:CJSON_PUBLIC(void) cJSON_free(void *object)
+        -: 3188:{
+       81: 3189:    global_hooks.deallocate(object);
+call    0 returned 100%
+       81: 3190:    object = NULL;
+       81: 3191:}

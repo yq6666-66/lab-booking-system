@@ -1,0 +1,508 @@
+        -:    0:Source:vendor/civetweb/src/md5.inl
+        -:    0:Graph:C:\Users\admin\Desktop\毕业设计\build\cov_civetweb.gcno
+        -:    0:Data:C:\Users\admin\Desktop\毕业设计\build\cov_civetweb.gcda
+        -:    0:Runs:3
+        -:    1:/*
+        -:    2: * This an amalgamation of md5.c and md5.h into a single file
+        -:    3: * with all static declaration to reduce linker conflicts
+        -:    4: * in Civetweb.
+        -:    5: *
+        -:    6: * The MD5_STATIC declaration was added to facilitate static
+        -:    7: * inclusion.
+        -:    8: * No Face Press, LLC
+        -:    9: */
+        -:   10:
+        -:   11:/* $Id: md5.h,v 1.4 2002/04/13 19:20:28 lpd Exp $ */
+        -:   12:/*
+        -:   13:  Independent implementation of MD5 (RFC 1321).
+        -:   14:
+        -:   15:  This code implements the MD5 Algorithm defined in RFC 1321, whose
+        -:   16:  text is available at
+        -:   17:    http://www.ietf.org/rfc/rfc1321.txt
+        -:   18:  The code is derived from the text of the RFC, including the test suite
+        -:   19:  (section A.5) but excluding the rest of Appendix A.  It does not include
+        -:   20:  any code or documentation that is identified in the RFC as being
+        -:   21:  copyrighted.
+        -:   22:
+        -:   23:  The original and principal author of md5.h is L. Peter Deutsch
+        -:   24:  <ghost@aladdin.com>.  Other authors are noted in the change history
+        -:   25:  that follows (in reverse chronological order):
+        -:   26:
+        -:   27:  2002-04-13 lpd Removed support for non-ANSI compilers; removed
+        -:   28:    references to Ghostscript; clarified derivation from RFC 1321;
+        -:   29:    now handles byte order either statically or dynamically.
+        -:   30:  1999-11-04 lpd Edited comments slightly for automatic TOC extraction.
+        -:   31:  1999-10-18 lpd Fixed typo in header comment (ansi2knr rather than md5);
+        -:   32:    added conditionalization for C++ compilation from Martin
+        -:   33:    Purschke <purschke@bnl.gov>.
+        -:   34:  1999-05-03 lpd Original version.
+        -:   35: */
+        -:   36:
+        -:   37:#if !defined(md5_INCLUDED)
+        -:   38:#define md5_INCLUDED
+        -:   39:
+        -:   40:/*
+        -:   41: * This package supports both compile-time and run-time determination of CPU
+        -:   42: * byte order.  If ARCH_IS_BIG_ENDIAN is defined as 0, the code will be
+        -:   43: * compiled to run only on little-endian CPUs; if ARCH_IS_BIG_ENDIAN is
+        -:   44: * defined as non-zero, the code will be compiled to run only on big-endian
+        -:   45: * CPUs; if ARCH_IS_BIG_ENDIAN is not defined, the code will be compiled to
+        -:   46: * run on either big- or little-endian CPUs, but will run slightly less
+        -:   47: * efficiently on either one than if ARCH_IS_BIG_ENDIAN is defined.
+        -:   48: */
+        -:   49:
+        -:   50:typedef unsigned char md5_byte_t; /* 8-bit byte */
+        -:   51:typedef unsigned int md5_word_t;  /* 32-bit word */
+        -:   52:
+        -:   53:/* Define the state of the MD5 Algorithm. */
+        -:   54:typedef struct md5_state_s {
+        -:   55:	md5_word_t count[2]; /* message length in bits, lsw first */
+        -:   56:	md5_word_t abcd[4];  /* digest buffer */
+        -:   57:	md5_byte_t buf[64];  /* accumulate block */
+        -:   58:} md5_state_t;
+        -:   59:
+        -:   60:#if defined(__cplusplus)
+        -:   61:extern "C" {
+        -:   62:#endif
+        -:   63:
+        -:   64:/* Initialize the algorithm. */
+        -:   65:MD5_STATIC void md5_init(md5_state_t *pms);
+        -:   66:
+        -:   67:/* Append a string to the message. */
+        -:   68:MD5_STATIC void
+        -:   69:md5_append(md5_state_t *pms, const md5_byte_t *data, size_t nbytes);
+        -:   70:
+        -:   71:/* Finish the message and return the digest. */
+        -:   72:MD5_STATIC void md5_finish(md5_state_t *pms, md5_byte_t digest[16]);
+        -:   73:
+        -:   74:#if defined(__cplusplus)
+        -:   75:} /* end extern "C" */
+        -:   76:#endif
+        -:   77:
+        -:   78:#endif /* md5_INCLUDED */
+        -:   79:
+        -:   80:/*
+        -:   81:  Copyright (C) 1999, 2000, 2002 Aladdin Enterprises.  All rights reserved.
+        -:   82:
+        -:   83:  This software is provided 'as-is', without any express or implied
+        -:   84:  warranty.  In no event will the authors be held liable for any damages
+        -:   85:  arising from the use of this software.
+        -:   86:
+        -:   87:  Permission is granted to anyone to use this software for any purpose,
+        -:   88:  including commercial applications, and to alter it and redistribute it
+        -:   89:  freely, subject to the following restrictions:
+        -:   90:
+        -:   91:  1. The origin of this software must not be misrepresented; you must not
+        -:   92:     claim that you wrote the original software. If you use this software
+        -:   93:     in a product, an acknowledgment in the product documentation would be
+        -:   94:     appreciated but is not required.
+        -:   95:  2. Altered source versions must be plainly marked as such, and must not be
+        -:   96:     misrepresented as being the original software.
+        -:   97:  3. This notice may not be removed or altered from any source distribution.
+        -:   98:
+        -:   99:  L. Peter Deutsch
+        -:  100:  ghost@aladdin.com
+        -:  101:
+        -:  102: */
+        -:  103:/* $Id: md5.c,v 1.6 2002/04/13 19:20:28 lpd Exp $ */
+        -:  104:/*
+        -:  105:  Independent implementation of MD5 (RFC 1321).
+        -:  106:
+        -:  107:  This code implements the MD5 Algorithm defined in RFC 1321, whose
+        -:  108:  text is available at
+        -:  109:    http://www.ietf.org/rfc/rfc1321.txt
+        -:  110:  The code is derived from the text of the RFC, including the test suite
+        -:  111:  (section A.5) but excluding the rest of Appendix A.  It does not include
+        -:  112:  any code or documentation that is identified in the RFC as being
+        -:  113:  copyrighted.
+        -:  114:
+        -:  115:  The original and principal author of md5.c is L. Peter Deutsch
+        -:  116:  <ghost@aladdin.com>.  Other authors are noted in the change history
+        -:  117:  that follows (in reverse chronological order):
+        -:  118:
+        -:  119:  2002-04-13 lpd Clarified derivation from RFC 1321; now handles byte order
+        -:  120:    either statically or dynamically; added missing #include <string.h>
+        -:  121:    in library.
+        -:  122:  2002-03-11 lpd Corrected argument list for main(), and added int return
+        -:  123:    type, in test program and T value program.
+        -:  124:  2002-02-21 lpd Added missing #include <stdio.h> in test program.
+        -:  125:  2000-07-03 lpd Patched to eliminate warnings about "constant is
+        -:  126:    unsigned in ANSI C, signed in traditional"; made test program
+        -:  127:    self-checking.
+        -:  128:  1999-11-04 lpd Edited comments slightly for automatic TOC extraction.
+        -:  129:  1999-10-18 lpd Fixed typo in header comment (ansi2knr rather than md5).
+        -:  130:  1999-05-03 lpd Original version.
+        -:  131: */
+        -:  132:
+        -:  133:#if !defined(MD5_STATIC)
+        -:  134:#include <stdint.h>
+        -:  135:#include <string.h>
+        -:  136:#endif
+        -:  137:
+        -:  138:#undef BYTE_ORDER /* 1 = big-endian, -1 = little-endian, 0 = unknown */
+        -:  139:#if defined(ARCH_IS_BIG_ENDIAN)
+        -:  140:#define BYTE_ORDER (ARCH_IS_BIG_ENDIAN ? 1 : -1)
+        -:  141:#else
+        -:  142:#define BYTE_ORDER (0)
+        -:  143:#endif
+        -:  144:
+        -:  145:#define T_MASK ((md5_word_t)~0)
+        -:  146:#define T1 /* 0xd76aa478 */ (T_MASK ^ 0x28955b87)
+        -:  147:#define T2 /* 0xe8c7b756 */ (T_MASK ^ 0x173848a9)
+        -:  148:#define T3 (0x242070db)
+        -:  149:#define T4 /* 0xc1bdceee */ (T_MASK ^ 0x3e423111)
+        -:  150:#define T5 /* 0xf57c0faf */ (T_MASK ^ 0x0a83f050)
+        -:  151:#define T6 (0x4787c62a)
+        -:  152:#define T7 /* 0xa8304613 */ (T_MASK ^ 0x57cfb9ec)
+        -:  153:#define T8 /* 0xfd469501 */ (T_MASK ^ 0x02b96afe)
+        -:  154:#define T9 (0x698098d8)
+        -:  155:#define T10 /* 0x8b44f7af */ (T_MASK ^ 0x74bb0850)
+        -:  156:#define T11 /* 0xffff5bb1 */ (T_MASK ^ 0x0000a44e)
+        -:  157:#define T12 /* 0x895cd7be */ (T_MASK ^ 0x76a32841)
+        -:  158:#define T13 (0x6b901122)
+        -:  159:#define T14 /* 0xfd987193 */ (T_MASK ^ 0x02678e6c)
+        -:  160:#define T15 /* 0xa679438e */ (T_MASK ^ 0x5986bc71)
+        -:  161:#define T16 (0x49b40821)
+        -:  162:#define T17 /* 0xf61e2562 */ (T_MASK ^ 0x09e1da9d)
+        -:  163:#define T18 /* 0xc040b340 */ (T_MASK ^ 0x3fbf4cbf)
+        -:  164:#define T19 (0x265e5a51)
+        -:  165:#define T20 /* 0xe9b6c7aa */ (T_MASK ^ 0x16493855)
+        -:  166:#define T21 /* 0xd62f105d */ (T_MASK ^ 0x29d0efa2)
+        -:  167:#define T22 (0x02441453)
+        -:  168:#define T23 /* 0xd8a1e681 */ (T_MASK ^ 0x275e197e)
+        -:  169:#define T24 /* 0xe7d3fbc8 */ (T_MASK ^ 0x182c0437)
+        -:  170:#define T25 (0x21e1cde6)
+        -:  171:#define T26 /* 0xc33707d6 */ (T_MASK ^ 0x3cc8f829)
+        -:  172:#define T27 /* 0xf4d50d87 */ (T_MASK ^ 0x0b2af278)
+        -:  173:#define T28 (0x455a14ed)
+        -:  174:#define T29 /* 0xa9e3e905 */ (T_MASK ^ 0x561c16fa)
+        -:  175:#define T30 /* 0xfcefa3f8 */ (T_MASK ^ 0x03105c07)
+        -:  176:#define T31 (0x676f02d9)
+        -:  177:#define T32 /* 0x8d2a4c8a */ (T_MASK ^ 0x72d5b375)
+        -:  178:#define T33 /* 0xfffa3942 */ (T_MASK ^ 0x0005c6bd)
+        -:  179:#define T34 /* 0x8771f681 */ (T_MASK ^ 0x788e097e)
+        -:  180:#define T35 (0x6d9d6122)
+        -:  181:#define T36 /* 0xfde5380c */ (T_MASK ^ 0x021ac7f3)
+        -:  182:#define T37 /* 0xa4beea44 */ (T_MASK ^ 0x5b4115bb)
+        -:  183:#define T38 (0x4bdecfa9)
+        -:  184:#define T39 /* 0xf6bb4b60 */ (T_MASK ^ 0x0944b49f)
+        -:  185:#define T40 /* 0xbebfbc70 */ (T_MASK ^ 0x4140438f)
+        -:  186:#define T41 (0x289b7ec6)
+        -:  187:#define T42 /* 0xeaa127fa */ (T_MASK ^ 0x155ed805)
+        -:  188:#define T43 /* 0xd4ef3085 */ (T_MASK ^ 0x2b10cf7a)
+        -:  189:#define T44 (0x04881d05)
+        -:  190:#define T45 /* 0xd9d4d039 */ (T_MASK ^ 0x262b2fc6)
+        -:  191:#define T46 /* 0xe6db99e5 */ (T_MASK ^ 0x1924661a)
+        -:  192:#define T47 (0x1fa27cf8)
+        -:  193:#define T48 /* 0xc4ac5665 */ (T_MASK ^ 0x3b53a99a)
+        -:  194:#define T49 /* 0xf4292244 */ (T_MASK ^ 0x0bd6ddbb)
+        -:  195:#define T50 (0x432aff97)
+        -:  196:#define T51 /* 0xab9423a7 */ (T_MASK ^ 0x546bdc58)
+        -:  197:#define T52 /* 0xfc93a039 */ (T_MASK ^ 0x036c5fc6)
+        -:  198:#define T53 (0x655b59c3)
+        -:  199:#define T54 /* 0x8f0ccc92 */ (T_MASK ^ 0x70f3336d)
+        -:  200:#define T55 /* 0xffeff47d */ (T_MASK ^ 0x00100b82)
+        -:  201:#define T56 /* 0x85845dd1 */ (T_MASK ^ 0x7a7ba22e)
+        -:  202:#define T57 (0x6fa87e4f)
+        -:  203:#define T58 /* 0xfe2ce6e0 */ (T_MASK ^ 0x01d3191f)
+        -:  204:#define T59 /* 0xa3014314 */ (T_MASK ^ 0x5cfebceb)
+        -:  205:#define T60 (0x4e0811a1)
+        -:  206:#define T61 /* 0xf7537e82 */ (T_MASK ^ 0x08ac817d)
+        -:  207:#define T62 /* 0xbd3af235 */ (T_MASK ^ 0x42c50dca)
+        -:  208:#define T63 (0x2ad7d2bb)
+        -:  209:#define T64 /* 0xeb86d391 */ (T_MASK ^ 0x14792c6e)
+        -:  210:
+        -:  211:static void
+function md5_process called 0 returned 0% blocks executed 0%
+    #####:  212:md5_process(md5_state_t *pms, const md5_byte_t *data /*[64]*/)
+        -:  213:{
+    #####:  214:	md5_word_t a = pms->abcd[0], b = pms->abcd[1], c = pms->abcd[2],
+    #####:  215:	           d = pms->abcd[3];
+        -:  216:	md5_word_t t;
+        -:  217:#if BYTE_ORDER > 0
+        -:  218:	/* Define storage only for big-endian CPUs. */
+        -:  219:	md5_word_t X[16];
+        -:  220:#else
+        -:  221:	/* Define storage for little-endian or both types of CPUs. */
+        -:  222:	md5_word_t xbuf[16];
+        -:  223:	const md5_word_t *X;
+        -:  224:#endif
+        -:  225:
+        -:  226:	{
+        -:  227:#if BYTE_ORDER == 0
+        -:  228:		/*
+        -:  229:		 * Determine dynamically whether this is a big-endian or
+        -:  230:		 * little-endian machine, since we can use a more efficient
+        -:  231:		 * algorithm on the latter.
+        -:  232:		 */
+        -:  233:		static const int w = 1;
+        -:  234:
+    #####:  235:		if (*((const md5_byte_t *)&w)) /* dynamic little-endian */
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  236:#endif
+        -:  237:#if BYTE_ORDER <= 0 /* little-endian */
+        -:  238:		{
+        -:  239:			/*
+        -:  240:			 * On little-endian machines, we can process properly aligned
+        -:  241:			 * data without copying it.
+        -:  242:			 */
+    #####:  243:			if (!(((uintptr_t)data) & 3)) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  244:				/* data are properly aligned, a direct assignment is possible */
+        -:  245:				/* cast through a (void *) should avoid a compiler warning,
+        -:  246:				   see
+        -:  247:				   https://github.com/bel2125/civetweb/issues/94#issuecomment-98112861
+        -:  248:				   */
+    #####:  249:				X = (const md5_word_t *)(const void *)data;
+        -:  250:			} else {
+        -:  251:				/* not aligned */
+    #####:  252:				memcpy(xbuf, data, 64);
+    #####:  253:				X = xbuf;
+        -:  254:			}
+        -:  255:		}
+        -:  256:#endif
+        -:  257:#if BYTE_ORDER == 0
+        -:  258:		else /* dynamic big-endian */
+        -:  259:#endif
+        -:  260:#if BYTE_ORDER >= 0 /* big-endian */
+        -:  261:		{
+        -:  262:			/*
+        -:  263:			 * On big-endian machines, we must arrange the bytes in the
+        -:  264:			 * right order.
+        -:  265:			 */
+    #####:  266:			const md5_byte_t *xp = data;
+        -:  267:			int i;
+        -:  268:
+        -:  269:#if BYTE_ORDER == 0
+    #####:  270:			X = xbuf; /* (dynamic only) */
+        -:  271:#else
+        -:  272:#define xbuf X /* (static only) */
+        -:  273:#endif
+    #####:  274:			for (i = 0; i < 16; ++i, xp += 4)
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  275:				xbuf[i] = (md5_word_t)(xp[0]) + (md5_word_t)(xp[1] << 8)
+    #####:  276:				          + (md5_word_t)(xp[2] << 16)
+    #####:  277:				          + (md5_word_t)(xp[3] << 24);
+        -:  278:		}
+        -:  279:#endif
+        -:  280:	}
+        -:  281:
+        -:  282:#define ROTATE_LEFT(x, n) (((x) << (n)) | ((x) >> (32 - (n))))
+        -:  283:
+        -:  284:/* Round 1. */
+        -:  285:/* Let [abcd k s i] denote the operation
+        -:  286:   a = b + ((a + F(b,c,d) + X[k] + T[i]) <<< s). */
+        -:  287:#define F(x, y, z) (((x) & (y)) | (~(x) & (z)))
+        -:  288:#define SET(a, b, c, d, k, s, Ti)                                              \
+        -:  289:	t = (a) + F(b, c, d) + X[k] + (Ti);                                        \
+        -:  290:	(a) = ROTATE_LEFT(t, s) + (b)
+        -:  291:
+        -:  292:	/* Do the following 16 operations. */
+    #####:  293:	SET(a, b, c, d, 0, 7, T1);
+    #####:  294:	SET(d, a, b, c, 1, 12, T2);
+    #####:  295:	SET(c, d, a, b, 2, 17, T3);
+    #####:  296:	SET(b, c, d, a, 3, 22, T4);
+    #####:  297:	SET(a, b, c, d, 4, 7, T5);
+    #####:  298:	SET(d, a, b, c, 5, 12, T6);
+    #####:  299:	SET(c, d, a, b, 6, 17, T7);
+    #####:  300:	SET(b, c, d, a, 7, 22, T8);
+    #####:  301:	SET(a, b, c, d, 8, 7, T9);
+    #####:  302:	SET(d, a, b, c, 9, 12, T10);
+    #####:  303:	SET(c, d, a, b, 10, 17, T11);
+    #####:  304:	SET(b, c, d, a, 11, 22, T12);
+    #####:  305:	SET(a, b, c, d, 12, 7, T13);
+    #####:  306:	SET(d, a, b, c, 13, 12, T14);
+    #####:  307:	SET(c, d, a, b, 14, 17, T15);
+    #####:  308:	SET(b, c, d, a, 15, 22, T16);
+        -:  309:#undef SET
+        -:  310:
+        -:  311:/* Round 2. */
+        -:  312:/* Let [abcd k s i] denote the operation
+        -:  313:	 a = b + ((a + G(b,c,d) + X[k] + T[i]) <<< s). */
+        -:  314:#define G(x, y, z) (((x) & (z)) | ((y) & ~(z)))
+        -:  315:#define SET(a, b, c, d, k, s, Ti)                                              \
+        -:  316:	t = (a) + G(b, c, d) + X[k] + (Ti);                                        \
+        -:  317:	(a) = ROTATE_LEFT(t, s) + (b)
+        -:  318:
+        -:  319:	/* Do the following 16 operations. */
+    #####:  320:	SET(a, b, c, d, 1, 5, T17);
+    #####:  321:	SET(d, a, b, c, 6, 9, T18);
+    #####:  322:	SET(c, d, a, b, 11, 14, T19);
+    #####:  323:	SET(b, c, d, a, 0, 20, T20);
+    #####:  324:	SET(a, b, c, d, 5, 5, T21);
+    #####:  325:	SET(d, a, b, c, 10, 9, T22);
+    #####:  326:	SET(c, d, a, b, 15, 14, T23);
+    #####:  327:	SET(b, c, d, a, 4, 20, T24);
+    #####:  328:	SET(a, b, c, d, 9, 5, T25);
+    #####:  329:	SET(d, a, b, c, 14, 9, T26);
+    #####:  330:	SET(c, d, a, b, 3, 14, T27);
+    #####:  331:	SET(b, c, d, a, 8, 20, T28);
+    #####:  332:	SET(a, b, c, d, 13, 5, T29);
+    #####:  333:	SET(d, a, b, c, 2, 9, T30);
+    #####:  334:	SET(c, d, a, b, 7, 14, T31);
+    #####:  335:	SET(b, c, d, a, 12, 20, T32);
+        -:  336:#undef SET
+        -:  337:
+        -:  338:/* Round 3. */
+        -:  339:/* Let [abcd k s t] denote the operation
+        -:  340:	 a = b + ((a + H(b,c,d) + X[k] + T[i]) <<< s). */
+        -:  341:#define H(x, y, z) ((x) ^ (y) ^ (z))
+        -:  342:#define SET(a, b, c, d, k, s, Ti)                                              \
+        -:  343:	t = (a) + H(b, c, d) + X[k] + (Ti);                                        \
+        -:  344:	(a) = ROTATE_LEFT(t, s) + b
+        -:  345:
+        -:  346:	/* Do the following 16 operations. */
+    #####:  347:	SET(a, b, c, d, 5, 4, T33);
+    #####:  348:	SET(d, a, b, c, 8, 11, T34);
+    #####:  349:	SET(c, d, a, b, 11, 16, T35);
+    #####:  350:	SET(b, c, d, a, 14, 23, T36);
+    #####:  351:	SET(a, b, c, d, 1, 4, T37);
+    #####:  352:	SET(d, a, b, c, 4, 11, T38);
+    #####:  353:	SET(c, d, a, b, 7, 16, T39);
+    #####:  354:	SET(b, c, d, a, 10, 23, T40);
+    #####:  355:	SET(a, b, c, d, 13, 4, T41);
+    #####:  356:	SET(d, a, b, c, 0, 11, T42);
+    #####:  357:	SET(c, d, a, b, 3, 16, T43);
+    #####:  358:	SET(b, c, d, a, 6, 23, T44);
+    #####:  359:	SET(a, b, c, d, 9, 4, T45);
+    #####:  360:	SET(d, a, b, c, 12, 11, T46);
+    #####:  361:	SET(c, d, a, b, 15, 16, T47);
+    #####:  362:	SET(b, c, d, a, 2, 23, T48);
+        -:  363:#undef SET
+        -:  364:
+        -:  365:/* Round 4. */
+        -:  366:/* Let [abcd k s t] denote the operation
+        -:  367:	 a = b + ((a + I(b,c,d) + X[k] + T[i]) <<< s). */
+        -:  368:#define I(x, y, z) ((y) ^ ((x) | ~(z)))
+        -:  369:#define SET(a, b, c, d, k, s, Ti)                                              \
+        -:  370:	t = (a) + I(b, c, d) + X[k] + (Ti);                                        \
+        -:  371:	(a) = ROTATE_LEFT(t, s) + (b)
+        -:  372:
+        -:  373:	/* Do the following 16 operations. */
+    #####:  374:	SET(a, b, c, d, 0, 6, T49);
+    #####:  375:	SET(d, a, b, c, 7, 10, T50);
+    #####:  376:	SET(c, d, a, b, 14, 15, T51);
+    #####:  377:	SET(b, c, d, a, 5, 21, T52);
+    #####:  378:	SET(a, b, c, d, 12, 6, T53);
+    #####:  379:	SET(d, a, b, c, 3, 10, T54);
+    #####:  380:	SET(c, d, a, b, 10, 15, T55);
+    #####:  381:	SET(b, c, d, a, 1, 21, T56);
+    #####:  382:	SET(a, b, c, d, 8, 6, T57);
+    #####:  383:	SET(d, a, b, c, 15, 10, T58);
+    #####:  384:	SET(c, d, a, b, 6, 15, T59);
+    #####:  385:	SET(b, c, d, a, 13, 21, T60);
+    #####:  386:	SET(a, b, c, d, 4, 6, T61);
+    #####:  387:	SET(d, a, b, c, 11, 10, T62);
+    #####:  388:	SET(c, d, a, b, 2, 15, T63);
+    #####:  389:	SET(b, c, d, a, 9, 21, T64);
+        -:  390:#undef SET
+        -:  391:
+        -:  392:	/* Then perform the following additions. (That is increment each
+        -:  393:	   of the four registers by the value it had before this block
+        -:  394:	   was started.) */
+    #####:  395:	pms->abcd[0] += a;
+    #####:  396:	pms->abcd[1] += b;
+    #####:  397:	pms->abcd[2] += c;
+    #####:  398:	pms->abcd[3] += d;
+    #####:  399:}
+        -:  400:
+        -:  401:MD5_STATIC void
+function md5_init called 0 returned 0% blocks executed 0%
+    #####:  402:md5_init(md5_state_t *pms)
+        -:  403:{
+    #####:  404:	pms->count[0] = pms->count[1] = 0;
+    #####:  405:	pms->abcd[0] = 0x67452301;
+    #####:  406:	pms->abcd[1] = /*0xefcdab89*/ T_MASK ^ 0x10325476;
+    #####:  407:	pms->abcd[2] = /*0x98badcfe*/ T_MASK ^ 0x67452301;
+    #####:  408:	pms->abcd[3] = 0x10325476;
+    #####:  409:}
+        -:  410:
+        -:  411:MD5_STATIC void
+function md5_append called 0 returned 0% blocks executed 0%
+    #####:  412:md5_append(md5_state_t *pms, const md5_byte_t *data, size_t nbytes)
+        -:  413:{
+    #####:  414:	const md5_byte_t *p = data;
+    #####:  415:	size_t left = nbytes;
+    #####:  416:	size_t offset = (pms->count[0] >> 3) & 63;
+    #####:  417:	md5_word_t nbits = (md5_word_t)(nbytes << 3);
+        -:  418:
+    #####:  419:	if (nbytes <= 0)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  420:		return;
+        -:  421:
+        -:  422:	/* Update the message length. */
+    #####:  423:	pms->count[1] += (md5_word_t)(nbytes >> 29);
+    #####:  424:	pms->count[0] += nbits;
+    #####:  425:	if (pms->count[0] < nbits)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  426:		pms->count[1]++;
+        -:  427:
+        -:  428:	/* Process an initial partial block. */
+    #####:  429:	if (offset) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  430:		size_t copy = (offset + nbytes > 64 ? 64 - offset : nbytes);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+        -:  431:
+    #####:  432:		memcpy(pms->buf + offset, p, copy);
+    #####:  433:		if (offset + copy < 64)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  434:			return;
+    #####:  435:		p += copy;
+    #####:  436:		left -= copy;
+    #####:  437:		md5_process(pms, pms->buf);
+call    0 never executed
+        -:  438:	}
+        -:  439:
+        -:  440:	/* Process full blocks. */
+    #####:  441:	for (; left >= 64; p += 64, left -= 64)
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  442:		md5_process(pms, p);
+call    0 never executed
+        -:  443:
+        -:  444:	/* Process a final partial block. */
+    #####:  445:	if (left)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  446:		memcpy(pms->buf, p, left);
+        -:  447:}
+        -:  448:
+        -:  449:MD5_STATIC void
+function md5_finish called 0 returned 0% blocks executed 0%
+    #####:  450:md5_finish(md5_state_t *pms, md5_byte_t digest[16])
+        -:  451:{
+        -:  452:	static const md5_byte_t pad[64] = {0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        -:  453:	                                   0,    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        -:  454:	                                   0,    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        -:  455:	                                   0,    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        -:  456:	                                   0,    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+        -:  457:	md5_byte_t data[8];
+        -:  458:	int i;
+        -:  459:
+        -:  460:	/* Save the length before padding. */
+    #####:  461:	for (i = 0; i < 8; ++i)
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  462:		data[i] = (md5_byte_t)(pms->count[i >> 2] >> ((i & 3) << 3));
+        -:  463:	/* Pad to 56 bytes mod 64. */
+    #####:  464:	md5_append(pms, pad, ((55 - (pms->count[0] >> 3)) & 63) + 1);
+call    0 never executed
+        -:  465:	/* Append the length. */
+    #####:  466:	md5_append(pms, data, 8);
+call    0 never executed
+    #####:  467:	for (i = 0; i < 16; ++i)
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  468:		digest[i] = (md5_byte_t)(pms->abcd[i >> 2] >> ((i & 3) << 3));
+    #####:  469:}
+        -:  470:
+        -:  471:
+        -:  472:/* End of md5.inl */
