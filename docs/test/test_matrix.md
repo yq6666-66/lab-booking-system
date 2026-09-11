@@ -7,7 +7,7 @@
 
 | # | 测试类型 | 载体 | 用例/脚本 | 状态 | 证据 |
 |---|---------|------|----------|------|------|
-| 1 | **单元测试** | tests/unit.c → build/unit-tests.exe | 23 用例（纯函数/DB 不变量/业务直调/限流纯函数/缓存/迁移） | ✅ 全过 | docs/evidence/unit-tests.txt |
+| 1 | **单元测试** | tests/unit.c → build/unit-tests.exe | 24 用例（纯函数/DB 不变量/业务直调/限流纯函数/缓存/迁移/**边界值**） | ✅ 全过 | docs/evidence/unit-tests.txt |
 | 2 | **集成测试** | tests/integration.py | T01–T31 共 33 项断言组 | ✅ 全过 | docs/evidence/results-full-merge/ |
 | 3 | **系统测试（E2E）** | Playwright 驱动 Chromium | 三轮走查（登录/预约/候补/签到/通知/导出） | ✅ 通过 | docs/evidence/ui-r3/, ui-r5/ |
 | 4 | **验收测试（UAT）** | docs/test/UAT_scenarios.md | 8 个正式验收场景 | ✅ 脚本就绪 | 本文档 |

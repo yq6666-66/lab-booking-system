@@ -367,6 +367,48 @@ static void test_capacity_fill_and_promotion(void){
  TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
  TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
 }
+/* -- r9 边界值扩展：编号/分页/容量极值与容量=1 单席流转 */
+static void test_boundary_extremes(void){
+ Id v=0;
+ /* parse_id：18 位长度上限内取极值，超长/非法形态必须拒绝 */
+ TEST_ASSERT_TRUE(parse_id("999999999999999999",&v));TEST_ASSERT_EQUAL_INT64(999999999999999999LL,v);
+ TEST_ASSERT_TRUE(parse_id("100000000000000000",&v));TEST_ASSERT_EQUAL_INT64(100000000000000000LL,v);
+ TEST_ASSERT_FALSE(parse_id("9223372036854775807",&v)); /* 19 位超长（长度门限先于溢出检查） */
+ TEST_ASSERT_FALSE(parse_id("18446744073709551615",&v));
+ TEST_ASSERT_FALSE(parse_id("-1",&v));
+ TEST_ASSERT_FALSE(parse_id("1.5",&v));
+ TEST_ASSERT_FALSE(parse_id("+1",&v));
+ /* page_arg：区间端点含 min==max 退化区间 */
+ TEST_ASSERT_EQUAL_INT(200,page_arg("200",1,1,200));
+ TEST_ASSERT_EQUAL_INT(1,page_arg("1",1,1,200));
+ TEST_ASSERT_EQUAL_INT(-1,page_arg("201",1,1,200));
+ TEST_ASSERT_EQUAL_INT(-1,page_arg("0",1,1,200));
+ TEST_ASSERT_EQUAL_INT(1,page_arg("1",5,1,1));
+ TEST_ASSERT_EQUAL_INT(-1,page_arg("2",5,1,1));
+ /* capacity CHECK 约束端点：0 与 201 必须拒绝，1 与 200 必须接受 */
+ Id lab=db_num(&db,"SELECT id FROM labs ORDER BY id LIMIT 1","");
+ Id t=now_sec()/3600*3600+95*86400;
+ TEST_ASSERT_FALSE(db_run(&db,"INSERT INTO slots(lab_id,start_at,end_at,capacity) VALUES(?,?,?,0)","iii",lab,t,t+3600));db.error=0;
+ TEST_ASSERT_FALSE(db_run(&db,"INSERT INTO slots(lab_id,start_at,end_at,capacity) VALUES(?,?,?,201)","iii",lab,t+86400,t+86400+3600));db.error=0;
+ TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO slots(lab_id,start_at,end_at,capacity) VALUES(?,?,?,1)","iii",lab,t+2*86400,t+2*86400+3600));
+ TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO slots(lab_id,start_at,end_at,capacity) VALUES(?,?,?,200)","iii",lab,t+3*86400,t+3*86400+3600));
+ TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT capacity FROM slots WHERE lab_id=? AND start_at=?","ii",lab,t+2*86400));
+ TEST_ASSERT_EQUAL_INT64(200,db_num(&db,"SELECT capacity FROM slots WHERE lab_id=? AND start_at=?","ii",lab,t+3*86400));
+ /* capacity=1 单席流转：占席→候补→取消→FIFO 补位→队列空后不再补位 */
+ Id s1=db_num(&db,"SELECT id FROM slots WHERE lab_id=? AND start_at=?","ii",lab,t+2*86400);
+ User b1=make_user("user01"),b2=make_user("user02"),b3=make_user("user03");
+ char k[4][40];for(int i=0;i<4;i++)new_key(k[i]);
+ Result r=booking(&db,NULL,&b1,"reserve",s1,k[0]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+ r=booking(&db,NULL,&b2,"reserve",s1,k[1]);TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("SLOT_FULL",rcode(r));drop(r);
+ r=booking(&db,NULL,&b2,"wait",s1,k[2]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r); /* 满员后显式入队 */
+ Id w2=db_num(&db,"SELECT id FROM waitlist WHERE user_id=? AND slot_id=? AND status='WAITING'","ii",b2.id,s1);
+ TEST_ASSERT_TRUE(w2>0);
+ Id r1=db_num(&db,"SELECT id FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",s1,b1.id);
+ r=booking(&db,NULL,&b1,"cancel",r1,k[3]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+ TEST_ASSERT_EQUAL_STRING("PROMOTED",wait_status(w2));
+ TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s1));
+ TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND source='WAITLIST' AND status='CONFIRMED'","i",s1));
+}
 /* -- r6 语句缓存与线程连接复用 */
 static void test_statement_watchdog(void){
  /* 单测构建以 -DWATCHDOG_MS=50 收紧阈值：无限递归 CTE 在 50ms 后被打断（SQLITE_INTERRUPT → 503 语义） */
@@ -460,6 +502,7 @@ int main(void){
  RUN_TEST(test_bucket_allow);
  RUN_TEST(test_login_guard);
  RUN_TEST(test_capacity_fill_and_promotion);
+ RUN_TEST(test_boundary_extremes);
  RUN_TEST(test_v2_to_v3_migration);
  RUN_TEST(test_stmt_cache_and_eviction);
  RUN_TEST(test_thread_connection_reuse);
