@@ -7,11 +7,11 @@
 
 - POST /api/login `{username,password}` -> data `{user:{id,username,role},csrf_token}`，设置cookie。
 - GET /api/me -> 同上。POST /api/logout -> OK。
-- GET /api/health -> data `{status:"ok"}`。
+- GET /api/health -> data `{status:"ok",version,uptime_s}`。version 为版本号字符串，uptime_s 为进程启动以来的秒数。
 - GET /api/labs -> data `{labs:[{id,name,location,description,enabled}]}`。
-- GET /api/slots?lab_id=1&date=YYYY-MM-DD -> data `{slots:[{id,lab_id,start_at,end_at,enabled,lab_enabled,occupied,waiting_count,my_reservation_id,my_checked_in_at,my_waitlist_id}],checkin_window}`。my_reservation_id/my_checked_in_at/my_waitlist_id 可为 null；checkin_window 为签到窗口秒数，页面据此判断何时显示签到按钮。
-- GET /api/me/records?page=&page_size= -> data `{reservations:[{id,slot_id,lab_name,start_at,end_at,status,source,cancel_reason,checked_in_at}],waitlist:[{id,slot_id,lab_name,start_at,end_at,status,position}],events:[],page,page_size,has_more}`。page_size 取值 1..200（默认 20），has_more 表示是否还有下一页。
-- GET /api/admin/records?date=YYYY-MM-DD&page=&page_size= -> 同上但所有用户，记录附username，events含actor/action/entity_id/created_at/request_id。
+- GET /api/slots?lab_id=1&date=YYYY-MM-DD -> data `{slots:[{id,lab_id,start_at,end_at,enabled,capacity,lab_enabled,confirmed_count,waiting_count,my_reservation_id,my_checked_in_at,my_waitlist_id}],checkin_window}`。capacity 为该场次席位数，confirmed_count 为已确认预约数；my_reservation_id/my_checked_in_at/my_waitlist_id 可为 null；checkin_window 为签到窗口秒数，页面据此判断何时显示签到按钮。
+- GET /api/me/records?page=&page_size= -> data `{reservations:[{id,slot_id,lab_name,username,start_at,end_at,status,source,cancel_reason,checked_in_at}],waitlist:[{id,slot_id,lab_name,username,start_at,end_at,status,position}],events:[],page,page_size,has_more}`。page_size 取值 1..200（默认 20），has_more 表示是否还有下一页。
+- GET /api/admin/records?date=YYYY-MM-DD&page=&page_size= -> 同上但所有用户，记录附username，events含id/actor/action/entity_id/created_at/request_id。
 - GET /api/admin/stats?start_date=&end_date=（最多31个日期）-> data `{stats:[{date,slots,confirmed,cancelled,no_show,checked_in,waiting}],totals:{slots,confirmed,cancelled,no_show,checked_in,waiting}}`。按北京日聚合；仅返回有场次的日期。slots为开放场次数；confirmed为该日有效预约数；cancelled为其中用户主动取消数；no_show为签到超时释放数；checked_in为已签到数；waiting为有效候补人数。
 - GET /api/admin/stats/export?start_date=&end_date= -> data `{filename,content}`（最多31天）。content 为带 BOM 的 CSV 文本（日期/开放场次/有效预约/已取消/已爽约/已签到/候补人数，末行为合计），由页面下载为 .csv 文件。
 - POST /api/reservations `{slot_id,request_id}` -> data `{reservation_id}`。

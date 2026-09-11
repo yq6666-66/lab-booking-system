@@ -78,7 +78,7 @@ static Result login(DB *d,const cJSON *body,char cookie[256]){
  User u={0};parse_id(jstr(r,"id"),&u.id);u.admin=!strcmp(jstr(r,"role"),"ADMIN");snprintf(u.username,sizeof u.username,"%s",name);cJSON_Delete(r);
  char token[65],hash[65];random_hex(token);hash_text(token,hash);random_hex(u.csrf);
  db_run(d,"DELETE FROM sessions WHERE expires_at<?","i",now_sec());
- if(!db_run(d,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES(?,?,?,?)","sisi",hash,u.id,u.csrf,now_sec()+7200))return db_failure(d);
+ if(!db_run(d,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,created_at) VALUES(?,?,?,?,?)","sisii",hash,u.id,u.csrf,now_sec()+7200,now_sec()))return db_failure(d);
  snprintf(cookie,256,"Set-Cookie: lab_session=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=7200\r\n",token);sodium_memzero(token,sizeof token);
  metrics_inc_login();
  return result(200,"OK","登录成功",user_data(&u));

@@ -1,16 +1,12 @@
 {
-  "timestamp_utc": "2026-09-11T15:14:35.912236+00:00",
+  "timestamp_utc": "2026-09-11T18:56:46.447599+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\r9-wt-wb\\build\\lab-booking.exe",
   "endpoints_total": 25,
   "endpoints_passed": 25,
   "error_cases_total": 14,
   "error_cases_passed": 14,
   "all_passed": true,
-  "contract_drift": [
-    "GET /api/admin/records?date={today}&page=1&page_size=5.data.events[]: 实现多返回契约未记录的字段 ['id']",
-    "GET /api/health.data: 实现多返回契约未记录的字段 ['uptime_s', 'version']",
-    "GET /api/me/records?page=1&page_size=5.data.reservations[]: 实现多返回契约未记录的字段 ['username']"
-  ],
+  "contract_drift": [],
   "results": [
     {
       "name": "GET /api/health",

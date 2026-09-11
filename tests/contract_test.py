@@ -111,12 +111,12 @@ def arr(spec): return ("array", spec)
 USER_OBJ = {"id": T_ID, "username": T_STR, "role": T_STR}
 LOGIN_DATA = {"user": USER_OBJ, "csrf_token": T_STR}
 LAB_OBJ = {"id": T_ID, "name": T_STR, "location": T_STR, "description": T_STR, "enabled": T_BOOL}
-SLOT_OBJ = {"id": T_ID, "lab_id": T_ID, "start_at": T_INT, "end_at": T_INT, "enabled": T_BOOL, "lab_enabled": T_BOOL,
-            "occupied": T_BOOL, "waiting_count": T_INT, "my_reservation_id": nb(T_ID),
+SLOT_OBJ = {"id": T_ID, "lab_id": T_ID, "start_at": T_INT, "end_at": T_INT, "enabled": T_BOOL, "capacity": T_INT, "lab_enabled": T_BOOL,
+            "confirmed_count": T_INT, "waiting_count": T_INT, "my_reservation_id": nb(T_ID),
             "my_checked_in_at": nb(T_INT), "my_waitlist_id": nb(T_ID)}
-RES_ROW = {"id": T_ID, "slot_id": T_ID, "lab_name": T_STR, "start_at": T_INT, "end_at": T_INT,
+RES_ROW = {"id": T_ID, "slot_id": T_ID, "lab_name": T_STR, "username": T_STR, "start_at": T_INT, "end_at": T_INT,
            "status": T_STR, "source": T_STR, "cancel_reason": nb(T_STR), "checked_in_at": nb(T_INT)}
-WAIT_ROW = {"id": T_ID, "slot_id": T_ID, "lab_name": T_STR, "start_at": T_INT, "end_at": T_INT,
+WAIT_ROW = {"id": T_ID, "slot_id": T_ID, "lab_name": T_STR, "username": T_STR, "start_at": T_INT, "end_at": T_INT,
             "status": T_STR, "position": nb(T_INT)}
 NOTIFY_ROW = {"id": T_ID, "kind": T_STR, "title": T_STR, "body": T_STR, "slot_id": nb(T_ID),
               "reservation_id": nb(T_ID), "read_at": nb(T_INT), "created_at": T_INT}
@@ -128,16 +128,16 @@ TOTALS_OBJ = {"slots": T_INT, "confirmed": T_INT, "cancelled": T_INT, "no_show":
 COUNTERS_OBJ = {"requests_total": T_NUM, "ok_2xx": T_NUM, "err_4xx": T_NUM, "err_5xx": T_NUM,
                 "db_busy_503": T_NUM, "logins": T_NUM}
 LATENCY_OBJ = {"count": T_NUM, "sum": T_NUM, "max": T_NUM, "buckets": arr(T_NUM)}
-EVENT_ROW_ADMIN = {"actor": T_STR, "action": T_STR, "entity_id": T_ID, "created_at": T_INT,
+EVENT_ROW_ADMIN = {"id": T_ID, "actor": T_STR, "action": T_STR, "entity_id": T_ID, "created_at": T_INT,
                    "request_id": nb(T_STR)}
 PAGED = {"page": T_INT, "page_size": T_INT, "has_more": T_BOOL}
 ME_RECORDS = {"reservations": arr(RES_ROW), "waitlist": arr(WAIT_ROW), "events": arr({}), **PAGED}
-ADMIN_RECORDS = {"reservations": arr({"username": T_STR, **RES_ROW}), "waitlist": arr({"username": T_STR, **WAIT_ROW}),
+ADMIN_RECORDS = {"reservations": arr(RES_ROW), "waitlist": arr(WAIT_ROW),
                  "events": arr(EVENT_ROW_ADMIN), **PAGED}
 
 # 路径 -> (方法, data schema)；{id} 为占位符，运行时替换
 SCHEMAS = [
-    ("GET",  "/api/health",                    {"status": T_STR}),
+    ("GET",  "/api/health",                    {"status": T_STR, "version": T_STR, "uptime_s": T_NUM}),
     ("POST", "/api/login",                     LOGIN_DATA),
     ("GET",  "/api/me",                        LOGIN_DATA),
     ("POST", "/api/logout",                    "empty-or-obj"),
