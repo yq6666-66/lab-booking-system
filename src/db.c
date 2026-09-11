@@ -80,7 +80,10 @@ int db_open(DB *d,const char *p){
  if(!d->cache){sqlite3_close(d->sql);d->sql=NULL;d->error=SQLITE_NOMEM;return 0;}
  sqlite3_extended_result_codes(d->sql,1);sqlite3_busy_timeout(d->sql,3000);
  sqlite3_progress_handler(d->sql,200000,prog_cb,0); /* 语句看门狗：超长查询按 20 万 VM 步打断 */
- db_run(d,"PRAGMA foreign_keys=ON","");db_run(d,"PRAGMA synchronous=FULL","");return !d->error;
+ db_run(d,"PRAGMA foreign_keys=ON","");db_run(d,"PRAGMA synchronous=FULL","");
+ db_run(d,"PRAGMA mmap_size=268435456","");   /* 256MB 内存映射读取 */
+ db_run(d,"PRAGMA wal_autocheckpoint=512",""); /* WAL 512 页（约 2MB）自动检查点 */
+ db_run(d,"PRAGMA cache_size=-2000","");       /* 2MB 页缓存 */return !d->error;
 }
 void db_close(DB *d){if(d->sql){if(!sqlite3_get_autocommit(d->sql))sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cache_clear(d);sqlite3_close(d->sql);}d->sql=NULL;d->cache=NULL;}
 int db_run(DB *d,const char *sql,const char *fmt,...){
