@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-09-12T15:11:31.478776+00:00",
+  "timestamp_utc": "2026-09-12T16:22:19.621783+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
   "checks_total": 8,
   "checks_passed": 8,
@@ -23,7 +23,7 @@
     {
       "name": "取消落库（cancelled_at/cancel_reason=USER + CANCEL 事件）",
       "passed": true,
-      "detail": "reservation=1 CANCELLED/USER cancelled_at=1789225890"
+      "detail": "reservation=1 CANCELLED/USER cancelled_at=1789230139"
     },
     {
       "name": "补位落库（PROMOTED + 新行 WAITLIST + PROMOTE 事件）",
@@ -38,7 +38,7 @@
     {
       "name": "签到落库（checked_in_at 与接口一致 + CHECKIN 事件）",
       "passed": true,
-      "detail": "reservation=3 checked_in_at=1789225891"
+      "detail": "reservation=3 checked_in_at=1789230139"
     },
     {
       "name": "改密落库（哈希轮换 + 旧会话失效 + PASSWORD_CHANGE 事件）",

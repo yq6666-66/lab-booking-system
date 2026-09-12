@@ -17,3 +17,6 @@
 #password-form{display:flex;flex-direction:column;gap:14px}
 #password-form button{align-self:flex-start}
 @media(max-width:600px){#notify-btn{padding:8px 10px;font-size:12px}.notify-actions{flex-direction:column;align-items:stretch}.pager{justify-content:space-between}}
+.checkin-lab{margin:0;font-weight:700;font-size:14px}
+.tag.late{background:#fdeae6;color:#9a3528}
+.notify-item .tag{margin-bottom:8px}

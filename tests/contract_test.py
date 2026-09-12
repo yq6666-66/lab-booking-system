@@ -112,7 +112,7 @@ USER_OBJ = {"id": T_ID, "username": T_STR, "role": T_STR}
 LOGIN_DATA = {"user": USER_OBJ, "csrf_token": T_STR}
 LAB_OBJ = {"id": T_ID, "name": T_STR, "location": T_STR, "description": T_STR, "enabled": T_BOOL}
 SLOT_OBJ = {"id": T_ID, "lab_id": T_ID, "start_at": T_INT, "end_at": T_INT, "enabled": T_BOOL, "lab_enabled": T_BOOL,
-            "occupied": T_BOOL, "waiting_count": T_INT, "my_reservation_id": nb(T_ID),
+            "capacity": T_INT, "confirmed_count": T_INT, "waiting_count": T_INT, "my_reservation_id": nb(T_ID),
             "my_checked_in_at": nb(T_INT), "my_waitlist_id": nb(T_ID)}
 RES_ROW = {"id": T_ID, "slot_id": T_ID, "lab_name": T_STR, "start_at": T_INT, "end_at": T_INT,
            "status": T_STR, "source": T_STR, "cancel_reason": nb(T_STR), "checked_in_at": nb(T_INT)}

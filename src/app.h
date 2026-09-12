@@ -41,6 +41,8 @@ Result stats(DB *db,Id start,Id end);
 Result stats_export(DB *db,Id start,Id end);
 Result notifications(DB *db,const User *u,int unread,int page,int size);
 Result notifications_read(DB *db,const User *u,const cJSON *body,const char *request_id);
+Result slot_update(DB *db,const User *u,Id slot,const cJSON *body);
+Result admin_notify(DB *db,const User *u,const cJSON *body);
 Result sessions_list(DB *db,const User *u,const char *current_hash);
 Result session_revoke(DB *db,const User *u,const char *token_hash,const char *request_id);
 Result password_change(DB *db,const User *u,const char *old_password,const char *new_password,const char *current_hash,const char *request_id);

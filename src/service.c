@@ -242,6 +242,72 @@ Result notifications_read(DB *d,const User *u,const cJSON *body,const char *key)
  if(!db_run(d,"COMMIT",""))return db_failure(d);
  cJSON *j=cJSON_CreateObject();cJSON_AddNumberToObject(j,"updated",(double)changed);return result(200,"OK","已标记为已读",j);
 }
+/* 管理员修改已发布场次（容量/启停）；容量校验与更新同处一个立即事务，避免与预约并发竞争。 */
+Result slot_update(DB *d,const User *u,Id target,const cJSON *body){
+ cJSON *cap=cJSON_GetObjectItemCaseSensitive(body,"capacity"),*en=cJSON_GetObjectItemCaseSensitive(body,"enabled");
+ int has_cap=cap&&(cJSON_IsString(cap)||cJSON_IsNumber(cap))?1:0,has_en=cJSON_IsBool(en)?1:0;
+ if((cap&&!has_cap)||(en&&!has_en))return result(400,"INVALID_INPUT","capacity 需为数字或字符串，enabled 需为布尔值",NULL);
+ if(!has_cap&&!has_en)return result(400,"INVALID_INPUT","请至少提供 capacity 或 enabled",NULL);
+ Id capacity=0;int enabled=0;
+ if(has_cap){capacity=1;
+  if(cJSON_IsString(cap)&&!parse_id(cap->valuestring,&capacity))return result(400,"INVALID_INPUT","capacity 不合法",NULL);
+  if(cJSON_IsNumber(cap))capacity=(Id)cap->valuedouble;
+  if(capacity<1||capacity>200)return result(400,"INVALID_INPUT","容量需为 1..200 的整数",NULL);}
+ if(has_en)enabled=cJSON_IsTrue(en)?1:0;
+ if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
+ if(!db_num(d,"SELECT count(*) FROM slots WHERE id=?","i",target)){
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+  db_run(d,"ROLLBACK","");return result(404,"NOT_FOUND","场次不存在",NULL);}
+ if(has_cap){Id taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",target);
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+  if(capacity<taken){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return result(409,"STATE_CONFLICT","容量不能小于已确认预约数",NULL);}}
+ int ok=has_cap&&has_en?db_run(d,"UPDATE slots SET capacity=?,enabled=? WHERE id=?","iii",capacity,(Id)enabled,target):
+  has_cap?db_run(d,"UPDATE slots SET capacity=? WHERE id=?","ii",capacity,target):
+  db_run(d,"UPDATE slots SET enabled=? WHERE id=?","ii",(Id)enabled,target);
+ if(!ok||d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+ cJSON *row=db_first(d,"SELECT capacity,enabled FROM slots WHERE id=?","i",target);
+ if(!row){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+ jid(row,"slot_id",target);
+ event(d,u->id,"SLOT_UPDATE",target,NULL);
+ if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cJSON_Delete(row);return db_failure(d);}
+ if(!db_run(d,"COMMIT","")){cJSON_Delete(row);return db_failure(d);}
+ return result(200,"OK","场次已更新",row);
+}
+/* 管理员发布通知（公告）：全量用户或指定用户，kind='NOTICE'，slot/reservation 置空。 */
+Result admin_notify(DB *d,const User *u,const cJSON *body){
+ const char *title=jstr(body,"title"),*text=jstr(body,"body"),*name=jstr(body,"username");
+ cJSON *all=cJSON_GetObjectItemCaseSensitive(body,"all");
+ int to_all=cJSON_IsTrue(all)?1:0,has_name=name&&*name?1:0;
+ if(all&&!cJSON_IsBool(all))return result(400,"INVALID_INPUT","all 需为布尔值",NULL);
+ if(to_all==has_name)return result(400,"INVALID_INPUT","all 与 username 必须二选一",NULL);
+ if(!title||!*title||strlen(title)>120)return result(400,"INVALID_INPUT","标题需为 1..120 个字符",NULL);
+ if(text&&strlen(text)>500)return result(400,"INVALID_INPUT","正文最多 500 个字符",NULL);
+ if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
+ Id sent=0;
+ if(to_all){
+  cJSON *users=db_rows(d,"SELECT id FROM users WHERE enabled=1","");
+  if(!users){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+  cJSON *it;cJSON_ArrayForEach(it,users){
+   Id uid=0;if(!parse_id(jstr(it,"id"),&uid))continue;
+   db_run(d,"INSERT INTO notifications(user_id,kind,title,body,slot_id,reservation_id,created_at) VALUES(?,?,?,?,NULL,NULL,?)","isssi",uid,"NOTICE",title,text?text:"",now_sec());
+   if(d->error){cJSON_Delete(users);sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+   sent++;
+  }
+  cJSON_Delete(users);
+ }else{
+  cJSON *row=db_first(d,"SELECT id FROM users WHERE username=? AND enabled=1","s",name);
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+  if(!row){db_run(d,"ROLLBACK","");return result(404,"NOT_FOUND","用户不存在",NULL);}
+  Id uid=0;parse_id(jstr(row,"id"),&uid);cJSON_Delete(row);
+  db_run(d,"INSERT INTO notifications(user_id,kind,title,body,slot_id,reservation_id,created_at) VALUES(?,?,?,?,NULL,NULL,?)","isssi",uid,"NOTICE",title,text?text:"",now_sec());
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+  sent=1;
+ }
+ event(d,u->id,"NOTIFY",0,NULL);
+ if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+ if(!db_run(d,"COMMIT",""))return db_failure(d);
+ cJSON *j=cJSON_CreateObject();cJSON_AddNumberToObject(j,"sent",(double)sent);return result(200,"OK","通知发布完成",j);
+}
 Result sessions_list(DB *d,const User *u,const char *current){
  cJSON *rows=db_rows(d,"SELECT token_hash,created_at,expires_at FROM sessions WHERE user_id=? AND expires_at>? ORDER BY expires_at DESC","ii",u->id,now_sec());
  if(!rows)return db_failure(d);

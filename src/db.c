@@ -143,6 +143,21 @@ static int db_migrate(DB *d){
   if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
   if(!db_run(d,"COMMIT",""))return 0;
  }
+ /* v3→v4：notifications.kind 增加 'NOTICE'（管理员公告）；CHECK 无法原地修改，检测到旧约束时重建表。 */
+ cJSON *nt=db_first(d,"SELECT sql FROM sqlite_master WHERE type='table' AND name='notifications'","");
+ if(!nt)return d->error?0:1;
+ const char *nddl=jstr(nt,"sql");
+ if(nddl&&!strstr(nddl,"'NOTICE'")){
+  if(!db_run(d,"BEGIN IMMEDIATE","")){cJSON_Delete(nt);return 0;}
+  db_run(d,"CREATE TABLE notifications_new(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN('PROMOTED','NO_SHOW','NOTICE')),title TEXT NOT NULL,body TEXT NOT NULL,slot_id INTEGER REFERENCES slots(id),reservation_id INTEGER REFERENCES reservations(id),read_at INTEGER,created_at INTEGER NOT NULL)","");
+  db_run(d,"INSERT INTO notifications_new(id,user_id,kind,title,body,slot_id,reservation_id,read_at,created_at) SELECT id,user_id,kind,title,body,slot_id,reservation_id,read_at,created_at FROM notifications","");
+  db_run(d,"DROP TABLE notifications","");
+  db_run(d,"ALTER TABLE notifications_new RENAME TO notifications","");
+  db_run(d,"CREATE INDEX IF NOT EXISTS notify_user ON notifications(user_id,id)","");
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cJSON_Delete(nt);return 0;}
+  if(!db_run(d,"COMMIT","")){cJSON_Delete(nt);return 0;}
+ }
+ cJSON_Delete(nt);
  return 1;
 }
 int db_init(DB *d){
@@ -160,7 +175,7 @@ int db_init(DB *d){
  "CREATE INDEX IF NOT EXISTS wait_order ON waitlist(slot_id,status,id);"
  "CREATE TABLE IF NOT EXISTS request_receipts(user_id INTEGER NOT NULL REFERENCES users(id),request_id TEXT NOT NULL,action TEXT NOT NULL,payload_digest TEXT NOT NULL,http_status INTEGER NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(user_id,request_id));"
  "CREATE TABLE IF NOT EXISTS operation_events(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL REFERENCES users(id),action TEXT NOT NULL,entity_id INTEGER NOT NULL,request_id TEXT,created_at INTEGER NOT NULL);"
- "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN('PROMOTED','NO_SHOW')),title TEXT NOT NULL,body TEXT NOT NULL,slot_id INTEGER REFERENCES slots(id),reservation_id INTEGER REFERENCES reservations(id),read_at INTEGER,created_at INTEGER NOT NULL);"
+ "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN('PROMOTED','NO_SHOW','NOTICE')),title TEXT NOT NULL,body TEXT NOT NULL,slot_id INTEGER REFERENCES slots(id),reservation_id INTEGER REFERENCES reservations(id),read_at INTEGER,created_at INTEGER NOT NULL);"
  "CREATE INDEX IF NOT EXISTS notify_user ON notifications(user_id,id);"
  "PRAGMA user_version=3;COMMIT;";
  cJSON *wal=db_first(d,"PRAGMA journal_mode=WAL","");int ok=wal&&jstr(wal,"journal_mode")&&!strcmp(jstr(wal,"journal_mode"),"wal");cJSON_Delete(wal);if(!ok)return 0;
