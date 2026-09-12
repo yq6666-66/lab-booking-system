@@ -99,9 +99,10 @@ jobs:
       - name: 运行 ASan 单元测试
         shell: bash
         run: |
-          # DLL 搜索：libsodium 与 ASan 动态运行库拷到 exe 同目录（Windows 先查 exe 目录）
+          # ASan 动态运行库及其依赖 + libsodium 拷到 exe 同目录；
+          # 用 PowerShell 启动（Git Bash 的 MSYS 路径映射会干扰 DLL 加载）
+          TC=/c/llvm-mingw/llvm-mingw-*/x86_64-w64-mingw32/bin
           cp vendor/sodium/libsodium-win64/bin/libsodium-26.dll build/
-          ASAN_DLL=$(find /c/llvm-mingw -name 'libclang_rt.asan_dynamic-x86_64.dll' | head -1)
-          echo "asan runtime: $ASAN_DLL"
-          cp "$ASAN_DLL" build/
-          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1 ./build/asan-unit.exe
+          cp /c/llvm-mingw/llvm-mingw-*/bin/libclang_rt.asan_dynamic-x86_64.dll build/
+          cp $TC/libwinpthread-1.dll $TC/libc++.dll $TC/libunwind.dll build/
+          powershell -NoProfile -Command "\$env:ASAN_OPTIONS='detect_leaks=0'; \$env:UBSAN_OPTIONS='print_stacktrace=1'; & '.\\build\\asan-unit.exe'; exit \$LASTEXITCODE"
