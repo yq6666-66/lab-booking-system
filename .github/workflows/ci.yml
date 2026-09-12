@@ -99,4 +99,9 @@ jobs:
       - name: 运行 ASan 单元测试
         shell: bash
         run: |
+          # DLL 搜索：libsodium 与 ASan 动态运行库拷到 exe 同目录（Windows 先查 exe 目录）
+          cp vendor/sodium/libsodium-win64/bin/libsodium-26.dll build/
+          ASAN_DLL=$(find /c/llvm-mingw -name 'libclang_rt.asan_dynamic-x86_64.dll' | head -1)
+          echo "asan runtime: $ASAN_DLL"
+          cp "$ASAN_DLL" build/
           ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1 ./build/asan-unit.exe
