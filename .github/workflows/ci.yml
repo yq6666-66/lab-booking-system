@@ -80,6 +80,7 @@ jobs:
       - name: 构建 ASan 单元测试
         shell: msys2 {0}
         run: |
+          mkdir -p build
           gcc -std=c11 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
             -DNO_SSL -DNO_CGI -D_GNU_SOURCE -DSQLITE_THREADSAFE=1 -DWATCHDOG_MS=50 \
             -Isrc -Ivendor/civetweb/include -Ivendor/cjson -Ivendor/sqlite -Ivendor/sodium/libsodium-win64/include -Ivendor/unity/src \
