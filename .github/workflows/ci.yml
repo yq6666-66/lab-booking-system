@@ -95,7 +95,7 @@ jobs:
             -Isrc -Ivendor/civetweb/include -Ivendor/cjson -Ivendor/sqlite -Ivendor/sodium/libsodium-win64/include -Ivendor/unity/src \
             vendor/unity/src/unity.c src/util.c src/db.c src/service.c src/ratelimit.c src/log.c tests/unit.c \
             vendor/civetweb/src/civetweb.c vendor/cjson/cJSON.c vendor/sqlite/sqlite3.c \
-            -Lvendor/sodium/libsodium-win64/lib -lsodium -lws2_32 -ladvapi32 -o build/asan-unit.exe
+            -Lvendor/sodium/libsodium-win64/lib -lsodium -lws2_32 -ladvapi32 -lwinpthread -o build/asan-unit.exe
       - name: 运行 ASan 单元测试
         shell: bash
         run: |
