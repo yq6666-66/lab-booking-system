@@ -1,11 +1,11 @@
 {
-  "timestamp_utc": "2026-09-11T15:14:35.912236+00:00",
-  "executable": "C:\\Users\\admin\\Desktop\\r9-wt-wb\\build\\lab-booking.exe",
+  "timestamp_utc": "2026-09-12T08:55:07.152501+00:00",
+  "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
   "endpoints_total": 25,
-  "endpoints_passed": 25,
+  "endpoints_passed": 24,
   "error_cases_total": 14,
   "error_cases_passed": 14,
-  "all_passed": true,
+  "all_passed": false,
   "contract_drift": [
     "GET /api/admin/records?date={today}&page=1&page_size=5.data.events[]: 实现多返回契约未记录的字段 ['id']",
     "GET /api/health.data: 实现多返回契约未记录的字段 ['uptime_s', 'version']",
@@ -39,8 +39,8 @@
     },
     {
       "name": "GET /api/slots?lab_id=1&date={today}",
-      "passed": true,
-      "detail": "data 字段 ['checkin_window', 'slots']"
+      "passed": false,
+      "detail": "AssertionError: GET /api/slots?lab_id=1&date={today}.data.slots[0]: 缺少字段 ['occupied']（契约要求 ['enabled', 'end_at', 'id', 'lab_enabled', 'lab_id', 'my_checked_in_at', 'my_reservation_id', 'my_waitlist_id', 'occupied', 'start_at', 'waiting_count']）"
     },
     {
       "name": "GET /api/me/records?page=1&page_size=5",

@@ -394,9 +394,9 @@ static void test_boundary_extremes(void){
  TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO slots(lab_id,start_at,end_at,capacity) VALUES(?,?,?,200)","iii",lab,t+3*86400,t+3*86400+3600));
  TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT capacity FROM slots WHERE lab_id=? AND start_at=?","ii",lab,t+2*86400));
  TEST_ASSERT_EQUAL_INT64(200,db_num(&db,"SELECT capacity FROM slots WHERE lab_id=? AND start_at=?","ii",lab,t+3*86400));
- /* capacity=1 单席流转：占席→候补→取消→FIFO 补位→队列空后不再补位 */
+ /* capacity=1 单席流转：占席→满员拒绝→显式候补→取消→FIFO 补位 */
  Id s1=db_num(&db,"SELECT id FROM slots WHERE lab_id=? AND start_at=?","ii",lab,t+2*86400);
- User b1=make_user("user01"),b2=make_user("user02"),b3=make_user("user03");
+ User b1=make_user("user01"),b2=make_user("user02");
  char k[4][40];for(int i=0;i<4;i++)new_key(k[i]);
  Result r=booking(&db,NULL,&b1,"reserve",s1,k[0]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
  r=booking(&db,NULL,&b2,"reserve",s1,k[1]);TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("SLOT_FULL",rcode(r));drop(r);
