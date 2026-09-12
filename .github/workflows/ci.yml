@@ -76,12 +76,14 @@ jobs:
         with:
           msystem: MINGW64
           update: false
-          install: mingw-w64-x86_64-gcc
+          install: mingw-w64-x86_64-clang mingw-w64-x86_64-compiler-rt mingw-w64-x86_64-lld
       - name: 构建 ASan 单元测试
         shell: msys2 {0}
         run: |
+          # MSYS2 的 gcc 不带 libasan/libubsan 运行库；Windows 上 ASan/UBSan
+          # 由 clang 工具链（compiler-rt）提供，链接经 lld。
           mkdir -p build
-          gcc -std=c11 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
+          clang -std=c11 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fuse-ld=lld \
             -DNO_SSL -DNO_CGI -D_GNU_SOURCE -DSQLITE_THREADSAFE=1 -DWATCHDOG_MS=50 \
             -Isrc -Ivendor/civetweb/include -Ivendor/cjson -Ivendor/sqlite -Ivendor/sodium/libsodium-win64/include -Ivendor/unity/src \
             vendor/unity/src/unity.c src/util.c src/db.c src/service.c src/ratelimit.c src/log.c tests/unit.c \
