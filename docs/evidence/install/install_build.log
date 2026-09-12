@@ -1,0 +1,29 @@
+﻿tests/unit.c:486:test_parse_id:PASS
+tests/unit.c:487:test_uuid_valid:PASS
+tests/unit.c:488:test_date_start:PASS
+tests/unit.c:489:test_date_text_roundtrip:PASS
+tests/unit.c:490:test_hash_and_random:PASS
+tests/unit.c:491:test_result_envelope:PASS
+tests/unit.c:492:test_seed_shape_and_invariants:PASS
+tests/unit.c:493:test_over_capacity_detected:PASS
+tests/unit.c:494:test_wait_guards:PASS
+tests/unit.c:495:test_reserve_conflict_and_alternatives:PASS
+tests/unit.c:496:test_wait_queue_idempotent_reentry:PASS
+tests/unit.c:497:test_stats_totals_match_sql:PASS
+tests/unit.c:498:test_hex_and_page_args:PASS
+tests/unit.c:499:test_checkin_business:PASS
+tests/unit.c:500:test_notify_sessions_and_password:PASS
+tests/unit.c:501:test_db_check_rejects_coexistence:PASS
+tests/unit.c:502:test_bucket_allow:PASS
+tests/unit.c:503:test_login_guard:PASS
+tests/unit.c:504:test_capacity_fill_and_promotion:PASS
+tests/unit.c:505:test_boundary_extremes:PASS
+tests/unit.c:506:test_v2_to_v3_migration:PASS
+tests/unit.c:507:test_stmt_cache_and_eviction:PASS
+tests/unit.c:508:test_thread_connection_reuse:PASS
+tests/unit.c:509:test_statement_watchdog:PASS
+
+-----------------------
+24 Tests 0 Failures 0 Ignored 
+OK
+All builds completed; unit tests passed.

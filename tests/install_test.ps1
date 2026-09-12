@@ -117,11 +117,19 @@ Step 'prepare temp workspace' {
 
 Step 'build from a clean tree' {
   Push-Location $global:InstallWorkDir
+  $prevEAP = $ErrorActionPreference
   try {
+    # gcc 警告走 stderr；PowerShell 5.1 在 EAP=Stop 下捕获子进程 stderr 会升级为
+    # 终止性 NativeCommandError。构建成败只看退出码，这里临时放宽 EAP 再恢复。
+    $ErrorActionPreference = 'Continue'
     $log = & powershell -NoProfile -File (Join-Path $global:InstallWorkDir 'scripts\build.ps1') *>&1
+    $ErrorActionPreference = $prevEAP
     $log | Set-Content -Path (Join-Path $outDir 'install_build.log') -Encoding UTF8
     if ($LASTEXITCODE -ne 0) { throw "build.ps1 exited with $LASTEXITCODE" }
-  } finally { Pop-Location }
+  } finally {
+    $ErrorActionPreference = $prevEAP
+    Pop-Location
+  }
   $exe = Join-Path $global:InstallWorkDir 'build\lab-booking.exe'
   if (-not (Test-Path $exe)) { throw 'lab-booking.exe was not produced' }
   "built $([math]::Round((Get-Item $exe).Length / 1KB, 0)) KB executable"
@@ -130,9 +138,20 @@ Step 'build from a clean tree' {
 Step 'seed and start via start-demo.ps1' {
   Push-Location $global:InstallWorkDir
   try {
-    $log = & powershell -NoProfile -File (Join-Path $global:InstallWorkDir 'scripts\start-demo.ps1') -Password $Password -Port $Port *>&1
-    $log | Set-Content -Path (Join-Path $outDir 'install_start.log') -Encoding UTF8
-    if ($LASTEXITCODE -ne 0) { throw "start-demo.ps1 exited with $LASTEXITCODE" }
+    # 彻底切断句柄继承链：任何捕获管道（& *>&1、Start-Process 重定向、cmd 管道）
+    # 的写句柄都会被 start-demo 里长驻的服务进程继承，导致捕获端 EOF 永不出现。
+    # 解法：ShellExecute 启动子 PS（不继承任何句柄），输出由子 PS 内部 *> 重定向
+    # 到文件；命令体经 -EncodedCommand 传递以兼容中文路径。
+    $outLog = Join-Path $outDir 'install_start.log'
+    $inner = "& '" + (Join-Path $global:InstallWorkDir 'scripts\start-demo.ps1') + "' -Password '" + $Password + "' -Port " + $Port + " *> '" + $outLog + "'; exit `$LASTEXITCODE"
+    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($inner))
+    # 注意：不加 -Wait（PS5.1 ShellExecute 路径下 -Wait 可能不返回），
+    # 由 WaitForExit(180000) 提供带超时的同步等待。
+    $p1 = Start-Process -FilePath 'powershell' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$enc) -WindowStyle Hidden -PassThru
+    if ($null -eq $p1) { throw 'failed to launch start-demo runner' }
+    if (-not $p1.WaitForExit(180000)) { $p1.Kill(); throw 'start-demo timed out (180s)' }
+    if ($p1.ExitCode -ne 0) { throw "start-demo.ps1 exited with $($p1.ExitCode)" }
+    $log = @(Get-Content $outLog -ErrorAction SilentlyContinue)
   } finally { Pop-Location }
   $db = Join-Path $global:InstallWorkDir 'data\demo.db'
   if (-not (Test-Path $db)) { throw 'demo.db was not created' }

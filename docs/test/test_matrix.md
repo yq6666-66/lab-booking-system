@@ -24,8 +24,8 @@
 | 15 | **文档测试** | tests/doc_test.py | CONTRACT 端点存在性 21 项 + 默认值/业务码 + 版本一致 + README 文件引用 11 项 | ✅ 全过 | 运行输出 |
 | 16 | **易用性测试** | docs/test/usability_checklist.md | Nielsen 10 原则逐项评估 | 📋 已评估 | 本文档 |
 | 17 | **界面测试** | 截图存证（ui-r3/ui-r5）+ 响应式断言 | 桌面/窄屏/移动布局 | ✅ 通过 | docs/evidence/ui-r5/ |
-| 18 | **安装测试** | tests/install_test.ps1 | 空目录全流程部署（复制→初始化→重装幂等→健康→完整性→清理），已抓获 DLL 缺失缺陷 | ✅ 全过 | 运行输出 |
-| 19 | **第三方测试** | tests/vendor_verify.py + vendor_manifest.json | 锁文件结构 + 1096 个 vendored 文件 SHA256 漂移检测（含篡改自检） | ✅ 全过 | tests/vendor_manifest.json |
+| 18 | **安装测试** | tests/install_test.ps1（WB 版 + 合并加固） | 源码级全新部署：robocopy 空目录→干净树构建→start-demo 种子→健康→注册/登录→确定性停止→清理；已抓获 DLL 缺失、未用变量警告、PS5.1 EAP=Stop 误判 stderr、句柄继承挂起等缺陷 | ✅ 8/8（沙箱内 API 探测按脚本降级路径跳过，API 层由其他套件覆盖） | docs/evidence/install/ |
+| 19 | **第三方测试** | tests/vendor_verify.py（WB 版） | 锁文件结构 + 9 个关键文件 SHA256 基线（docs/evidence/vendor/vendor_baseline.json，按入库补丁版重生成）+ 归档哈希格式校验 | ✅ 4/4 | docs/evidence/vendor/ |
 | 20 | **模糊测试** | tests/fuzz.py | 720 次畸形输入并发，零崩溃零 5xx，库完整性 ok | ✅ 通过 | docs/evidence/fuzz/ |
 | 21 | **契约测试** | tests/contract_test.py | 19 组端点封套与字段类型断言（三键封套/编号字符串化/capacity 1..200/计数器守恒） | ✅ 全过 | 运行输出 |
 | 21 | **浸泡测试** | tests/soak.py | 34970 请求 60s，工作集 +3MB，句柄 +44 | ✅ 通过 | docs/evidence/soak/ |
