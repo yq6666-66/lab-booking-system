@@ -318,6 +318,22 @@ def regression(s):
         events=[e for e in s.sql("SELECT action FROM operation_events WHERE action='REGISTER'")]
         require(events,"REGISTER audited")
     record("T30 self-registration flow",t30)
+    def t31(): # -- r10/admin-console
+        """管理员登录入口：role_hint 校验、兼容性与不建会话保证。"""
+        def raw_login(body): return Client(s.port).request("POST","/api/login",body)
+        def user01_sessions(): return len(s.sql("SELECT token_hash FROM sessions WHERE user_id=(SELECT id FROM users WHERE username='user01')"))
+        st,d=raw_login({"username":"admin","password":PASSWORD,"role_hint":"ADMIN"})
+        require(st==200 and d["data"]["user"]["role"]=="ADMIN",f"admin+ADMIN: {st} {d}")
+        require(raw_login({"username":"admin","password":PASSWORD,"role_hint":"USER"})[0]==200,"admin may use user entry")
+        before=user01_sessions()
+        st,d=raw_login({"username":"user01","password":PASSWORD,"role_hint":"ADMIN"})
+        require(st==403 and d["code"]=="ROLE_MISMATCH",f"user+ADMIN: {st} {d}")
+        require(user01_sessions()==before,"no session created on ROLE_MISMATCH")
+        require(raw_login({"username":"user01","password":PASSWORD})[0]==200,"legacy client without role_hint")
+        st,d=raw_login({"username":"user01","password":PASSWORD,"role_hint":"invalid"})
+        require(st==400 and d["code"]=="INVALID_INPUT",f"invalid role_hint: {st} {d}")
+        return {"role_hint_enforced":True}
+    record("T31 admin login entry and role_hint",t31) # -- r10/admin-console
     record("T12 SQLite integrity and relational invariants",s.integrity)
     def t15():
         c=s.user(4)
