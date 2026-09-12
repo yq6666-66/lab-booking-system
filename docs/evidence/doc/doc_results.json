@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-09-12T08:55:09.158785+00:00",
+  "timestamp_utc": "2026-09-12T15:11:31.680510+00:00",
   "checks_total": 7,
   "checks_passed": 7,
   "all_passed": true,
@@ -12,7 +12,7 @@
     {
       "name": "CONTRACT 的错误码均在服务端源码中出现",
       "passed": true,
-      "detail": "15 个错误码均在源码中使用：['ALREADY_RESERVED', 'CSRF', 'DATABASE_BUSY', 'FORBIDDEN', 'INTERNAL_ERROR', 'INVALID_INPUT', 'NOT_FOUND', 'RATE_LIMITED', 'REQUEST_ID_CONFLICT', 'SLOT_AVAILABLE', 'SLOT_FULL', 'STATE_CONFLICT', 'TOO_LARGE', 'UNAUTHORIZED', 'USERNAME_TAKEN']"
+      "detail": "16 个错误码均在源码中使用：['ALREADY_RESERVED', 'CSRF', 'DATABASE_BUSY', 'FORBIDDEN', 'INTERNAL_ERROR', 'INVALID_INPUT', 'NOT_FOUND', 'RATE_LIMITED', 'REQUEST_ID_CONFLICT', 'ROLE_MISMATCH', 'SLOT_AVAILABLE', 'SLOT_FULL', 'STATE_CONFLICT', 'TOO_LARGE', 'UNAUTHORIZED', 'USERNAME_TAKEN']"
     },
     {
       "name": "契约声明了各状态码对应的错误码",

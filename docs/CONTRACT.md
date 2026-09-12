@@ -5,7 +5,8 @@
 ## HTTP
 所有响应 `{code,message,data}`，成功 code=`OK`。ID十进制字符串，时间为UTC epoch秒，展示北京时间。Session cookie `lab_session`，POST（login除外）必须 `X-CSRF-Token`。允许无Origin的命令行客户端，浏览器Origin必须等于当前回环服务origin。JSON请求体上限16384字节。
 
-- POST /api/login `{username,password}` -> data `{user:{id,username,role},csrf_token}`，设置cookie。
+- POST /api/login `{username,password,role_hint?}` -> data `{user:{id,username,role},csrf_token}`，设置cookie。role_hint 为可选的登录入口声明：仅接受 `"ADMIN"` 或 `"USER"`，其他值返回 400 INVALID_INPUT；缺省视为 `"USER"`，不携带该字段的旧客户端行为不变。口令校验通过后才比对入口——role_hint="ADMIN" 而账号实际为 USER 时返回 403 ROLE_MISMATCH（消息"该账号不是管理员，请使用用户入口登录"），不建立会话、不计入登录失败计数（这不是口令错误）；role_hint="USER" 时管理员账号可正常登录（管理员也可用用户入口）。
+- 管理控制台：`/admin.html`（独立页面，静态文件）。页面加载时经 GET /api/me 校验会话与角色，非管理员跳回 `/`；全部管理操作仍走上列 /api/admin/* 端点，服务端 403 鉴权不变。登录页提供「用户登录 / 管理员登录」双入口，管理员入口提交 role_hint="ADMIN"，成功后跳转控制台。
 - GET /api/me -> 同上。POST /api/logout -> OK。
 - GET /api/health -> data `{status:"ok"}`。
 - GET /api/labs -> data `{labs:[{id,name,location,description,enabled}]}`。

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理控制台 · 实验室预约系统</title><link rel="stylesheet" href="/style.css"><style>
+.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin:18px 0 10px}
+.card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:6px}
+.card strong{font-size:30px;letter-spacing:-1px;line-height:1.25}
+.card span{font-size:12px;color:var(--muted)}
+.card small{font-size:11px;color:var(--muted);line-height:1.7}
+#health-line{margin:0}
+@media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.cards{grid-template-columns:1fr}.card{padding:15px 18px}.card strong{font-size:26px}.tabs{gap:14px}}
+</style></head>
+<body>
+<header class="topbar" id="topbar" hidden><a class="brand" href="/">管理控制台<span><small>LAB ADMIN</small></span></a><div id="account"><a class="quiet" href="/">返回用户端</a><span id="identity"></span><button id="logout" class="secondary" type="button">退出登录</button></div></header>
+<main>
+<div id="notice" class="notice" role="status" hidden></div>
+<div id="gate" class="panel"><p class="muted">正在验证管理员身份…</p></div>
+<div id="app" hidden>
+<div class="page-heading"><div><p class="eyebrow">LAB ADMIN CONSOLE</p><h1>运行概览</h1></div><button id="refresh-overview" class="secondary" type="button">刷新概览</button></div>
+<p class="muted" id="health-line">正在读取服务状态…</p>
+<section class="cards" aria-label="今日概览"><article class="card"><strong id="c-slots">—</strong><span>今日开放场次</span></article><article class="card"><strong id="c-confirmed">—</strong><span>今日有效预约</span></article><article class="card"><strong id="c-waiting">—</strong><span>今日候补中</span></article><article class="card"><strong id="c-checked">—</strong><span>今日已签到</span></article><article class="card"><strong id="c-rate">—</strong><span>请求成功率</span><small id="c-rate-sub"></small></article></section>
+<nav class="tabs" id="tabs" aria-label="管理功能导航"><button type="button" data-tab="labs" aria-current="page">实验室管理</button><button type="button" data-tab="publish">场次发布</button><button type="button" data-tab="records">全员记录</button><button type="button" data-tab="stats">统计与导出</button><button type="button" data-tab="metrics">运行指标</button></nav>
+<section id="labs-view" class="panel"><div class="section-heading"><h2>实验室管理</h2><button id="refresh-labs" class="quiet" type="button">刷新列表</button></div><p class="muted">停用的实验室保留历史记录，但不再接受新的预约与候补。</p><div id="admin-labs"></div><h3 id="lab-form-title">新增实验室</h3><form id="lab-form"><input name="id" type="hidden"><div class="admin-grid"><label>名称<input name="name" required maxlength="100"></label><label>位置<input name="location" required maxlength="200"></label><label>说明<textarea name="description" maxlength="1000" rows="3"></textarea></label><label class="check"><input name="enabled" type="checkbox"> 启用（允许新预约）</label></div><div class="actions"><button class="primary" type="submit">保存实验室</button><button id="reset-lab" type="button" class="quiet">清空并新增</button></div></form></section>
+<section id="publish-view" class="panel" hidden><h2>场次发布</h2><p class="muted">每天自动生成 08:00-18:00 间 8 个一小时场次（12:00-14:00 午休除外），已存在的场次自动跳过，已开始的场次不会创建；单次最多发布 14 天。</p><form id="publish-form"><div class="admin-grid"><label>实验室<select name="lab_id" id="publish-lab" required></select></label><label>每场次容量（1..200）<input name="capacity" type="number" min="1" max="200" step="1" value="1" required></label><label>开始日期<input name="start_date" type="date" required></label><label>结束日期<input name="end_date" type="date" required></label></div><div class="actions"><button class="primary" type="submit">发布场次</button></div></form></section>
+<section id="records-view" class="panel" hidden><div class="section-heading"><h2>全员记录</h2><button id="refresh-records" class="quiet" type="button">刷新</button></div><div class="stats-filters"><label>查询日期（北京时间）<input id="admin-date" type="date" required></label><div class="pager"><button id="admin-prev" class="secondary" type="button">上一页</button><span id="admin-page" class="muted">第 1 页</span><button id="admin-next" class="secondary" type="button">下一页</button></div></div><h3>预约记录</h3><div id="admin-reservations"></div><h3>候补记录</h3><div id="admin-waitlist"></div><h3>操作日志</h3><div id="admin-events"></div></section>
+<section id="stats-view" class="panel" hidden><div class="section-heading"><h2>统计与导出</h2><span class="muted">按北京日期聚合，最多 31 天</span></div><div class="stats-filters"><label>开始日期<input id="stats-start" type="date" required></label><label>结束日期<input id="stats-end" type="date" required></label><button id="refresh-stats" class="primary" type="button">查询</button><button id="export-stats" class="secondary" type="button">导出 CSV</button></div><div id="admin-stats"></div></section>
+<section id="metrics-view" class="panel" hidden><div class="section-heading"><h2>运行指标</h2><button id="refresh-metrics" class="quiet" type="button">刷新指标</button></div><p class="muted">指标为服务进程内存态，重启后清零，不持久化；计数在响应写出后累加，不含本次查询请求自身。</p><div id="admin-metrics"></div></section>
+</div>
+</main>
+<footer>管理控制台 · 实验室预约与候补管理系统<span>C / SQLite · 毕业设计</span></footer>
+<script src="/admin.js" defer></script>
+</body></html>
