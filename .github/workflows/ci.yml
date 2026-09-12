@@ -87,8 +87,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p build
+          # 不定义 _GNU_SOURCE：mingw 头文件会据此把 clock_gettime 重定向到
+          # clock_gettime64，llvm-mingw 的 ucrt 运行库无该符号，链接失败。
           x86_64-w64-mingw32-gcc -std=c11 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
-            -DNO_SSL -DNO_CGI -D_GNU_SOURCE -DSQLITE_THREADSAFE=1 -DWATCHDOG_MS=50 \
+            -DNO_SSL -DNO_CGI -DSQLITE_THREADSAFE=1 -DWATCHDOG_MS=50 \
             -Isrc -Ivendor/civetweb/include -Ivendor/cjson -Ivendor/sqlite -Ivendor/sodium/libsodium-win64/include -Ivendor/unity/src \
             vendor/unity/src/unity.c src/util.c src/db.c src/service.c src/ratelimit.c src/log.c tests/unit.c \
             vendor/civetweb/src/civetweb.c vendor/cjson/cJSON.c vendor/sqlite/sqlite3.c \
