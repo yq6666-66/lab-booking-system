@@ -69,7 +69,6 @@ jobs:
     name: ASan 内存安全通道（MSYS2）
     runs-on: windows-latest
     timeout-minutes: 30
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       # MSYS2/MinGW 的 gcc 与 clang 均不打包 ASan 运行库（msys2#11899）；
