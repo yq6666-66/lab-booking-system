@@ -84,18 +84,16 @@ jobs:
           $bin = (Get-ChildItem C:\llvm-mingw -Directory | Select-Object -First 1).FullName + '\bin'
           Add-Content $env:GITHUB_PATH $bin
       - name: 构建 ASan 单元测试
-        shell: pwsh
+        shell: bash
         run: |
-          New-Item -ItemType Directory -Force build | Out-Null
-          x86_64-w64-mingw32-gcc -std=c11 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer `
-            -DNO_SSL -DNO_CGI -D_GNU_SOURCE -DSQLITE_THREADSAFE=1 -DWATCHDOG_MS=50 `
-            -Isrc -Ivendor/civetweb/include -Ivendor/cjson -Ivendor/sqlite -Ivendor/sodium/libsodium-win64/include -Ivendor/unity/src `
-            vendor/unity/src/unity.c src/util.c src/db.c src/service.c src/ratelimit.c src/log.c tests/unit.c `
-            vendor/civetweb/src/civetweb.c vendor/cjson/cJSON.c vendor/sqlite/sqlite3.c `
+          mkdir -p build
+          x86_64-w64-mingw32-gcc -std=c11 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DNO_SSL -DNO_CGI -D_GNU_SOURCE -DSQLITE_THREADSAFE=1 -DWATCHDOG_MS=50 \
+            -Isrc -Ivendor/civetweb/include -Ivendor/cjson -Ivendor/sqlite -Ivendor/sodium/libsodium-win64/include -Ivendor/unity/src \
+            vendor/unity/src/unity.c src/util.c src/db.c src/service.c src/ratelimit.c src/log.c tests/unit.c \
+            vendor/civetweb/src/civetweb.c vendor/cjson/cJSON.c vendor/sqlite/sqlite3.c \
             -Lvendor/sodium/libsodium-win64/lib -lsodium -lws2_32 -ladvapi32 -o build/asan-unit.exe
       - name: 运行 ASan 单元测试
-        shell: pwsh
+        shell: bash
         run: |
-          $env:ASAN_OPTIONS = 'detect_leaks=0'
-          $env:UBSAN_OPTIONS = 'print_stacktrace=1'
-          .\build\asan-unit.exe
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1 ./build/asan-unit.exe
