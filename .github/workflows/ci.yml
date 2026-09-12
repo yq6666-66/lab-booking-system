@@ -75,14 +75,15 @@ jobs:
       # MSYS2/MinGW 的 gcc 与 clang 均不打包 ASan 运行库（msys2#11899）；
       # llvm-mingw 是 Windows 上带完整 ASan/UBSan 的工具链。
       - name: 安装 llvm-mingw 工具链
-        shell: pwsh
+        shell: bash
         run: |
-          $rel = Invoke-RestMethod 'https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest'
-          $asset = $rel.assets | Where-Object { $_.name -match 'ucrt-x86_64\.zip$' } | Select-Object -First 1
-          Invoke-WebRequest $asset.browser_download_url -OutFile llvm-mingw.zip
-          Expand-Archive llvm-mingw.zip -DestinationPath C:\llvm-mingw -Force
-          $bin = (Get-ChildItem C:\llvm-mingw -Directory | Select-Object -First 1).FullName + '\bin'
-          Add-Content $env:GITHUB_PATH $bin
+          # 经 releases/latest 重定向取最新 tag（不调用 API，避免匿名限流）
+          TAG=$(curl -sI https://github.com/mstorsjo/llvm-mingw/releases/latest | grep -i '^location:' | sed 's#.*/tag/##' | tr -d '\r\n')
+          echo "llvm-mingw tag: $TAG"
+          curl -sL -o llvm-mingw.zip "https://github.com/mstorsjo/llvm-mingw/releases/download/${TAG}/llvm-mingw-${TAG}-ucrt-x86_64.zip"
+          mkdir -p /c/llvm-mingw
+          powershell -NoProfile -Command "Expand-Archive -Path llvm-mingw.zip -DestinationPath C:\\llvm-mingw -Force"
+          echo "/c/llvm-mingw/llvm-mingw-${TAG}-ucrt-x86_64/bin" >> $GITHUB_PATH
       - name: 构建 ASan 单元测试
         shell: bash
         run: |
