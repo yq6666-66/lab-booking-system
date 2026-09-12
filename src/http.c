@@ -105,7 +105,7 @@ static int pager(const struct mg_request_info *ri,int *page,int *size){
  char a[16]={0},b[16]={0};query(ri,"page",a,sizeof a);query(ri,"page_size",b,sizeof b);
  int p=page_arg(a,1,1,1000000),s=page_arg(b,20,1,200);if(p<0||s<0)return 0;*page=p;*size=s;return 1;
 }
-static Result admin(DB *d,const char *path,const cJSON *body){
+static Result admin(DB *d,const User *u,const char *path,const cJSON *body){
  Id target=0;
  if(!strcmp(path,"/api/admin/slots/publish")){
   Id lab=0,start=date_start(jstr(body,"start_date")),end=date_start(jstr(body,"end_date")),capacity=1;
@@ -120,6 +120,8 @@ static Result admin(DB *d,const char *path,const cJSON *body){
   if(d->error||!db_run(d,"COMMIT","")){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
   cJSON *j=cJSON_CreateObject();cJSON_AddNumberToObject(j,"created",n);return result(200,"OK","场次发布完成",j);
  }
+ if(path_id(path,"/api/admin/slots/","/update",&target))return slot_update(d,u,target,body);
+ if(!strcmp(path,"/api/admin/notifications"))return admin_notify(d,u,body);
  if(!strcmp(path,"/api/admin/labs")||path_id(path,"/api/admin/labs/","/update",&target)){
   const char *name=jstr(body,"name"),*loc=jstr(body,"location"),*desc=jstr(body,"description");cJSON *enabled=cJSON_GetObjectItemCaseSensitive(body,"enabled");
   if(!text_ok(name,180,0)||!text_ok(loc,180,0)||!text_ok(desc,1000,1)||(target&&!cJSON_IsBool(enabled)))return invalid();
@@ -173,7 +175,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   if(!strcmp(path,"/api/me/notifications/read")){if(!uuid_valid(k))return invalid();return notifications_read(d,&u,body,k);}
   if(path_hex(path,"/api/me/sessions/","/revoke",sh,sizeof sh)){if(!uuid_valid(k))return invalid();return session_revoke(d,&u,sh,k);}
  }
- if(!strncmp(path,"/api/admin/",11)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return admin(d,path,body);}
+ if(!strncmp(path,"/api/admin/",11)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return admin(d,&u,path,body);}
  const char *action=NULL;Id target=0;
  if(!strcmp(path,"/api/reservations")){action="reserve";parse_id(jstr(body,"slot_id"),&target);}
  else if(!strcmp(path,"/api/waitlist")){action="wait";parse_id(jstr(body,"slot_id"),&target);}

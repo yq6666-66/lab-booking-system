@@ -28,6 +28,8 @@
 - POST /api/admin/labs `{name,location,description}` -> data `{lab_id}`。
 - POST /api/admin/labs/{id}/update `{name,location,description,enabled:bool}`。
 - POST /api/admin/slots/publish `{lab_id,start_date,end_date}`（最多14天）-> data `{created}`。08-12/14-18各一小时，不创建已开始场次，重复发布不重复。
+- POST /api/admin/slots/{id}/update `{capacity?:number|string,enabled?:bool}` -> data `{slot_id,capacity,enabled}`。capacity 与 enabled 至少提供一个，都缺返回 400；capacity 取值 1..200 否则 400；capacity 小于该场次当前 CONFIRMED 数返回 409 STATE_CONFLICT（容量不能小于已确认预约数）；场次不存在返回 404；普通用户 403。停用 enabled=false 后用户端 GET /api/slots 该场次 enabled=false，新预约/新候补返回 409 STATE_CONFLICT（场次未开放）；容量校验与更新同处一个立即事务，避免与预约并发竞争。
+- POST /api/admin/notifications `{all?:true,username?,title,body?}` -> data `{sent}`。all 与 username 必须二选一，都缺或都有返回 400；title 必填且 1..120 字符，body 最多 500 字符，否则 400。all=true 发送给全部 enabled 用户，username 定向发送给单个 enabled 用户（不存在或已停用返回 404「用户不存在」）。通知 kind='NOTICE'、slot_id/reservation_id 为空，出现在用户 GET /api/me/notifications（unread=1 过滤，unread_count 计入），可经 POST /api/me/notifications/read 标记已读；普通用户调用 403。
 
 错误：400 INVALID_INPUT；401 UNAUTHORIZED；403 FORBIDDEN/CSRF；404 NOT_FOUND；409 SLOT_FULL/SLOT_AVAILABLE/STATE_CONFLICT/REQUEST_ID_CONFLICT/ALREADY_RESERVED；413 TOO_LARGE；503 DATABASE_BUSY；500 INTERNAL_ERROR。遇网络错误/503沿用原UUID重试，终态结果后新操作新UUID。日期严格校验。
 

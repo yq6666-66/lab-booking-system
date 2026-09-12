@@ -334,6 +334,62 @@ def regression(s):
         require(st==400 and d["code"]=="INVALID_INPUT",f"invalid role_hint: {st} {d}")
         return {"role_hint_enforced":True}
     record("T31 admin login entry and role_hint",t31) # -- r10/admin-console
+    def t32(): # -- r10/admin-slot-update
+        """管理员修改已发布场次：容量调整/停用/校验/鉴权。"""
+        # admin 建新实验室（名字带随机后缀避免重名）+ 发布明天 1 天 capacity 1（08-12/14-18 共 8 场）
+        day=(datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(hours=32)).strftime("%Y-%m-%d")
+        lab=admin.post("/api/admin/labs",{"name":f"场次修改验收实验室{uid()[:8]}","location":"信息楼","description":"T32"})["data"]["lab_id"]
+        admin.post("/api/admin/slots/publish",{"lab_id":lab,"start_date":day,"end_date":day,"capacity":"1"})
+        listing=a.request("GET","/api/slots?lab_id="+lab+"&date="+day)[1]["data"]["slots"]
+        require(len(listing)==8 and int(listing[0]["capacity"])==1,f"published capacity 1: {listing[:1]}")
+        slot=listing[0]["id"]
+        # update {capacity:3} → 200 且 data.capacity==3（data 含 slot_id/capacity/enabled）
+        updated=admin.post(f"/api/admin/slots/{slot}/update",{"capacity":3})["data"]
+        require(updated["slot_id"]==slot and updated["capacity"]==3 and updated["enabled"] is True,f"update capacity: {updated}")
+        u1,u2,u3,u4=a,b,c,Client(s.port).login("user04")
+        for u in (u1,u2,u3): u.post("/api/reservations",{"slot_id":slot,"request_id":uid()})
+        st,body=u4.request("POST","/api/reservations",{"slot_id":slot,"request_id":uid()})
+        require(st==409 and body["code"]=="SLOT_FULL",f"4th beyond capacity 3: {st} {body}")
+        # 容量小于已确认预约数 → 409 STATE_CONFLICT；0/201/空体 → 400
+        st,body=admin.request("POST",f"/api/admin/slots/{slot}/update",{"capacity":2})
+        require(st==409 and body["code"]=="STATE_CONFLICT",f"capacity below confirmed: {st} {body}")
+        require(admin.request("POST",f"/api/admin/slots/{slot}/update",{"capacity":0})[0]==400,"capacity 0 rejected")
+        require(admin.request("POST",f"/api/admin/slots/{slot}/update",{"capacity":201})[0]==400,"capacity 201 rejected")
+        require(admin.request("POST",f"/api/admin/slots/{slot}/update",{})[0]==400,"empty update rejected")
+        # 停用后：用户端该场次 enabled=false，预约 → 409 STATE_CONFLICT（场次未开放）
+        disabled=admin.post(f"/api/admin/slots/{slot}/update",{"enabled":False})["data"]
+        require(disabled["enabled"] is False and disabled["capacity"]==3,f"disable keeps capacity: {disabled}")
+        row=[x for x in u4.request("GET","/api/slots?lab_id="+lab+"&date="+day)[1]["data"]["slots"] if x["id"]==slot][0]
+        require(row["enabled"] is False,f"user sees disabled slot: {row}")
+        st,body=u4.request("POST","/api/reservations",{"slot_id":slot,"request_id":uid()})
+        require(st==409 and body["code"]=="STATE_CONFLICT",f"booking disabled slot: {st} {body}")
+        require(admin.request("POST","/api/admin/slots/999999999/update",{"capacity":5})[0]==404,"unknown slot 404")
+        require(u1.request("POST",f"/api/admin/slots/{slot}/update",{"capacity":5})[0]==403,"non-admin update rejected")
+        return {"slot_id":slot,"capacity":3,"disabled":True}
+    record("T32 admin slot update",t32) # -- r10/admin-slot-update
+    def t33(): # -- r10/admin-notify
+        """管理员发布通知：广播/定向/已读/鉴权。"""
+        def unread(client):
+            return client.request("GET","/api/me/notifications?unread=1&page_size=50")[1]["data"]
+        # 广播：sent 为 enabled 用户数（种子 21 个，T30 自助注册后至少 21）
+        st,body=admin.request("POST","/api/admin/notifications",{"all":True,"title":"系统维护通知","body":"今晚维护"})
+        require(st==200 and body["data"]["sent"]>=21,f"broadcast: {st} {body}")
+        require([n for n in unread(a)["notifications"] if n["kind"]=="NOTICE" and n["title"]=="系统维护通知"],"NOTICE in user unread list")
+        require(unread(a)["unread_count"]>=1,"unread_count counts notice")
+        a.post("/api/me/notifications/read",{"all":True,"request_id":uid()})
+        data=unread(a)
+        require(not [n for n in data["notifications"] if n["kind"]=="NOTICE" and n["title"]=="系统维护通知"] and data["unread_count"]==0,f"cleared after read-all: {data['unread_count']}")
+        # 定向：sent==1，目标用户可见
+        sent=admin.post("/api/admin/notifications",{"username":"user02","title":"个别通知"})["data"]["sent"]
+        require(sent==1,f"targeted sent: {sent}")
+        require([n for n in unread(b)["notifications"] if n["kind"]=="NOTICE" and n["title"]=="个别通知"],"targeted user sees notice")
+        require(admin.request("POST","/api/admin/notifications",{"username":"no_such_user","title":"x"})[0]==404,"unknown user 404")
+        require(admin.request("POST","/api/admin/notifications",{"all":True})[0]==400,"missing title rejected")
+        require(admin.request("POST","/api/admin/notifications",{"all":True,"username":"user02","title":"x"})[0]==400,"all+username rejected")
+        require(admin.request("POST","/api/admin/notifications",{"title":"无目标"})[0]==400,"no target rejected")
+        require(a.request("POST","/api/admin/notifications",{"all":True,"title":"越权通知"})[0]==403,"non-admin notify rejected")
+        return {"broadcast_sent":body["data"]["sent"],"targeted_sent":sent}
+    record("T33 admin notify publish",t33) # -- r10/admin-notify
     record("T12 SQLite integrity and relational invariants",s.integrity)
     def t15():
         c=s.user(4)

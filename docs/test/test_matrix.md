@@ -1,20 +1,20 @@
 # 测试覆盖矩阵
 
 > 本文档映射软件工程标准测试分类到本项目的具体测试载体、用例编号与证据文件。
-> 最后更新：2026-09-11（第九轮）。
+> 最后更新：2026-09-12（第十轮）。
 
 ## 测试分类覆盖矩阵
 
 | # | 测试类型 | 载体 | 用例/脚本 | 状态 | 证据 |
 |---|---------|------|----------|------|------|
 | 1 | **单元测试** | tests/unit.c → build/unit-tests.exe | 24 用例（纯函数/DB 不变量/业务直调/限流纯函数/缓存/迁移/**边界值**） | ✅ 全过 | docs/evidence/unit-tests.txt |
-| 2 | **集成测试** | tests/integration.py | T01–T31 共 33 项断言组 | ✅ 全过 | docs/evidence/results-full-merge/ |
+| 2 | **集成测试** | tests/integration.py | T01–T33 共 35 项断言组 | ✅ 全过 | docs/evidence/results-full-merge/ |
 | 3 | **系统测试（E2E）** | Playwright 驱动 Chromium | 三轮走查（登录/预约/候补/签到/通知/导出） | ✅ 通过 | docs/evidence/ui-r3/, ui-r5/ |
 | 4 | **验收测试（UAT）** | docs/test/UAT_scenarios.md | 8 个正式验收场景 | ✅ 脚本就绪 | 本文档 |
 | 5 | **性能测试** | tests/benchmark.py + soak.py | E1 读性能 + E2 写争用 + 浸泡 60s | ✅ 通过 | docs/evidence/benchmark/, soak/ |
 | 6 | **安全测试** | T23/T24/T05 + fuzz.py + **security_test.py** + 限流/防爆破/CSRF | 限流/防爆破/越权/注入/CSRF/Origin/**SQL 注入 20 载荷**/**时序侧信道** | ✅ 全过 | results-full-merge/, fuzz/, security_results.json |
 | 7 | **白盒测试** | unit.c 直调内部函数（不做 HTTP） | 语句缓存/线程复用/看门狗/迁移实测 | ✅ 全过 | unit-tests.txt |
-| 8 | **黑盒测试** | integration.py 经 HTTP（不知内部实现） | 全部 33 项集成断言组 | ✅ 全过 | results-full-merge/ |
+| 8 | **黑盒测试** | integration.py 经 HTTP（不知内部实现） | 全部 35 项集成断言组 | ✅ 全过 | results-full-merge/ |
 | 9 | **灰盒测试** | tests/graybox_test.py | API 驱动 + DB 直查交叉验证（G1–G7：注册落库/审计链/幂等回执/补位通知/改密轮换） | ✅ 全过 | 运行输出 |
 | 10 | **静态测试** | gcc -fanalyzer + 绑定参数核查 + 加固构建 | 全源码分析 + FORTIFY/SSP | ✅ 零告警 | 构建日志 |
 | 11 | **动态测试** | 全部运行时测试（1–8、10 之外的运行时验证） | 所有需要启动服务并交互的测试 | ✅ 全过 | 各证据目录 |
