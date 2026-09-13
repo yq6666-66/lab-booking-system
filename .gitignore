@@ -3,7 +3,7 @@
 /vendor/
 /artifacts/
 /tests/results*/
-/.mimosa/
+.mimosa/
 __pycache__/
 *.db
 *.db-wal
@@ -12,3 +12,4 @@ __pycache__/
 *.o
 *.dll
 /.playwright-mcp/
+*.gcov
