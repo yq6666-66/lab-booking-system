@@ -41,9 +41,10 @@ def h1(t):
     return p
 def h2(t): return doc.add_heading(t, level=2)
 def h3(t): return doc.add_heading(t, level=3)
-def para(t, indent=True, align=None, size=12, bold=False):
+def para(t, indent=True, align=None, size=12, bold=False, font=None):
     p = doc.add_paragraph(); run = p.add_run(t); run.font.size = Pt(size); run.font.bold = bold
-    run.font.name = "宋体"; run._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+    fname = font or STYLE["body_font"]
+    run.font.name = fname; run._element.rPr.rFonts.set(qn("w:eastAsia"), STYLE["body_font"])
     if indent: p.paragraph_format.first_line_indent = Pt(STYLE["indent_chars"])
     if align: p.alignment = align
     return p
@@ -128,20 +129,20 @@ h1("Abstract")
 para("University laboratories commonly suffer from booking conflicts, no-shows and disordered waiting lists. This project designs and "
      "implements a laboratory reservation and waitlist management system in C (C11), built on CivetWeb, SQLite, cJSON and libsodium with a "
      "browser/server architecture. It focuses on three engineering problems: capacity consistency under concurrent contention, idempotency "
-     "against duplicated requests and process crashes, and the business loop of check-in, no-show recovery and FIFO promotion.")
+     "against duplicated requests and process crashes, and the business loop of check-in, no-show recovery and FIFO promotion.", font="Times New Roman")
 para("The system guarantees concurrent correctness with single-writer transactions (BEGIN IMMEDIATE) plus a per-slot capacity invariant; "
      "achieves idempotency through persisted request receipts; and completes no-show reclamation and promotion inside one transaction in a "
      "server-side sweeper. Beyond the core loop it provides a standalone admin console (slot adjustment, user management, announcements and "
      "runtime logs), time-windowed check-in, session start reminders, automatic backup rotation, a no-show credit constraint, time-overlap "
-     "detection, and hardened browser attack surface via global security headers.")
+     "detection, and hardened browser attack surface via global security headers.", font="Times New Roman")
 para("The system passes five layers of automated verification: 24 unit tests, 42 integration assertion groups (including 720 concurrent "
      "contention requests with zero overbooking and 30 crash-recovery trials all correct), contract and gray-box/documentation tests, fuzz and "
      "soak stability experiments, and a three-channel continuous integration gate (build and test, static analysis, AddressSanitizer memory "
      "safety). A timing side-channel experiment shows the login path responds to valid and invalid accounts within a 1.07x ratio, leaving no "
-     "account-enumeration side channel. Connection reuse and statement caching raise read throughput by up to 600% and cut p50 latency by 86%.")
+     "account-enumeration side channel. Connection reuse and statement caching raise read throughput by up to 600% and cut p50 latency by 86%.", font="Times New Roman")
 para("The results show that, with disciplined transaction design, persisted deduplication and an automated experiment system, C can deliver "
-     "a small-to-medium web application whose reliability is demonstrably verified without heavy runtimes.")
-para("Key words: laboratory reservation; waitlist queue; transactional consistency; idempotent request; fault injection; AddressSanitizer; C language", bold=True)
+     "a small-to-medium web application whose reliability is demonstrably verified without heavy runtimes.", font="Times New Roman")
+para("Key words: laboratory reservation; waitlist queue; transactional consistency; idempotent request; fault injection; AddressSanitizer; C language", bold=True, font="Times New Roman")
 doc.add_page_break()
 
 # ---------- 目录 ----------
@@ -149,7 +150,7 @@ add_toc()
 doc.add_page_break()
 
 # ---------- 第1章 ----------
-h1("第 1 章 绪论")
+h1("1 绪论")
 h2("1.1 选题背景与意义")
 para("随着高校实践教学规模扩大，开放实验室的机时资源日益紧张。人工或简易电子表格管理方式存在三类典型问题：其一，多个用户同时申请同一"
      "时段时缺乏冲突防护，容易出现重复占用；其二，预约后不按时到场（爽约）导致资源闲置，而真正有需求的人却在排队；其三，候补缺乏公平的"
@@ -179,7 +180,7 @@ para("第 1 章绪论；第 2 章介绍相关技术；第 3 章进行需求分�
      "第 7 章总结全文并展望后续工作。")
 
 # ---------- 第2章 ----------
-h1("第 2 章 相关技术")
+h1("2 相关技术")
 h2("2.1 C11 与 MinGW-w64")
 para("系统采用 C11 标准与 MinGW-w64 GCC 15.2 工具链构建，使用 _Thread_local 线程局部存储实现每工作线程的数据库连接复用，"
      "并以 SRWLOCK（读写锁）保护进程内共享状态。构建脚本提供正式版、故障注入测试版（TEST_FAULTS 宏）、加固版（_FORTIFY_SOURCE=3、"
@@ -202,7 +203,7 @@ para("前端采用无框架的原生 HTML/CSS/JavaScript 单页实现，与嵌�
      "无第三方运行时，页面总量不足 60 KB。")
 
 # ---------- 第3章 ----------
-h1("第 3 章 需求分析")
+h1("3 需求分析")
 h2("3.1 角色与用例")
 para("系统包含两类角色。普通用户：查询开放场次、预约与取消、加入/退出候补、在签到窗口内签到、接收站内通知（补位、爽约、管理员公告、"
      "场次提醒）并批量已读、自助修改密码、管理本人在线会话、按状态筛选与翻页查看本人记录；管理员：维护实验室、按日期区间与容量发布场次、"
@@ -233,7 +234,7 @@ para("并发正确性（争抢下不超卖）、可用性（进程异常退出�
      "五层自动化测试与三通道 CI 门禁）、可运营性（演示数据一键生成、自动备份与轮转）。")
 
 # ---------- 第4章 ----------
-h1("第 4 章 系统设计")
+h1("4 系统设计")
 h2("4.1 总体架构")
 para("系统采用五层架构，如图 4-1 所示：浏览器层负责交互；接入层由 CivetWeb 提供 HTTP 解析与多线程调度，并完成会话认证与请求伪造防护；"
      "业务层以单写者事务组织全部写路径；数据访问层封装参数绑定、语句缓存、连接复用与 schema 迁移；存储层为启用 WAL 的 SQLite。"
@@ -288,7 +289,7 @@ para("爽约信用：预约与候补入口在事务内统计申请人近 7 天�
      "脏数据发现语句，可被单元测试直接验证。")
 
 # ---------- 第5章 ----------
-h1("第 5 章 系统实现")
+h1("5 系统实现")
 h2("5.1 开发环境与构建")
 para("开发环境为 Windows x64 + MinGW-w64 GCC 15.2，核心代码约 1,600 行 C（不含第三方库）与 260 行前端脚本，自动化测试约 3,400 行。"
      "构建脚本支持四个目标：正式版（自动运行 24 个单元测试）、TEST_FAULTS 测试版（内置三类故障注入点：提交前崩溃 86、提交后响应前崩溃 87、"
@@ -329,7 +330,7 @@ para("个人与全体记录支持 page/page_size/has_more 分页与状态筛选�
      "两段式页内确认，避免重复提交与误操作。")
 
 # ---------- 第6章 ----------
-h1("第 6 章 系统测试")
+h1("6 系统测试")
 h2("6.1 测试策略与环境")
 para("测试体系分五层：（1）Unity 单元测试 24 个，不经 HTTP 直接链接业务层与数据层；（2）集成实验 42 项断言组，以独立 Python 客户端"
      "驱动真实服务进程，覆盖功能、安全、并发、故障恢复与运营能力；（3）契约测试（逐端点校验响应封套与字段类型）与灰盒/文档一致性测试；"
@@ -406,7 +407,7 @@ para("以真实 Chromium 浏览器完成多轮端到端验收：走通登录（�
      "全部十个页签（场次调整、用户停用与受限标记、通知发布与送达、运行日志筛选）。截图存证于 docs/evidence/ui-r3/、ui-r5/ 与后续轮次归档。")
 
 # ---------- 第7章 ----------
-h1("第 7 章 总结与展望")
+h1("7 总结与展望")
 h2("7.1 工作总结")
 para("本课题面向高校开放实验室管理场景，完整经历了需求分析、架构设计、编码实现、自动化验证与性能优化五个阶段，交付了一个功能完备、"
      "可靠性经过实测论证的 C 语言 Web 系统。主要成果包括：容量制预约与 FIFO 候补补位的业务闭环，并延伸至限时签到、场次提醒、爽约信用与"
