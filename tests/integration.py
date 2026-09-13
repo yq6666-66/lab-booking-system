@@ -581,18 +581,23 @@ def feature_checks(s):
         with _sq.connect(s.db,timeout=5) as conn:
             conn.execute("INSERT INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),start,start+3600,1))
             sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),start)).fetchone()[0]
-        a.post("/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+        # 用全新注册账号：前面用例可能耗尽种子用户的令牌桶（429 RATE_LIMITED）
+        ru="rm"+uid()[:8]
+        rc=Client(s.port);st,bd=rc.request("POST","/api/register",{"username":ru,"password":PASSWORD})
+        require(st==200,f"register remind user: {st}")
+        rc.csrf=bd["data"]["csrf_token"]  # 注册即登录，但 Client 只在 login() 里记录 csrf
+        rc.post("/api/reservations",{"slot_id":str(sid),"request_id":uid()})
         # features 实例 --sweep-interval 1 --remind-sec 300：等最多 5 个扫描周期
         got=None
         for _ in range(50):
             time.sleep(0.1)
-            got=[n for n in unread_of(a)["notifications"] if n["kind"]=="REMIND"]
+            got=[n for n in unread_of(rc)["notifications"] if n["kind"]=="REMIND"]
             if any(int(n.get("slot_id") or 0)==int(sid) for n in got): break
         require(got and any(int(n.get("slot_id") or 0)==int(sid) for n in got),"REMIND notification delivered within window")
         # 防重：reminded_at 已置位，后续扫描不重发
-        before=len([n for n in unread_of(a)["notifications"] if n["kind"]=="REMIND" and int(n.get("slot_id") or 0)==int(sid)])
+        before=len([n for n in unread_of(rc)["notifications"] if n["kind"]=="REMIND" and int(n.get("slot_id") or 0)==int(sid)])
         time.sleep(1.5)
-        after=len([n for n in unread_of(a)["notifications"] if n["kind"]=="REMIND" and int(n.get("slot_id") or 0)==int(sid)])
+        after=len([n for n in unread_of(rc)["notifications"] if n["kind"]=="REMIND" and int(n.get("slot_id") or 0)==int(sid)])
         require(after==before,f"reminded_at prevents duplicates: {before}->{after}")
         with _sq.connect(s.db,timeout=5) as conn:
             v=conn.execute("SELECT reminded_at FROM slots WHERE id=?",(int(sid),)).fetchone()[0]
@@ -603,9 +608,9 @@ def feature_checks(s):
         """自动备份轮转：CLI 在线快照写入目标目录且内容为合法 SQLite 库。"""
         bdir=pathlib.Path("artifacts/test-runs")/f"bk-{uid()[:6]}";bdir.mkdir(parents=True,exist_ok=True)
         env2=dict(os.environ);env2["LAB_SEED_PASSWORD"]=PASSWORD
-        r=subprocess.run([str(ROOT/"build"/"lab-booking.exe"),"--db",str(s.db),"--backup",str(bdir)],env=env2,capture_output=True,text=True,timeout=60)
+        r=subprocess.run([str(ROOT/"build"/"lab-booking.exe"),"--db",str(s.db),"--backup",str(bdir/"snapshot.db")],env=env2,capture_output=True,text=True,timeout=60)
         require(r.returncode==0 and "Backup written" in r.stdout,f"backup cli: {r.stdout} {r.stderr}")
-        files=list(bdir.glob("lab-backup-*.db"))
+        files=list(bdir.glob("snapshot.db"))
         require(len(files)==1,f"one snapshot written: {[f.name for f in files]}")
         import sqlite3 as _sq
         with _sq.connect(files[0]) as conn:
