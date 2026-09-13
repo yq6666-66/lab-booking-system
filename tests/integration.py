@@ -183,7 +183,7 @@ def regression(s):
     record("T06 malformed, oversized and typed input",t06)
     def t07():
         slot=next(slots); key=uid(); rid=reserve(a,slot,key)
-        s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(int(time.time())-7200,int(time.time())-3600,slot))
+        s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(_safe_past(int(time.time())-7200),_safe_past(int(time.time())-7200)+3600,slot))
         require(a.request("POST",f"/api/reservations/{rid}/cancel",{"request_id":uid()})[0]==409,"expired cancellation")
         require(b.request("POST","/api/waitlist",{"slot_id":slot,"request_id":uid()})[0]==409,"expired waitlist")
         require(a.post("/api/reservations",{"slot_id":slot,"request_id":key})["data"]["reservation_id"]==rid,"historical replay")
@@ -460,6 +460,9 @@ def fault_case(exe, directory, baseline, fault, rounds):
             s.integrity(); outcomes.append({"iteration":iteration+1,"exit_code":code,"recovery":"passed"})
     return outcomes
 
+def _safe_past(t):
+    """rewind 目标避开整点：种子场次全部为整点开始，落在整点会触发 UNIQUE(lab_id,start_at) 冲突。"""
+    return t-1800 if t%3600==0 else t
 def bj_today():
     return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).strftime("%Y-%m-%d")
 
@@ -469,7 +472,7 @@ def feature_checks(s):
     pools=iter(s.slots())
     def reserve(client,slot): return client.post("/api/reservations",{"slot_id":slot,"request_id":uid()})["data"]["reservation_id"]
     def rewind(slot,offset=-1):
-        now=int(time.time()); s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(now+offset,now+offset+3600,slot))
+        now=int(time.time());ns=_safe_past(now+offset);s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(ns,ns+3600,slot))
     def slot_row(client,slot):
         lab=s.sql("SELECT lab_id FROM slots WHERE id=?",(slot,))[0][0]
         data=client.request("GET",f"/api/slots?lab_id={lab}&date={bj_today()}")[1]["data"]
@@ -665,7 +668,7 @@ def noshow_checks(s,window):
         slot=s.slots()[0]
         rid=a.post("/api/reservations",{"slot_id":slot,"request_id":uid()})["data"]["reservation_id"]
         wid=b.post("/api/waitlist",{"slot_id":slot,"request_id":uid()})["data"]["waitlist_id"]
-        now=int(time.time()); start=now-window-1; s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(start,start+3600,slot))
+        now=int(time.time()); start=_safe_past(now-window-1); s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(start,start+3600,slot))
         rows=[]; deadline=time.monotonic()+25
         while time.monotonic()<deadline:
             rows=s.sql("SELECT status,cancel_reason FROM reservations WHERE id=?",(rid,))
@@ -727,7 +730,7 @@ def sweep_fault_case(exe,directory,baseline):
         slot=s.slots()[0]
         rid=a.post("/api/reservations",{"slot_id":slot,"request_id":uid()})["data"]["reservation_id"]
         wid=b.post("/api/waitlist",{"slot_id":slot,"request_id":uid()})["data"]["waitlist_id"]
-        now=int(time.time());s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(now-7,now+3593,slot))
+        now=int(time.time());ns=_safe_past(now-7);s.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(ns,ns+3600,slot))
         deadline=time.monotonic()+15
         while time.monotonic()<deadline and s.process.poll() is None:time.sleep(.3)
         require(s.process.poll()==88,f"sweep fault exit {s.process.poll()}")
