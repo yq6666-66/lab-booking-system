@@ -5,8 +5,19 @@ from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 import pathlib
 
+# ---------- 学校模板到位后的唯一改样处：正文字体/字号/行距/边距/标题级别字号 ----------
+STYLE = {
+    "body_font": "宋体", "body_size": 12,      # 正文：宋体小四
+    "h1_font": "黑体", "h1_size": 16,          # 一级标题：黑体三号
+    "h2_font": "黑体", "h2_size": 14,          # 二级标题：黑体四号
+    "h3_font": "黑体", "h3_size": 12,          # 三级标题：黑体小四
+    "line_spacing": 1.5,                        # 行距
+    "indent_chars": 24,                         # 首行缩进（Pt，24pt=小四两字符）
+    "margins": {"top": 2.54, "bottom": 2.54, "left": 3.0, "right": 3.0},  # 页边距 cm
+}
 FIG = pathlib.Path(__file__).resolve().parent / "figures"
 doc = Document()
 
@@ -17,11 +28,13 @@ def set_font(style, name, size, bold=False):
     rf = style.element.rPr.get_or_add_rFonts()
     rf.set(qn("w:eastAsia"), name)
 for sec in doc.sections:
-    sec.top_margin = sec.bottom_margin = Cm(2.54); sec.left_margin = sec.right_margin = Cm(3.0)
-set_font(doc.styles["Normal"], "宋体", 12)
-set_font(doc.styles["Heading 1"], "黑体", 16, True)
-set_font(doc.styles["Heading 2"], "黑体", 14, True)
-set_font(doc.styles["Heading 3"], "黑体", 12, True)
+    sec.top_margin = Cm(STYLE["margins"]["top"]); sec.bottom_margin = Cm(STYLE["margins"]["bottom"])
+    sec.left_margin = Cm(STYLE["margins"]["left"]); sec.right_margin = Cm(STYLE["margins"]["right"])
+set_font(doc.styles["Normal"], STYLE["body_font"], STYLE["body_size"])
+doc.styles["Normal"].paragraph_format.line_spacing = STYLE["line_spacing"]
+set_font(doc.styles["Heading 1"], STYLE["h1_font"], STYLE["h1_size"], True)
+set_font(doc.styles["Heading 2"], STYLE["h2_font"], STYLE["h2_size"], True)
+set_font(doc.styles["Heading 3"], STYLE["h3_font"], STYLE["h3_size"], True)
 
 def h1(t):
     p = doc.add_heading(t, level=1); p.paragraph_format.space_before = Pt(18); p.paragraph_format.space_after = Pt(10)
@@ -31,7 +44,7 @@ def h3(t): return doc.add_heading(t, level=3)
 def para(t, indent=True, align=None, size=12, bold=False):
     p = doc.add_paragraph(); run = p.add_run(t); run.font.size = Pt(size); run.font.bold = bold
     run.font.name = "宋体"; run._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
-    if indent: p.paragraph_format.first_line_indent = Cm(0.74)
+    if indent: p.paragraph_format.first_line_indent = Pt(STYLE["indent_chars"])
     if align: p.alignment = align
     return p
 def li(t):
@@ -57,6 +70,33 @@ def tbl(headers, rows, widths=None):
         for i, w in enumerate(widths):
             for row in t.rows: row.cells[i].width = Cm(w)
     return t
+
+def _field(run, instr, placeholder=""):
+    """在 run 内插入 Word 域代码（打开文档后按 Ctrl+A → F9 更新）。"""
+    b = OxmlElement("w:fldChar"); b.set(qn("w:fldCharType"), "begin")
+    i = OxmlElement("w:instrText"); i.set(qn("xml:space"), "preserve"); i.text = instr
+    s = OxmlElement("w:fldChar"); s.set(qn("w:fldCharType"), "separate")
+    t = OxmlElement("w:t"); t.text = placeholder
+    e = OxmlElement("w:fldChar"); e.set(qn("w:fldCharType"), "end")
+    for el in (b, i, s, t, e): run._element.append(el)
+
+def add_page_numbers():
+    """页脚居中页码（第 X 页）。"""
+    p = doc.sections[0].footer.paragraphs[0]; p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r0 = p.add_run("第 "); r0.font.size = Pt(9); r0.font.name = "宋体"
+    r = p.add_run(); r.font.size = Pt(9); r.font.name = "宋体"
+    _field(r, "PAGE", "1")
+    r1 = p.add_run(" 页"); r1.font.size = Pt(9); r1.font.name = "宋体"
+add_page_numbers()
+
+def add_toc():
+    """目录页：插入 TOC 域（覆盖 1–3 级标题）。在 Word 中更新域后自动带页码与超链接。"""
+    t = doc.add_paragraph(); t.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = t.add_run("目  录"); r.font.size = Pt(STYLE["h1_size"]); r.font.bold = True
+    r.font.name = STYLE["h1_font"]; r._element.rPr.rFonts.set(qn("w:eastAsia"), STYLE["h1_font"])
+    p = doc.add_paragraph()
+    run = p.add_run()
+    _field(run, 'TOC \\o "1-3" \\h \\z \\u', "（在 Word 中：Ctrl+A 全选 → F9 更新域，即可生成目录）")
 
 # ---------- 封面 ----------
 for _ in range(4): doc.add_paragraph()
@@ -102,6 +142,10 @@ para("The system passes five layers of automated verification: 24 unit tests, 42
 para("The results show that, with disciplined transaction design, persisted deduplication and an automated experiment system, C can deliver "
      "a small-to-medium web application whose reliability is demonstrably verified without heavy runtimes.")
 para("Key words: laboratory reservation; waitlist queue; transactional consistency; idempotent request; fault injection; AddressSanitizer; C language", bold=True)
+doc.add_page_break()
+
+# ---------- 目录 ----------
+add_toc()
 doc.add_page_break()
 
 # ---------- 第1章 ----------
