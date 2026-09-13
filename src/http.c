@@ -179,6 +179,11 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   if(!strcmp(path,"/api/admin/metrics")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return result(200,"OK","查询成功",metrics_snapshot());}
   if(!strcmp(path,"/api/admin/users")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char q[68]={0};query(ri,"q",q,sizeof q);if(q[0]&&strlen(q)>64)return invalid();return users_list(d,pg,ps,q[0]?q:NULL);}
   if(!strcmp(path,"/api/admin/notifications/sent")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();return notifications_sent(d,pg,ps);}
+  if(!strcmp(path,"/api/admin/logs")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   char ln[16],lv[8]={0};query(ri,"lines",ln,sizeof ln);query(ri,"level",lv,sizeof lv);
+   int n=page_arg(ln,100,1,500);if(n<0)return invalid();
+   int level=0;if(lv[0]){level=page_arg(lv,0,1,3);if(level<0)return invalid();if(level==0)return invalid();}
+   return logs_tail(n,level);}
   return result(404,"NOT_FOUND","接口不存在",NULL);
  }
  if(!strcmp(path,"/api/logout")){db_run(d,"DELETE FROM sessions WHERE token_hash=?","s",tokenhash);strcpy(cookie,"Set-Cookie: lab_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n");return result(200,"OK","已退出",NULL);}

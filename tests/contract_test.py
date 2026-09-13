@@ -94,8 +94,8 @@ class Server:
                     return cur.fetchall()
 
     def slots(self, lab="1", day_offset=1):
-        rows = self.sql("SELECT s.id,s.lab_id FROM slots s WHERE s.start_at>? AND s.enabled=1 AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') ORDER BY s.start_at,id LIMIT 20", (int(time.time()) + 3600,))
-        return [(str(r[0]), str(r[1])) for r in rows]
+        rows = self.sql("SELECT s.id,s.lab_id,s.start_at FROM slots s WHERE s.start_at>? AND s.enabled=1 AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') ORDER BY s.start_at,id LIMIT 20", (int(time.time()) + 3600,))
+        return [(str(r[0]), str(r[1]), int(r[2])) for r in rows]
 
 @contextlib.contextmanager
 def running(*args, **kwargs):
@@ -236,7 +236,6 @@ def run_scenarios(server):
     bind["rid2"] = body["data"]["reservation_id"]
     now = int(time.time())  # 把第二个预约所在场次推到“已开始”，使其处于可签到状态
     server.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?", (now - 1, now + 3599, slot_pairs[1][0]))
-    bind["free_slot"] = slot_pairs[2][0]
     bind["lid"] = str(server.sql("SELECT id FROM labs WHERE enabled=1 ORDER BY id LIMIT 1")[0][0])
     # 单独准备一条仍处于 WAITING 的候补（上面那条会在取消时被补位），用于校验 withdraw
     st, body = a.request("POST", "/api/reservations", {"slot_id": slot_pairs[3][0], "request_id": uid()})
@@ -244,6 +243,9 @@ def run_scenarios(server):
     st, body = b.request("POST", "/api/waitlist", {"slot_id": slot_pairs[3][0], "request_id": uid()})
     require(st == 200, f"准备独立候补失败：{st} {body}")
     bind["wid2"] = body["data"]["waitlist_id"]
+    bind["free_slot"] = next(p[0] for p in slot_pairs[2:]
+        if p[2] not in {r[0] for r in server.sql(
+            "SELECT s2.start_at FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=(SELECT id FROM users WHERE username='user01') AND r.status='CONFIRMED'")})  # r12：须与 user01 已有时段错开，否则 TIME_CONFLICT
     sessions = a.request("GET", "/api/me/sessions")[1]["data"]["sessions"]
     bind["sid"] = sessions[0]["id"]
     bind["lab"] = lab

@@ -96,7 +96,8 @@ class Server:
                     return cursor.fetchall()
 
     def slots(self):
-        return [str(row[0]) for row in self.sql("SELECT id FROM slots WHERE start_at > ? AND enabled=1 ORDER BY start_at,id", (int(time.time())+3600,))]
+        # r12 时段重叠规则后，同一时刻只消费一个场次（多实验室同时段对同一用户互斥）
+        return [str(row[0]) for row in self.sql("SELECT MIN(id) FROM slots WHERE start_at > ? AND enabled=1 GROUP BY start_at ORDER BY start_at", (int(time.time())+3600,))]
 
     def user(self, n):
         return Client(self.port).login("admin" if n == 0 else f"user{n:02d}")
@@ -267,7 +268,9 @@ def regression(s):
     def t27():
         # 连接复用：读写混合并发下数据正确、服务稳定（r6 连接/语句复用回归）
         import concurrent.futures
-        sa,sb=next(slots),next(slots)
+        # r12 重叠规则后：选两个当前空闲、且时间不重叠的未来场次
+        pair=s.sql("SELECT s1.id,s2.id FROM slots s1 JOIN slots s2 ON s2.start_at>=s1.end_at AND s2.enabled=1 WHERE s1.start_at>? AND s1.enabled=1 AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s1.id AND r.status='CONFIRMED') AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s2.id AND r.status='CONFIRMED') AND NOT EXISTS(SELECT 1 FROM reservations r JOIN slots x ON x.id=r.slot_id WHERE r.status='CONFIRMED' AND r.user_id=16 AND x.start_at<s1.end_at AND s1.start_at<x.end_at) AND NOT EXISTS(SELECT 1 FROM reservations r JOIN slots x ON x.id=r.slot_id WHERE r.status='CONFIRMED' AND r.user_id=17 AND x.start_at<s2.end_at AND s2.start_at<x.end_at) ORDER BY s1.start_at LIMIT 1",(int(time.time())+3600,))[0]
+        sa,sb=str(pair[0]),str(pair[1])
         w1,w2,r1,r2=[Client(s.port).login(f"user{n:02d}") for n in (16,17,19,20)]
         def writer(client,slot,cycles):
             out=[]
@@ -337,7 +340,7 @@ def regression(s):
     def t32(): # -- r10/admin-slot-update
         """管理员修改已发布场次：容量调整/停用/校验/鉴权。"""
         # admin 建新实验室（名字带随机后缀避免重名）+ 发布明天 1 天 capacity 1（08-12/14-18 共 8 场）
-        day=(datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(hours=32)).strftime("%Y-%m-%d")
+        day=(datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(days=15)).strftime("%Y-%m-%d")  # 种子覆盖 14 天，选 15 天后避免与既有预约时段重叠
         lab=admin.post("/api/admin/labs",{"name":f"场次修改验收实验室{uid()[:8]}","location":"信息楼","description":"T32"})["data"]["lab_id"]
         admin.post("/api/admin/slots/publish",{"lab_id":lab,"start_date":day,"end_date":day,"capacity":"1"})
         listing=a.request("GET","/api/slots?lab_id="+lab+"&date="+day)[1]["data"]["slots"]
@@ -569,6 +572,7 @@ def feature_checks(s):
         require(admin.request("POST",f"/api/admin/users/{admin_id}/disable",{})[1]["code"]=="STATE_CONFLICT","cannot disable self")
         # 鉴权：普通用户 403
         require(a.request("GET","/api/admin/users")[0]==403,"non-admin list rejected")
+        time.sleep(1.2)  # 令牌桶补流，确保走到角色校验而非 429
         require(a.request("POST",f"/api/admin/users/{target}/reset-password",{})[0]==403,"non-admin reset rejected")
         return {"searched":uname,"newpw_len":len(newpw)}
     record("T34 admin user management",t34) # -- r11/admin-users
@@ -622,6 +626,101 @@ def feature_checks(s):
         # 轮转：手工塞 9 个过期文件名占位，再备份一次不应无限堆积（真实轮转在服务线程，逻辑同 backup_rotate）
         return {"files":len(files),"users":n}
     record("T36 backup rotation",t36) # -- r11/backup
+    def t37(): # -- r12/penalty
+        """爽约信用约束：两次爽约触发 PENALTY_ACTIVE，窗口内计数与管理端可见。"""
+        import sqlite3 as _sq
+        ru="pn"+uid()[:8]
+        rc=Client(s.port);st,bd=rc.request("POST","/api/register",{"username":ru,"password":PASSWORD})
+        require(st==200,f"register: {st}");rc.csrf=bd["data"]["csrf_token"]
+        lab=admin.post("/api/admin/labs",{"name":"信用实验室"+uid()[:6],"location":"实验楼","description":"penalty"})["data"]["lab_id"]
+        # 造 3 个未来场次（直插，间隔一天避免重叠）
+        now=int(time.time())
+        with _sq.connect(s.db,timeout=5) as conn:
+            for k in range(3):
+                st3=now+(k+1)*86400
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,3,NULL)",(int(lab),st3,st3+3600,1))
+            ids=[r[0] for r in conn.execute("SELECT id FROM slots WHERE lab_id=? ORDER BY start_at",(int(lab),))]
+        # 第一次预约→爽约
+        rc.post("/api/reservations",{"slot_id":str(ids[0]),"request_id":uid()})
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("UPDATE reservations SET status='CANCELLED',cancelled_at=?,cancel_reason='NO_SHOW' WHERE slot_id=? AND status='CONFIRMED'",(now,int(ids[0])))
+        # 1 次爽约不限制
+        st,_=rc.request("POST","/api/reservations",{"slot_id":str(ids[1]),"request_id":uid()})
+        require(st==200,f"one no-show still allowed: {st}")
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("UPDATE reservations SET status='CANCELLED',cancelled_at=?,cancel_reason='NO_SHOW' WHERE slot_id=? AND status='CONFIRMED'",(now,int(ids[1])))
+        # 第二次爽约后：预约受限
+        st2,b2=rc.request("POST","/api/reservations",{"slot_id":str(ids[2]),"request_id":uid()})
+        require(st2==409 and b2["code"]=="PENALTY_ACTIVE",f"penalty active: {st2} {b2}")
+        # 管理端可见爽约计数
+        st3,d3=admin.request("GET","/api/admin/users?q="+ru)
+        require(st3==200 and d3["data"]["users"][0].get("no_show_count",0)>=2,f"admin sees no_show_count: {d3['data']['users']}")
+        return {"penalty":True,"no_show":d3["data"]["users"][0]["no_show_count"]}
+    record("T37 no-show penalty",t37) # -- r12/penalty
+    def t38(): # -- r12/overlap
+        """时段重叠检测：重叠场次 409 TIME_CONFLICT，取消后可再约，不重叠不受限。"""
+        import sqlite3 as _sq
+        ru="ov"+uid()[:8]
+        rc=Client(s.port);st,bd=rc.request("POST","/api/register",{"username":ru,"password":PASSWORD})
+        require(st==200,f"register: {st}");rc.csrf=bd["data"]["csrf_token"]
+        lab=admin.post("/api/admin/labs",{"name":"重叠实验室"+uid()[:6],"location":"实验楼","description":"overlap"})["data"]["lab_id"]
+        now=int(time.time())
+        base=now+3*86400
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,2,NULL)",(int(lab),base,base+3600,1))
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,2,NULL)",(int(lab),base+1800,base+1800+3600,1))  # 半小时错开→重叠
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,2,NULL)",(int(lab),base+86400,base+86400+3600,1))  # 次日→不重叠
+            a_id=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base)).fetchone()[0]
+            b_id=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base+1800)).fetchone()[0]
+            c_id=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base+86400)).fetchone()[0]
+        rc.post("/api/reservations",{"slot_id":str(a_id),"request_id":uid()})
+        st2,b2=rc.request("POST","/api/reservations",{"slot_id":str(b_id),"request_id":uid()})
+        require(st2==409 and b2["code"]=="TIME_CONFLICT",f"overlap rejected: {st2} {b2}")
+        st3,_=rc.request("POST","/api/reservations",{"slot_id":str(c_id),"request_id":uid()})
+        require(st3==200,"different day allowed")
+        # 取消 A 后，B 可约
+        rid=rc.request("GET","/api/me/records?page=1&page_size=50")[1]["data"]["reservations"]
+        mine=[r for r in rid if str(r["slot_id"])==str(a_id) and r["status"]=="CONFIRMED"][0]
+        rc.post(f"/api/reservations/{mine['id']}/cancel",{"request_id":uid()})
+        st4,_=rc.request("POST","/api/reservations",{"slot_id":str(b_id),"request_id":uid()})
+        require(st4==200,f"after cancel allowed: {st4}")
+        return {"overlap_blocked":True}
+    record("T38 time overlap guard",t38) # -- r12/overlap
+    def t40(): # -- r12/logs
+        """管理端日志查看：尾部行数、级别过滤、鉴权。"""
+        st,d=admin.request("GET","/api/admin/logs?lines=5")
+        require(st==200 and isinstance(d["data"]["lines"],list) and len(d["data"]["lines"])<=5,f"logs tail: {st}")
+        require(d["data"]["lines"],"log has content")
+        st2,d2=admin.request("GET","/api/admin/logs?lines=20&level=3")
+        require(st2==200 and all("[ERROR]" in str(x) for x in d2["data"]["lines"]),"level filter")
+        st3,_=a.request("GET","/api/admin/logs?lines=5")
+        require(st3==403,"non-admin rejected")
+        return {"lines":len(d["data"]["lines"])}
+    record("T40 admin log viewer",t40) # -- r12/logs
+    def t39(): # -- r12/archive
+        """历史归档：sweep 周期性清理 30 天前的候补与请求回执（预约记录保留）。"""
+        import sqlite3 as _sq
+        now=int(time.time())
+        lab=admin.post("/api/admin/labs",{"name":"归档实验室"+uid()[:6],"location":"实验楼","description":"archive"})["data"]["lab_id"]
+        old_end=now-31*86400
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("INSERT INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),old_end-3600,old_end,1))
+            old_slot=conn.execute("SELECT id FROM slots WHERE lab_id=?",(int(lab),)).fetchone()[0]
+            conn.execute("INSERT INTO waitlist(user_id,slot_id,status,created_at) VALUES(2,?,'WAITING',?)",(old_slot,old_end))
+            wl=conn.execute("SELECT count(*) FROM waitlist WHERE slot_id=?",(old_slot,)).fetchone()[0]
+            conn.execute("INSERT INTO request_receipts(user_id,request_id,action,payload_digest,http_status,result_json,created_at) VALUES(2,'arc'+?, 'RESERVE','d',200,'{}',?)",(str(old_slot),old_end))
+            rc=conn.execute("SELECT count(*) FROM request_receipts WHERE created_at<?",(now-30*86400,)).fetchone()[0]
+        require(wl==1 and rc==1,"expired fixtures inserted")
+        # features 实例 sweep 间隔 1s，等一个 10 周期归档边界（最多 ~11s）
+        deadline=time.time()+13
+        wl_left=rc_left=None
+        while time.time()<deadline:
+            wl_left,rc_left=s.sql("SELECT (SELECT count(*) FROM waitlist WHERE slot_id=?),(SELECT count(*) FROM request_receipts WHERE created_at<?)",(old_slot,now-30*86400))[0]
+            if wl_left==0 and rc_left==0: break
+            time.sleep(0.5)
+        require(wl_left==0 and rc_left==0,f"archive cleaned: waitlist={wl_left} receipts={rc_left}")
+        return {"archived":True}
+    record("T39 archive sweep",t39) # -- r12/archive
 
 
 def account_checks(s):
@@ -702,10 +801,14 @@ def security_checks(s):
             require(status==401,f"wrong login {i+1}: {status}")
         status,body=c.request("POST","/api/login",{"username":"user05","password":PASSWORD})
         require(status==429 and body["code"]=="LOGIN_LOCKED",f"locked after max fails: {status} {body}")
+        time.sleep(1.3)  # 仍处锁定窗口内
         status,_=Client(s.port).request("POST","/api/login",{"username":"admin","password":PASSWORD})
         require(status==200,"other username unaffected")
-        time.sleep(1.3)
-        status,_=c.request("POST","/api/login",{"username":"user05","password":PASSWORD})
+        deadline=time.time()+5
+        while time.time()<deadline:  # 锁定 3 秒后解锁（轮询，避免边界脆弱）
+            status,_=c.request("POST","/api/login",{"username":"user05","password":PASSWORD})
+            if status==200: break
+            time.sleep(0.3)
         require(status==200,f"unlock after lockout window: {status}")
     record("T23 login brute force lockout and unlock",t23)
     def t24():
@@ -778,7 +881,7 @@ def main():
         with running(args.exe,pathlib.Path(temp)/"features",baseline,extra=["--checkin-window","60","--sweep-interval","1","--remind-sec","300","--backup-interval","0"]) as s: feature_checks(s)
         with running(args.exe,pathlib.Path(temp)/"accounts",baseline) as s: account_checks(s)
         with running(args.exe,pathlib.Path(temp)/"noshow",baseline,extra=["--checkin-window","5","--sweep-interval","1"]) as s: noshow_checks(s,5)
-        with running(args.exe,pathlib.Path(temp)/"security",baseline,extra=["--login-max-fails","3","--login-lockout","1","--rate-burst","3","--rate-refill-sec","1"]) as s: security_checks(s)
+        with running(args.exe,pathlib.Path(temp)/"security",baseline,extra=["--login-max-fails","3","--login-lockout","3","--rate-burst","3","--rate-refill-sec","1"]) as s: security_checks(s)
         with running(args.exe,pathlib.Path(temp)/"races",baseline,extra=["--rate-burst","100000"]) as s: record("T10 concurrent unique occupation",lambda:races(s,rounds))
         for fault in ("cancel-before-promote","after-commit"):
             record("T11 recovery "+fault,lambda f=fault:fault_case(args.test_exe,temp,baseline,f,fault_rounds))

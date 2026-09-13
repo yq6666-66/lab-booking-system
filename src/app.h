@@ -7,7 +7,7 @@
 typedef sqlite3_int64 Id;
 typedef struct { sqlite3 *sql; int error; void *cache; } DB;
 typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *fault; const char *fault_request; int remind_sec; int backup_interval; } Config;
-#define LAB_VERSION "1.1.0"
+#define LAB_VERSION "1.2.0"
 typedef struct { Id id; int admin; char username[65]; char csrf[65]; } User;
 typedef struct { int status; cJSON *body; } Result;
 int db_open(DB *db,const char *path);
@@ -42,6 +42,7 @@ Result stats_export(DB *db,Id start,Id end);
 Result users_list(DB *db,int page,int size,const char *q);
 Result user_admin(DB *db,const User *actor,Id target,const char *op);
 Result notifications_sent(DB *db,int page,int size);
+Result logs_tail(int lines,int level);
 Result notifications(DB *db,const User *u,int unread,int page,int size);
 Result notifications_read(DB *db,const User *u,const cJSON *body,const char *request_id);
 Result slot_update(DB *db,const User *u,Id slot,const cJSON *body);
