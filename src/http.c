@@ -266,6 +266,7 @@ void sweep_start(const Config *config){
 int serve(const Config *cfg){
  char port[48];snprintf(port,sizeof port,"127.0.0.1:%d",cfg->port);
  const char *opts[]={"listening_ports",port,"document_root",cfg->web_path,"num_threads","8","enable_directory_listing","no","request_timeout_ms","5000","enable_keep_alive","yes","keep_alive_timeout_ms","15000",
+  "static_file_cache_control","no-cache",
   "additional_header","Content-Security-Policy: default-src 'self'\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer",NULL};
  struct mg_callbacks callbacks;memset(&callbacks,0,sizeof callbacks);mg_init_library(0);
  rl_configure(cfg);log_init("data/logs/app.log",5*1024*1024);app_boot=GetTickCount64();

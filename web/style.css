@@ -26,3 +26,13 @@
 .chips{background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:16px;padding:6px 14px;font-size:12px}
 .chips.on{background:var(--green);border-color:var(--green);color:#fff}
 .notify-more{margin-top:10px}
+/* 管理控制台（原 admin.html 内联样式，迁出以满足 CSP） */
+.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin:18px 0 10px}
+.card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:6px}
+.card strong{font-size:30px;letter-spacing:-1px;line-height:1.25}
+.card span{font-size:12px;color:var(--muted)}
+.card small{font-size:11px;color:var(--muted);line-height:1.7}
+#health-line{margin:0}
+@media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.cards{grid-template-columns:1fr}.card{padding:15px 18px}.card strong{font-size:26px}.tabs{gap:14px}}
+.log-view{background:#14231f;color:#d7e5dd;border-radius:10px;padding:16px;font-family:Consolas,monospace;font-size:12px;line-height:1.7;max-height:520px;overflow:auto;white-space:pre-wrap}

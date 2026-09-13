@@ -191,16 +191,18 @@ int db_init(DB *d){
  return db_migrate(d);
 }
 int db_check(DB *d){
- cJSON *r=db_first(d,"PRAGMA integrity_check","");int ok=r&&jstr(r,"integrity_check")&&!strcmp(jstr(r,"integrity_check"),"ok");cJSON_Delete(r);
- cJSON *fk=db_rows(d,"PRAGMA foreign_key_check","");if(!fk||cJSON_GetArraySize(fk))ok=0;cJSON_Delete(fk);
- if(db_num(d,"SELECT count(*) FROM waitlist w JOIN reservations r ON w.user_id=r.user_id AND w.slot_id=r.slot_id WHERE w.status='WAITING' AND r.status='CONFIRMED'","")>0)ok=0;
- if(db_num(d,"SELECT count(*) FROM waitlist w LEFT JOIN reservations r ON r.id=w.promoted_reservation_id WHERE w.status='PROMOTED' AND (r.id IS NULL OR r.user_id!=w.user_id OR r.slot_id!=w.slot_id OR r.source!='WAITLIST')","")>0)ok=0;
- if(db_num(d,"SELECT count(*) FROM slots s WHERE (SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED')>s.capacity","")>0)ok=0;
- if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_in_at IS NOT NULL AND status<>'CONFIRMED'","")>0)ok=0;
- if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason='NO_SHOW' AND (status<>'CANCELLED' OR checked_in_at IS NOT NULL)","")>0)ok=0;
- if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason IS NOT NULL AND status<>'CANCELLED'","")>0)ok=0;
- if(db_num(d,"SELECT count(*) FROM reservations WHERE status='CANCELLED' AND cancelled_at IS NOT NULL AND cancel_reason IS NULL","")>0)ok=0;
- return ok&&!d->error;
+ int ok=1;
+ cJSON *r=db_first(d,"PRAGMA integrity_check","");if(!(r&&jstr(r,"integrity_check")&&!strcmp(jstr(r,"integrity_check"),"ok"))){ok=0;fprintf(stderr,"[check] integrity_check failed\n");}cJSON_Delete(r);
+ cJSON *fk=db_rows(d,"PRAGMA foreign_key_check","");if(!fk||cJSON_GetArraySize(fk)){ok=0;fprintf(stderr,"[check] foreign_key_check failed (%d rows)\n",fk?cJSON_GetArraySize(fk):-1);}cJSON_Delete(fk);
+ if(db_num(d,"SELECT count(*) FROM waitlist w JOIN reservations r ON w.user_id=r.user_id AND w.slot_id=r.slot_id WHERE w.status='WAITING' AND r.status='CONFIRMED'","")>0){ok=0;fprintf(stderr,"[check] waiting+confirmed overlap\n");}
+ if(db_num(d,"SELECT count(*) FROM waitlist w LEFT JOIN reservations r ON r.id=w.promoted_reservation_id WHERE w.status='PROMOTED' AND (r.id IS NULL OR r.user_id!=w.user_id OR r.slot_id!=w.slot_id OR r.source!='WAITLIST')","")>0){ok=0;fprintf(stderr,"[check] promoted without valid waitlist reservation\n");}
+ if(db_num(d,"SELECT count(*) FROM slots s WHERE (SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED')>s.capacity","")>0){ok=0;fprintf(stderr,"[check] over capacity\n");}
+ if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_in_at IS NOT NULL AND status<>'CONFIRMED'","")>0){ok=0;fprintf(stderr,"[check] checked-in but not confirmed\n");}
+ if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason='NO_SHOW' AND (status<>'CANCELLED' OR checked_in_at IS NOT NULL)","")>0){ok=0;fprintf(stderr,"[check] no_show inconsistent\n");}
+ if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason IS NOT NULL AND status<>'CANCELLED'","")>0){ok=0;fprintf(stderr,"[check] cancel_reason on non-cancelled\n");}
+ if(db_num(d,"SELECT count(*) FROM reservations WHERE status='CANCELLED' AND cancelled_at IS NOT NULL AND cancel_reason IS NULL","")>0){ok=0;fprintf(stderr,"[check] cancelled without reason\n");}
+ if(d->error){fprintf(stderr,"[check] db.error=%d\n",d->error);ok=0;}
+ return ok;
 }
 int publish_slots(DB *d,Id lab,Id start,Id end,Id capacity){ /* capacity 必须 Id：绑定格式 i 按 8 字节变参读取 */
  int count=0;const int hours[]={8,9,10,11,14,15,16,17};

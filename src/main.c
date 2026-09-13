@@ -16,7 +16,7 @@ static int gen_demo(DB *db,int days,const char *password){
    static const int hours[8]={8,9,10,11,14,15,16,17};
    Id start=day_start+(Id)hours[hour]*3600;
    Id lab=1+(Id)(hour%3); /* 种子只建未来场次，历史场次需自行插入：三个实验室轮换 */
-   db_run(db,"INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,1,2,NULL)","iiii",lab,start,start+3600);
+   db_run(db,"INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,1,2,NULL)","iii",lab,start,start+3600);
    Id slot=db_num(db,"SELECT id FROM slots WHERE start_at=?","i",start);
    if(!slot)continue;
    Id capacity=db_num(db,"SELECT capacity FROM slots WHERE id=?","i",slot);
@@ -27,7 +27,8 @@ static int gen_demo(DB *db,int days,const char *password){
     Id uid=2+(Id)(DEMO_NEXT()%8); /* user01..user08 */
     if(db_num(db,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=?","ii",slot,uid))continue;
     if((int)(DEMO_NEXT()%10)<2)continue; /* 20% 空缺 */
-    db_run(db,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?, 'CONFIRMED','DIRECT',?)","iii",uid,slot,start-86400);
+    if(db_num(db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",slot)>=(Id)capacity)break; /* 结构性容量保护：重复生成/序列漂移时也不超容 */
+    if(!db_run(db,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?, 'CONFIRMED','DIRECT',?)","iii",uid,slot,start-86400))return 0;
     Id rid=sqlite3_last_insert_rowid(db->sql);
     unsigned long long roll=DEMO_NEXT()%100;
     if(roll<15){ /* 15% 爽约 */
@@ -37,11 +38,6 @@ static int gen_demo(DB *db,int days,const char *password){
     }else{ /* 25% 已取消 */
      db_run(db,"UPDATE reservations SET status='CANCELLED',cancelled_at=?,cancel_reason='USER' WHERE id=?","ii",start-3600,rid);
     }
-   }
-   /* 候补：容量小时 0..2 人 */
-   if(capacity<=2&&(DEMO_NEXT()%3)==0){
-    Id uid=2+(Id)(DEMO_NEXT()%8);
-    db_run(db,"INSERT OR IGNORE INTO waitlist(user_id,slot_id,status,created_at) VALUES(?,?,'PROMOTED',?)","iii",uid,slot,start-86400);
    }
   }
  }
