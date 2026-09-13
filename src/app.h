@@ -6,7 +6,7 @@
 #include "cJSON.h"
 typedef sqlite3_int64 Id;
 typedef struct { sqlite3 *sql; int error; void *cache; } DB;
-typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *fault; const char *fault_request; } Config;
+typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *fault; const char *fault_request; int remind_sec; int backup_interval; } Config;
 #define LAB_VERSION "1.1.0"
 typedef struct { Id id; int admin; char username[65]; char csrf[65]; } User;
 typedef struct { int status; cJSON *body; } Result;
@@ -36,9 +36,12 @@ void random_hex(char out[65]);
 Result result(int status,const char *code,const char *message,cJSON *data);
 Result db_failure(DB *db);
 Result booking(DB *db,const Config *cfg,const User *u,const char *action,Id target,const char *request_id);
-Result records(DB *db,const User *u,int all,Id date,int page,int size);
+Result records(DB *db,const User *u,int all,Id date,int page,int size,const char *status,const char *ev_action,const char *ev_user);
 Result stats(DB *db,Id start,Id end);
 Result stats_export(DB *db,Id start,Id end);
+Result users_list(DB *db,int page,int size,const char *q);
+Result user_admin(DB *db,const User *actor,Id target,const char *op);
+Result notifications_sent(DB *db,int page,int size);
 Result notifications(DB *db,const User *u,int unread,int page,int size);
 Result notifications_read(DB *db,const User *u,const cJSON *body,const char *request_id);
 Result slot_update(DB *db,const User *u,Id slot,const cJSON *body);
@@ -46,8 +49,10 @@ Result admin_notify(DB *db,const User *u,const cJSON *body);
 Result sessions_list(DB *db,const User *u,const char *current_hash);
 Result session_revoke(DB *db,const User *u,const char *token_hash,const char *request_id);
 Result password_change(DB *db,const User *u,const char *old_password,const char *new_password,const char *current_hash,const char *request_id);
-void notify(DB *db,Id user,const char *kind,const char *title,const char *body,Id slot,Id reservation);
+int notify(DB *db,Id user,const char *kind,const char *title,const char *body,Id slot,Id reservation);
 int sweep_once(const Config *config);
+int remind_once(const Config *config);
+int backup_rotate(const char *src,const char *dir,int keep);
 void sweep_start(const Config *config);
 int serve(const Config *config);
 /* r5/security */

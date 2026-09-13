@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 static void event(DB *d,Id actor,const char *action,Id entity,const char *request){db_run(d,"INSERT INTO operation_events(actor_id,action,entity_id,request_id,created_at) VALUES(?,?,?,?,?)","isisi",actor,action,entity,request,now_sec());}
-void notify(DB *d,Id user,const char *kind,const char *title,const char *body,Id slot,Id reservation){db_run(d,"INSERT INTO notifications(user_id,kind,title,body,slot_id,reservation_id,created_at) VALUES(?,?,?,?,?,?,?)","isssiii",user,kind,title,body,slot,reservation,now_sec());}
+int notify(DB *d,Id user,const char *kind,const char *title,const char *body,Id slot,Id reservation){return db_run(d,"INSERT INTO notifications(user_id,kind,title,body,slot_id,reservation_id,created_at) VALUES(?,?,?,?,?,?,?)","isssiii",user,kind,title,body,slot,reservation,now_sec());}
 static void slot_when(DB *d,Id slot,char out[40]){
  Id st=db_num(d,"SELECT start_at FROM slots WHERE id=?","i",slot);
  if(!st){snprintf(out,40,"场次 %lld",(long long)slot);return;}
@@ -146,17 +146,32 @@ finish_nosave:
 failed:
  sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cJSON_Delete(old);cJSON_Delete(row);cJSON_Delete(slot);cJSON_Delete(r.body);return db_failure(d);
 }
-Result records(DB *d,const User *u,int all,Id date,int page,int size){
+Result records(DB *d,const User *u,int all,Id date,int page,int size,const char *status,const char *ev_action,const char *ev_user){
+ /* status 为白名单枚举（调用方已校验，直接拼接无注入面），过滤预约列表；
+    ev_action/ev_user 仅过滤管理端操作日志（参数化绑定）。 */
  const char *where=all?"(?=0 OR (s.start_at>=? AND s.start_at<?))":"r.user_id=?";
- char sql[1800];
+ char sql[1900];
  Id limit=(Id)size+1,offset=(Id)(page-1)*size;int more=0;
- snprintf(sql,sizeof sql,"SELECT r.id,r.slot_id,l.name AS lab_name,u.username,s.start_at,s.end_at,r.status,r.source,r.cancel_reason,r.checked_in_at FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id JOIN users u ON u.id=r.user_id WHERE %s ORDER BY r.id DESC LIMIT ? OFFSET ?",where);
+ snprintf(sql,sizeof sql,"SELECT r.id,r.slot_id,l.name AS lab_name,u.username,s.start_at,s.end_at,r.status,r.source,r.cancel_reason,r.checked_in_at FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id JOIN users u ON u.id=r.user_id WHERE %s%s ORDER BY r.id DESC LIMIT ? OFFSET ?",
+  where,status?" AND r.status='?'":"");
  cJSON *a=all?db_rows(d,sql,"iiiii",date,date,date+86400,limit,offset):db_rows(d,sql,"iii",u->id,limit,offset);
  if(a&&cJSON_GetArraySize(a)>size){cJSON_DeleteItemFromArray(a,(int)size);more=1;}
  snprintf(sql,sizeof sql,"SELECT r.id,r.slot_id,l.name AS lab_name,u.username,s.start_at,s.end_at,r.status,CASE WHEN r.status='WAITING' THEN (SELECT count(*) FROM waitlist w JOIN users wu ON wu.id=w.user_id WHERE w.slot_id=r.slot_id AND w.status='WAITING' AND w.id<=r.id AND wu.enabled=1) ELSE 0 END AS position FROM waitlist r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id JOIN users u ON u.id=r.user_id WHERE %s ORDER BY r.id DESC LIMIT ? OFFSET ?",where);
  cJSON *b=all?db_rows(d,sql,"iiiii",date,date,date+86400,limit,offset):db_rows(d,sql,"iii",u->id,limit,offset);
  if(b&&cJSON_GetArraySize(b)>size){cJSON_DeleteItemFromArray(b,(int)size);more=1;}
- cJSON *e=all?db_rows(d,"SELECT e.id,u.username AS actor,e.action,e.entity_id,e.request_id,e.created_at FROM operation_events e JOIN users u ON u.id=e.actor_id ORDER BY e.id DESC LIMIT ? OFFSET ?","ii",limit,offset):cJSON_CreateArray();
+ cJSON *e=cJSON_CreateArray();
+ if(all){
+  char esql[380],fmt[12];size_t fl=0;
+  snprintf(esql,sizeof esql,"SELECT e.id,u.username AS actor,e.action,e.entity_id,e.request_id,e.created_at FROM operation_events e JOIN users u ON u.id=e.actor_id WHERE 1=1%s%s ORDER BY e.id DESC LIMIT ? OFFSET ?",
+   ev_action?" AND e.action=?":"",ev_user?" AND u.username=?":"");
+  if(ev_action){fmt[fl++]='s';}
+  if(ev_user){fmt[fl++]='s';}
+  fmt[fl++]='i';fmt[fl++]='i';fmt[fl]=0;
+  if(ev_action&&ev_user)e=db_rows(d,esql,fmt,ev_action,ev_user,limit,offset);
+  else if(ev_action)e=db_rows(d,esql,fmt,ev_action,limit,offset);
+  else if(ev_user)e=db_rows(d,esql,fmt,ev_user,limit,offset);
+  else e=db_rows(d,esql,fmt,limit,offset);
+ }
  if(d->error){cJSON_Delete(a);cJSON_Delete(b);cJSON_Delete(e);return db_failure(d);}
  cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"reservations",a);cJSON_AddItemToObject(j,"waitlist",b);cJSON_AddItemToObject(j,"events",e);
  cJSON_AddNumberToObject(j,"page",(double)page);cJSON_AddNumberToObject(j,"page_size",(double)size);cJSON_AddBoolToObject(j,"has_more",more);
@@ -389,4 +404,107 @@ int sweep_once(const Config *config){
  if(d.error){sqlite3_exec(d.sql,"ROLLBACK",NULL,NULL,NULL);db_close(&d);return count;}
  if(!db_run(&d,"COMMIT","")){db_close(&d);return count;}
  log_write(1,"SWEEP released=%d",count);db_close(&d);return count;
+}
+/* -- r11 用户管理与运营增强 -- */
+/* 管理员用户列表：含有效预约数与候补数；q 为用户名前缀过滤（substr 比较，避免 LIKE 通配符转义问题）。 */
+Result users_list(DB *d,int page,int size,const char *q){
+ cJSON *j=cJSON_CreateObject();
+ char sql[512];Id limit=(Id)size+1,offset=(Id)(page-1)*size;
+ snprintf(sql,sizeof sql,"SELECT u.id,u.username,u.role,u.enabled,(SELECT count(*) FROM reservations r WHERE r.user_id=u.id AND r.status='CONFIRMED') AS reservations,(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.status='WAITING') AS waitlisted FROM users u %sORDER BY u.id LIMIT ? OFFSET ?",
+  q?"WHERE substr(u.username,1,length(?))=? ":"");
+ cJSON *rows=q?db_rows(d,sql,"ssii",q,q,limit,offset):db_rows(d,sql,"ii",limit,offset);
+ if(!rows)return db_failure(d);
+ int more=cJSON_GetArraySize(rows)>size;if(more)cJSON_DeleteItemFromArray(rows,size);
+ Id total=q?db_num(d,"SELECT count(*) FROM users WHERE substr(username,1,length(?))=?","ss",q,q):db_num(d,"SELECT count(*) FROM users","");
+ if(d->error){cJSON_Delete(rows);return db_failure(d);}
+ cJSON_AddItemToObject(j,"users",rows);cJSON_AddNumberToObject(j,"total",(double)total);
+ cJSON_AddNumberToObject(j,"page",(double)page);cJSON_AddNumberToObject(j,"page_size",(double)size);cJSON_AddBoolToObject(j,"has_more",more);
+ return result(200,"OK","查询成功",j);
+}
+/* 管理员用户操作：disable（立即下线+停用）/enable/reset-password（随机口令，明文仅响应一次）。 */
+Result user_admin(DB *d,const User *actor,Id target,const char *op){
+ cJSON *row=db_first(d,"SELECT id,role FROM users WHERE id=?","i",target);
+ if(d->error)return db_failure(d);
+ if(!row)return result(404,"NOT_FOUND","用户不存在",NULL);
+ int is_admin=!strcmp(jstr(row,"role"),"ADMIN");cJSON_Delete(row);
+ if(!strcmp(op,"disable")){
+  if(target==actor->id&&is_admin)return result(409,"STATE_CONFLICT","不能停用当前登录的管理员",NULL);
+  if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
+  db_run(d,"UPDATE users SET enabled=0 WHERE id=?","i",target);
+  db_run(d,"DELETE FROM sessions WHERE user_id=?","i",target);
+  event(d,actor->id,"USER_DISABLE",target,NULL);
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+  if(!db_run(d,"COMMIT",""))return db_failure(d);
+  log_write(1,"ADMIN user %lld disabled by %lld",(long long)target,(long long)actor->id);
+  cJSON *j=cJSON_CreateObject();jid(j,"user_id",target);cJSON_AddBoolToObject(j,"enabled",0);
+  return result(200,"OK","账号已停用，该用户全部会话已下线",j);
+ }
+ if(!strcmp(op,"enable")){
+  if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
+  db_run(d,"UPDATE users SET enabled=1 WHERE id=?","i",target);
+  event(d,actor->id,"USER_ENABLE",target,NULL);
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+  if(!db_run(d,"COMMIT",""))return db_failure(d);
+  cJSON *j=cJSON_CreateObject();jid(j,"user_id",target);cJSON_AddBoolToObject(j,"enabled",1);
+  return result(200,"OK","账号已启用",j);
+ }
+ if(!strcmp(op,"reset-password")){
+  char rnd[65],pw[13],hash[crypto_pwhash_STRBYTES];
+  random_hex(rnd);memcpy(pw,rnd,12);pw[12]=0;sodium_memzero(rnd,sizeof rnd);
+  if(crypto_pwhash_str(hash,pw,strlen(pw),crypto_pwhash_OPSLIMIT_INTERACTIVE,crypto_pwhash_MEMLIMIT_INTERACTIVE))return result(500,"INTERNAL_ERROR","密码处理失败",NULL);
+  if(!db_run(d,"BEGIN IMMEDIATE","")){sodium_memzero(hash,sizeof hash);return db_failure(d);}
+  db_run(d,"UPDATE users SET password_hash=? WHERE id=?","si",hash,target);
+  sodium_memzero(hash,sizeof hash);
+  db_run(d,"DELETE FROM sessions WHERE user_id=?","i",target);
+  event(d,actor->id,"RESET_PW",target,NULL);
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+  if(!db_run(d,"COMMIT",""))return db_failure(d);
+  log_write(1,"ADMIN password reset for user %lld by %lld",(long long)target,(long long)actor->id);
+  cJSON *j=cJSON_CreateObject();jid(j,"user_id",target);cJSON_AddStringToObject(j,"password",pw);
+  sodium_memzero(pw,sizeof pw);
+  return result(200,"OK","密码已重置，新口令仅显示这一次",j);
+ }
+ return result(404,"NOT_FOUND","接口不存在",NULL);
+}
+/* 通知发送历史：全站通知按时间倒序，含接收人与已读状态。 */
+Result notifications_sent(DB *d,int page,int size){
+ Id limit=(Id)size+1,offset=(Id)(page-1)*size;
+ cJSON *rows=db_rows(d,"SELECT n.id,n.kind,n.title,n.body,n.read_at,n.created_at,u.username FROM notifications n JOIN users u ON u.id=n.user_id ORDER BY n.id DESC LIMIT ? OFFSET ?","ii",limit,offset);
+ if(!rows)return db_failure(d);
+ int more=cJSON_GetArraySize(rows)>size;if(more)cJSON_DeleteItemFromArray(rows,size);
+ Id total=db_num(d,"SELECT count(*) FROM notifications","");
+ if(d->error){cJSON_Delete(rows);return db_failure(d);}
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"sent",rows);cJSON_AddNumberToObject(j,"total",(double)total);
+ cJSON_AddNumberToObject(j,"page",(double)page);cJSON_AddNumberToObject(j,"page_size",(double)size);cJSON_AddBoolToObject(j,"has_more",more);
+ return result(200,"OK","查询成功",j);
+}
+/* 场次开始提醒：向即将开始（remind_sec 窗口内）且未提醒过场次的全部有效预约用户发送站内通知，reminded_at 防重。 */
+int remind_once(const Config *config){
+ if(config->remind_sec<=0)return 0;
+ DB d={0};int count=0;
+ if(!db_open(&d,config->db_path)){db_close(&d);return 0;}
+ Id now=now_sec();
+ cJSON *due=db_rows(&d,"SELECT DISTINCT s.id FROM slots s JOIN reservations r ON r.slot_id=s.id AND r.status='CONFIRMED' WHERE s.reminded_at IS NULL AND s.start_at>? AND s.start_at<=?","ii",now,now+(Id)config->remind_sec);
+ if(!due||!cJSON_GetArraySize(due)){cJSON_Delete(due);db_close(&d);return 0;}
+ if(!db_run(&d,"BEGIN IMMEDIATE","")){cJSON_Delete(due);db_close(&d);return 0;}
+ cJSON *it;cJSON_ArrayForEach(it,due){
+  Id sid=0;if(!parse_id(jstr(it,"id"),&sid))continue;
+  cJSON *rs=db_rows(&d,"SELECT id,user_id FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid);
+  if(!rs)break;
+  char when[40];slot_when(&d,sid,when);
+  cJSON *rit;cJSON_ArrayForEach(rit,rs){
+   Id rid=0,uid=0;
+   if(!parse_id(jstr(rit,"id"),&rid)||!parse_id(jstr(rit,"user_id"),&uid))continue;
+   char body[160];snprintf(body,sizeof body,"你预约的场次 %s 即将开始，请按时到场并在签到时间内完成签到。",when);
+   notify(&d,uid,"REMIND","场次即将开始",body,sid,rid);
+  }
+  cJSON_Delete(rs);
+  db_run(&d,"UPDATE slots SET reminded_at=1 WHERE id=?","i",sid);
+  if(d.error)break;
+  count++;
+ }
+ cJSON_Delete(due);
+ if(d.error||count==0){if(d.error)sqlite3_exec(d.sql,"ROLLBACK",NULL,NULL,NULL);db_close(&d);return count;}
+ if(!db_run(&d,"COMMIT","")){db_close(&d);return count;}
+ log_write(1,"REMIND slots=%d",count);db_close(&d);return count;
 }

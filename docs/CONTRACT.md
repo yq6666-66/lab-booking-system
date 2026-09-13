@@ -52,6 +52,17 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 - 延迟直方图桶边界（毫秒）：1/2/5/10/20/50/100/200/500/1000/2000 及 >2000 溢出桶，共 12 桶；latency_ms.sum 与 max 单位为毫秒。
 - 计数器为进程内存态（无锁原子计数），服务重启清零，不持久化。
 
+## 用户管理与运营（r11）
+- GET /api/admin/users?page=&page_size=&q? -> data `{users:[{id,username,role,enabled,reservations,waitlisted}],total,page,page_size,has_more}`。仅管理员；q 为用户名前缀过滤；reservations 为该用户有效预约（CONFIRMED）数，waitlisted 为候补中数。
+- POST /api/admin/users/{id}/disable -> data `{user_id,enabled:false}`。停用账号同时删除其全部会话（立即下线）且无法登录；目标不存在 404；管理员停用自己返回 409 STATE_CONFLICT「不能停用当前登录的管理员」；审计 USER_DISABLE。
+- POST /api/admin/users/{id}/enable -> data `{user_id,enabled:true}`。审计 USER_ENABLE。
+- POST /api/admin/users/{id}/reset-password -> data `{user_id,password}`。生成 12 位随机口令（Argon2id 入库），明文仅本次响应返回一次、不落库明文；同时删除该用户全部会话；审计 RESET_PW。
+- GET /api/admin/notifications/sent?page=&page_size= -> data `{sent:[{id,kind,title,body,username,read_at,created_at}],total,page,page_size,has_more}`。全站通知（含 PROMOTED/NO_SHOW/NOTICE/REMIND）按时间倒序，附接收人用户名与已读时间。
+- 记录过滤：GET /api/me/records 支持可选 `status` 参数（CONFIRMED/CANCELLED/NO_SHOW，其他值 400）；GET /api/admin/records 支持可选 `action`（≤32）与 `user`（≤64）参数，仅过滤操作日志列表。
+- 场次开始提醒：服务端扫描线程在每个扫描周期检查「开始时间在 now+remind_sec 窗口内且 reminded_at 为空」的场次，向其全部有效预约用户发送 kind='REMIND' 站内通知，随后置 reminded_at=1 防重；`--remind-sec SEC` 配置窗口（默认 1800，0 关闭）。slots 表经幂等迁移新增 reminded_at 列；notifications.kind 约束扩展为 PROMOTED/NO_SHOW/NOTICE/REMIND（旧库自动重建迁移）。
+- 自动备份：`--backup-interval SEC`（默认 21600=6 小时，0 关闭）配合 `--backup DEST` 目录，服务内后台线程定时执行在线快照 `DEST/lab-backup-YYYYMMDD-HHMMSS.db` 并轮转保留最近 7 份；一次性 `--backup FILE` 语义不变。
+- 安全头：CSP（default-src 'self'）、X-Content-Type-Options、X-Frame-Options、Referrer-Policy 经 CivetWeb additional_header 对全部响应（含静态页）下发；API 响应不再重复携带。
+
 ## 分工
 主Agent：src、依赖、构建、集成。页面Agent仅修改web。测试Agent仅修改tests。任何修改已有文件先在本任务work/backups留备份；不要修改其他Agent拥有的文件。
 

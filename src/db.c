@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sodium.h>
+#include <time.h>
 #include <windows.h>
 #ifndef WATCHDOG_MS
 #define WATCHDOG_MS 5000
@@ -143,13 +144,19 @@ static int db_migrate(DB *d){
   if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
   if(!db_run(d,"COMMIT",""))return 0;
  }
- /* v3→v4：notifications.kind 增加 'NOTICE'（管理员公告）；CHECK 无法原地修改，检测到旧约束时重建表。 */
+ if(!has_column(d,"slots","reminded_at")){ /* v3/v4→提醒列：幂等追加 */
+  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+  db_run(d,"ALTER TABLE slots ADD COLUMN reminded_at INTEGER","");
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(!db_run(d,"COMMIT",""))return 0;
+ }
+ /* v3→v4：notifications.kind 增加 'NOTICE'（管理员公告）与 'REMIND'（开场提醒）；CHECK 无法原地修改，检测到旧约束时重建表。 */
  cJSON *nt=db_first(d,"SELECT sql FROM sqlite_master WHERE type='table' AND name='notifications'","");
  if(!nt)return d->error?0:1;
  const char *nddl=jstr(nt,"sql");
- if(nddl&&!strstr(nddl,"'NOTICE'")){
+ if(nddl&&(!strstr(nddl,"'NOTICE'")||!strstr(nddl,"'REMIND'"))){
   if(!db_run(d,"BEGIN IMMEDIATE","")){cJSON_Delete(nt);return 0;}
-  db_run(d,"CREATE TABLE notifications_new(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN('PROMOTED','NO_SHOW','NOTICE')),title TEXT NOT NULL,body TEXT NOT NULL,slot_id INTEGER REFERENCES slots(id),reservation_id INTEGER REFERENCES reservations(id),read_at INTEGER,created_at INTEGER NOT NULL)","");
+  db_run(d,"CREATE TABLE notifications_new(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN('PROMOTED','NO_SHOW','NOTICE','REMIND')),title TEXT NOT NULL,body TEXT NOT NULL,slot_id INTEGER REFERENCES slots(id),reservation_id INTEGER REFERENCES reservations(id),read_at INTEGER,created_at INTEGER NOT NULL)","");
   db_run(d,"INSERT INTO notifications_new(id,user_id,kind,title,body,slot_id,reservation_id,read_at,created_at) SELECT id,user_id,kind,title,body,slot_id,reservation_id,read_at,created_at FROM notifications","");
   db_run(d,"DROP TABLE notifications","");
   db_run(d,"ALTER TABLE notifications_new RENAME TO notifications","");
@@ -166,7 +173,7 @@ int db_init(DB *d){
  "CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN('USER','ADMIN')),enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)));"
  "CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),csrf_token TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER);"
  "CREATE TABLE IF NOT EXISTS labs(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,location TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)));"
- "CREATE TABLE IF NOT EXISTS slots(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL REFERENCES labs(id),start_at INTEGER NOT NULL,end_at INTEGER NOT NULL,enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)),capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 200),UNIQUE(lab_id,start_at),CHECK(end_at=start_at+3600));"
+ "CREATE TABLE IF NOT EXISTS slots(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL REFERENCES labs(id),start_at INTEGER NOT NULL,end_at INTEGER NOT NULL,enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)),capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 200),reminded_at INTEGER,UNIQUE(lab_id,start_at),CHECK(end_at=start_at+3600));"
  "CREATE TABLE IF NOT EXISTS reservations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','CANCELLED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW')));"
  "CREATE INDEX IF NOT EXISTS bookings_slot ON reservations(slot_id,status);"
  "CREATE INDEX IF NOT EXISTS bookings_user ON reservations(user_id,created_at);"
@@ -175,7 +182,7 @@ int db_init(DB *d){
  "CREATE INDEX IF NOT EXISTS wait_order ON waitlist(slot_id,status,id);"
  "CREATE TABLE IF NOT EXISTS request_receipts(user_id INTEGER NOT NULL REFERENCES users(id),request_id TEXT NOT NULL,action TEXT NOT NULL,payload_digest TEXT NOT NULL,http_status INTEGER NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(user_id,request_id));"
  "CREATE TABLE IF NOT EXISTS operation_events(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL REFERENCES users(id),action TEXT NOT NULL,entity_id INTEGER NOT NULL,request_id TEXT,created_at INTEGER NOT NULL);"
- "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN('PROMOTED','NO_SHOW','NOTICE')),title TEXT NOT NULL,body TEXT NOT NULL,slot_id INTEGER REFERENCES slots(id),reservation_id INTEGER REFERENCES reservations(id),read_at INTEGER,created_at INTEGER NOT NULL);"
+ "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN('PROMOTED','NO_SHOW','NOTICE','REMIND')),title TEXT NOT NULL,body TEXT NOT NULL,slot_id INTEGER REFERENCES slots(id),reservation_id INTEGER REFERENCES reservations(id),read_at INTEGER,created_at INTEGER NOT NULL);"
  "CREATE INDEX IF NOT EXISTS notify_user ON notifications(user_id,id);"
  "PRAGMA user_version=3;COMMIT;";
  cJSON *wal=db_first(d,"PRAGMA journal_mode=WAL","");int ok=wal&&jstr(wal,"journal_mode")&&!strcmp(jstr(wal,"journal_mode"),"wal");cJSON_Delete(wal);if(!ok)return 0;
@@ -242,4 +249,26 @@ int db_backup(const char *src,const char *dest){
  else if(sqlite3_backup_step(b,-1)!=SQLITE_DONE)rc=0;
  if(b)sqlite3_backup_finish(b);
  sqlite3_close(s);sqlite3_close(d);return rc;
+}
+/* 定时备份 + 轮转：写 dir/lab-backup-YYYYMMDD-HHMMSS.db，保留最近 keep 份。 */
+int backup_rotate(const char *src,const char *dir,int keep){
+ if(!src||!dir||keep<1)return 0;
+ time_t t=time(NULL);struct tm lt;localtime_s(&lt,&t);
+ char dest[MAX_PATH],pattern[MAX_PATH];
+ if(snprintf(dest,sizeof dest,"%s\\lab-backup-%04d%02d%02d-%02d%02d%02d.db",dir,lt.tm_year+1900,lt.tm_mon+1,lt.tm_mday,lt.tm_hour,lt.tm_min,lt.tm_sec)>=(int)sizeof dest)return 0;
+ if(!db_backup(src,dest))return 0;
+ if(snprintf(pattern,sizeof pattern,"%s\\lab-backup-*.db",dir)>=(int)sizeof pattern)return 1; /* 备份已成功，轮转失败不回退 */
+ for(int guard=0;guard<1000;guard++){ /* 反复删最旧一份直到数量<=keep；防御性上限防死循环 */
+  WIN32_FIND_DATAA fd;int count=0;char oldest[MAX_PATH]="";FILETIME ft;ft.dwHighDateTime=MAXDWORD;ft.dwLowDateTime=MAXDWORD;
+  HANDLE h=FindFirstFileA(pattern,&fd);if(h==INVALID_HANDLE_VALUE)break;
+  do{
+   if(fd.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)continue;
+   count++;
+   if(CompareFileTime(&fd.ftCreationTime,&ft)<0){ft=fd.ftCreationTime;int k=snprintf(oldest,sizeof oldest,"%s\\%s",dir,fd.cFileName);if(k>0&&(size_t)k>=sizeof oldest)oldest[0]=0;}
+  }while(FindNextFileA(h,&fd));
+  FindClose(h);
+  if(count<=keep||!oldest[0])break;
+  DeleteFileA(oldest);
+ }
+ return 1;
 }

@@ -6,7 +6,7 @@
 #include <direct.h>
 #include <windows.h>
  static int app_main(int argc,char **argv){
- Config c={"data/lab.db","web",8080,900,30,30,1,5,900,500,NULL,NULL,NULL};int seed=0,init=0,check=0;
+ Config c={"data/lab.db","web",8080,900,30,30,1,5,900,500,NULL,NULL,NULL,1800,21600};int seed=0,init=0,check=0;
  for(int i=1;i<argc;i++){
   if(!strcmp(argv[i],"--seed"))seed=1;else if(!strcmp(argv[i],"--init-only"))init=1;else if(!strcmp(argv[i],"--check"))check=1;
   else if(!strcmp(argv[i],"--db")&&i+1<argc)c.db_path=argv[++i];
@@ -20,11 +20,13 @@
   else if(!strcmp(argv[i],"--login-lockout")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n<1||n>86400){fprintf(stderr,"Login lockout must be 1..86400 seconds\n");return 2;}c.login_lockout=(int)n;}
   else if(!strcmp(argv[i],"--slow-ms")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n>100000){fprintf(stderr,"Slow threshold must be 0..100000 ms\n");return 2;}c.slow_ms=(int)n;}
   else if(!strcmp(argv[i],"--backup")&&i+1<argc)c.backup_dest=argv[++i];
+  else if(!strcmp(argv[i],"--remind-sec")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n>86400){fprintf(stderr,"Remind seconds must be 0..86400 (0 disables)\n");return 2;}c.remind_sec=(int)n;}
+  else if(!strcmp(argv[i],"--backup-interval")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n>604800){fprintf(stderr,"Backup interval must be 0..604800 seconds (0 disables)\n");return 2;}c.backup_interval=(int)n;}
 #ifdef TEST_FAULTS
   else if(!strcmp(argv[i],"--fault")&&i+1<argc)c.fault=argv[++i];
   else if(!strcmp(argv[i],"--fault-request")&&i+1<argc)c.fault_request=argv[++i];
 #endif
-  else {fprintf(stderr,"Usage: lab-booking --db FILE --web DIR --port PORT [--checkin-window SEC] [--sweep-interval SEC] [--rate-burst N] [--rate-refill-sec SEC] [--login-max-fails N] [--login-lockout SEC] [--slow-ms MS] [--backup DEST] [--seed --init-only] [--check]\n");return 2;}
+  else {fprintf(stderr,"Usage: lab-booking --db FILE --web DIR --port PORT [--checkin-window SEC] [--sweep-interval SEC] [--rate-burst N] [--rate-refill-sec SEC] [--login-max-fails N] [--login-lockout SEC] [--slow-ms MS] [--backup DEST] [--remind-sec SEC] [--backup-interval SEC] [--seed --init-only] [--check]\n");return 2;}
  }
  int sweep_mid=c.fault&&!strcmp(c.fault,"sweep-mid");
  if(sweep_mid){/* 扫描故障注入无需请求编号 */}

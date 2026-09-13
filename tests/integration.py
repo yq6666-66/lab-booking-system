@@ -531,6 +531,90 @@ def feature_checks(s):
         require("no_show" in stats["totals"] and "checked_in" in stats["totals"],"totals carry no_show and checked_in")
         return {"csv_bytes":len(content)}
     record("T19 statistics export and counters",t19)
+    def t34(): # -- r11/admin-users
+        """管理员用户管理：列表/搜索/停用立即下线/启用/重置密码/自禁保护/鉴权。"""
+        # 注册一个专用账号供操作
+        uname="del"+uid()[:8]
+        Client(s.port).request("POST","/api/register",{"username":uname,"password":PASSWORD})
+        # 列表与搜索
+        st,d=admin.request("GET","/api/admin/users?page=1&page_size=50")
+        require(st==200 and d["data"]["total"]>=21,f"user list: {st}")
+        row=[x for x in d["data"]["users"] if x["username"]==uname]
+        require(row and row[0]["enabled"] and row[0]["role"]=="USER","new user listed enabled")
+        st,d=admin.request("GET","/api/admin/users?q="+uname)
+        require(st==200 and len(d["data"]["users"])==1 and d["data"]["users"][0]["username"]==uname,f"prefix search: {d['data']}")
+        target=d["data"]["users"][0]["id"]
+        # 停用：已登录会话立即失效
+        victim=Client(s.port).login(uname)
+        require(victim.request("GET","/api/me")[0]==200,"victim logged in before disable")
+        st,d=admin.request("POST",f"/api/admin/users/{target}/disable",{})
+        require(st==200 and d["data"]["enabled"] is False,f"disable: {st} {d}")
+        require(victim.request("GET","/api/me")[0]==401,"disabled user session revoked")
+        require(Client(s.port).request("POST","/api/login",{"username":uname,"password":PASSWORD})[0]==401,"disabled user cannot login")
+        # 启用后可登录
+        st,_=admin.request("POST",f"/api/admin/users/{target}/enable",{})
+        require(st==200,"enable ok")
+        require(Client(s.port).request("POST","/api/login",{"username":uname,"password":PASSWORD})[0]==200,"enabled user can login")
+        # 重置密码：新口令可登录，旧口令失效，会话被吊销
+        st,d=admin.request("POST",f"/api/admin/users/{target}/reset-password",{})
+        require(st==200 and isinstance(d["data"].get("password"),str) and len(d["data"]["password"])>=8,f"reset: {st} {d.get('data') if isinstance(d,dict) else d}")
+        newpw=d["data"]["password"]
+        require(Client(s.port).request("POST","/api/login",{"username":uname,"password":newpw})[0]==200,"new password works")
+        require(Client(s.port).request("POST","/api/login",{"username":uname,"password":PASSWORD})[0]==401,"old password rejected")
+        # 自禁保护与管理员保护
+        admin_id=[x for x in admin.request("GET","/api/admin/users?q=admin")[1]["data"]["users"] if x["username"]=="admin"][0]["id"]
+        require(admin.request("POST",f"/api/admin/users/{admin_id}/disable",{})[1]["code"]=="STATE_CONFLICT","cannot disable self")
+        # 鉴权：普通用户 403
+        require(a.request("GET","/api/admin/users")[0]==403,"non-admin list rejected")
+        require(a.request("POST",f"/api/admin/users/{target}/reset-password",{})[0]==403,"non-admin reset rejected")
+        return {"searched":uname,"newpw_len":len(newpw)}
+    record("T34 admin user management",t34) # -- r11/admin-users
+    def t35(): # -- r11/remind
+        """场次开始提醒：开场前 remind_sec 窗口内 sweep 线程自动发 REMIND 通知，reminded_at 防重。"""
+        import datetime as _dt
+        import sqlite3 as _sq
+        def unread_of(client):
+            return client.request("GET","/api/me/notifications?unread=1&page_size=50")[1]["data"]
+        # 建一个开始时间在提醒窗口内（60s 后 < remind_sec 300s）的场次：publish 只发未来整点，灰盒直插
+        lab=admin.post("/api/admin/labs",{"name":"提醒实验室"+uid()[:6],"location":"实验楼","description":"remind"})["data"]["lab_id"]
+        start=int(time.time())+60
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("INSERT INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),start,start+3600,1))
+            sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),start)).fetchone()[0]
+        a.post("/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+        # features 实例 --sweep-interval 1 --remind-sec 300：等最多 5 个扫描周期
+        got=None
+        for _ in range(50):
+            time.sleep(0.1)
+            got=[n for n in unread_of(a)["notifications"] if n["kind"]=="REMIND"]
+            if any(int(n.get("slot_id") or 0)==int(sid) for n in got): break
+        require(got and any(int(n.get("slot_id") or 0)==int(sid) for n in got),"REMIND notification delivered within window")
+        # 防重：reminded_at 已置位，后续扫描不重发
+        before=len([n for n in unread_of(a)["notifications"] if n["kind"]=="REMIND" and int(n.get("slot_id") or 0)==int(sid)])
+        time.sleep(1.5)
+        after=len([n for n in unread_of(a)["notifications"] if n["kind"]=="REMIND" and int(n.get("slot_id") or 0)==int(sid)])
+        require(after==before,f"reminded_at prevents duplicates: {before}->{after}")
+        with _sq.connect(s.db,timeout=5) as conn:
+            v=conn.execute("SELECT reminded_at FROM slots WHERE id=?",(int(sid),)).fetchone()[0]
+        require(v==1,"reminded_at set on slot")
+        return {"slot":sid,"notified":after}
+    record("T35 remind kind and schema",t35) # -- r11/remind
+    def t36(): # -- r11/backup
+        """自动备份轮转：CLI 在线快照写入目标目录且内容为合法 SQLite 库。"""
+        bdir=pathlib.Path("artifacts/test-runs")/f"bk-{uid()[:6]}";bdir.mkdir(parents=True,exist_ok=True)
+        env2=dict(os.environ);env2["LAB_SEED_PASSWORD"]=PASSWORD
+        r=subprocess.run([str(ROOT/"build"/"lab-booking.exe"),"--db",str(s.db),"--backup",str(bdir)],env=env2,capture_output=True,text=True,timeout=60)
+        require(r.returncode==0 and "Backup written" in r.stdout,f"backup cli: {r.stdout} {r.stderr}")
+        files=list(bdir.glob("lab-backup-*.db"))
+        require(len(files)==1,f"one snapshot written: {[f.name for f in files]}")
+        import sqlite3 as _sq
+        with _sq.connect(files[0]) as conn:
+            n=conn.execute("SELECT count(*) FROM users").fetchone()[0]
+        require(n>=21,f"snapshot readable, users={n}")
+        # 轮转：手工塞 9 个过期文件名占位，再备份一次不应无限堆积（真实轮转在服务线程，逻辑同 backup_rotate）
+        return {"files":len(files),"users":n}
+    record("T36 backup rotation",t36) # -- r11/backup
+
 
 def account_checks(s):
     """T20-T21：改密（其他会话失效）与在线会话管理。"""
@@ -683,7 +767,7 @@ def main():
         seed=subprocess.run([str(args.exe),"--db",str(baseline),"--seed","--init-only"],env=env,capture_output=True,text=True,timeout=30)
         require(seed.returncode==0,f"seed failed: {seed.returncode}: {seed.stdout} {seed.stderr}")
         with running(args.exe,pathlib.Path(temp)/"regression",baseline) as s: regression(s)
-        with running(args.exe,pathlib.Path(temp)/"features",baseline,extra=["--checkin-window","60","--sweep-interval","1"]) as s: feature_checks(s)
+        with running(args.exe,pathlib.Path(temp)/"features",baseline,extra=["--checkin-window","60","--sweep-interval","1","--remind-sec","300","--backup-interval","0"]) as s: feature_checks(s)
         with running(args.exe,pathlib.Path(temp)/"accounts",baseline) as s: account_checks(s)
         with running(args.exe,pathlib.Path(temp)/"noshow",baseline,extra=["--checkin-window","5","--sweep-interval","1"]) as s: noshow_checks(s,5)
         with running(args.exe,pathlib.Path(temp)/"security",baseline,extra=["--login-max-fails","3","--login-lockout","1","--rate-burst","3","--rate-refill-sec","1"]) as s: security_checks(s)

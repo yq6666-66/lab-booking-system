@@ -65,3 +65,5 @@ Database initialization/integrity check failed (code 11).
 Lab Booking ready: http://127.0.0.1:56905
 Lab Booking ready: http://127.0.0.1:63900
 Lab Booking ready: http://127.0.0.1:49294
+Cannot open database
+Lab Booking ready: http://127.0.0.1:61567
