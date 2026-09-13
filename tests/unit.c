@@ -14,8 +14,10 @@ static void remove_files(const char *base){
  const char *suffixes[]={"","-wal","-shm"};
  for(size_t i=0;i<sizeof suffixes/sizeof *suffixes;i++){snprintf(buf,sizeof buf,"%s%s",base,suffixes[i]);remove(buf);}
 }
+static Id used_hours[256];static int used_hours_n;
 static void fresh_seed(void){
  remove_files(DBPATH);
+ used_hours_n=0;
  TEST_ASSERT_TRUE(db_open(&db,DBPATH));
  TEST_ASSERT_TRUE(db_init(&db));
  TEST_ASSERT_TRUE(db_seed(&db,"UnitPassword123!"));
@@ -26,9 +28,18 @@ static User make_user(const char *name){
  parse_id(jstr(r,"id"),&u.id);u.admin=!strcmp(jstr(r,"role"),"ADMIN");
  snprintf(u.username,sizeof u.username,"%s",name);cJSON_Delete(r);return u;
 }
-static Id free_slot(void){ /* 最早一个尚无任何预约记录的未来场次 */
- cJSON *r=db_first(&db,"SELECT id FROM slots s WHERE s.start_at>? AND NOT EXISTS(SELECT 1 FROM reservations x WHERE x.slot_id=s.id) ORDER BY s.start_at LIMIT 1","i",now_sec()+3600);
- TEST_ASSERT_NOT_NULL(r);Id id=0;parse_id(jstr(r,"id"),&id);cJSON_Delete(r);return id;
+/* r12 时段重叠规则后，同一用户的两个场次不得时间重叠：
+   free_slot 记录已被本测试用例使用的北京小时，后续取场次自动错开。 */
+static Id slot_field(Id slot,const char *column);
+static Id free_slot(void){ /* 最早一个尚无任何预约记录、且时刻未被任何 CONFIRMED 预约占用（跨实验室同时段会 TIME_CONFLICT）的未来场次 */
+ char sql[896]="SELECT id FROM slots s WHERE s.start_at>? AND NOT EXISTS(SELECT 1 FROM reservations x WHERE x.slot_id=s.id)"
+  " AND NOT EXISTS(SELECT 1 FROM reservations x JOIN slots x2 ON x2.id=x.slot_id WHERE x.status='CONFIRMED' AND x2.start_at=s.start_at)";
+ for(int i=0;i<used_hours_n;i++){char extra[96];snprintf(extra,sizeof extra," AND s.start_at<>%lld",(long long)used_hours[i]);strncat(sql,extra,sizeof sql-strlen(sql)-1);}
+ strncat(sql," ORDER BY s.start_at LIMIT 1",sizeof sql-strlen(sql)-1);
+ cJSON *r=db_first(&db,sql,"i",now_sec()+3600);
+ TEST_ASSERT_NOT_NULL(r);Id id=0;parse_id(jstr(r,"id"),&id);cJSON_Delete(r);
+ if(used_hours_n<(int)(sizeof used_hours/sizeof *used_hours))used_hours[used_hours_n++]=slot_field(id,"start_at");
+ return id;
 }
 static Id slot_field(Id slot,const char *column){
  char sql[128];snprintf(sql,sizeof sql,"SELECT %s FROM slots WHERE id=?",column);
@@ -154,6 +165,7 @@ static void test_reserve_conflict_and_alternatives(void){
  Id s=free_slot(),lab=slot_field(s,"lab_id"),start=slot_field(s,"start_at");
  char k1[40],k2[40],k3[40],kc[40];new_key(k1);new_key(k2);new_key(k3);new_key(kc);
  Result r=booking(&db,NULL,&u1,"reserve",s,k1);
+ if(r.status!=200){fprintf(stderr,"DEBUG code=%s msg=%s start=%lld\n",rcode(r),jstr(r.body,"message"),(long long)s);fflush(stderr);}
  TEST_ASSERT_EQUAL_INT(200,r.status);TEST_ASSERT_EQUAL_STRING("OK",rcode(r));
  Id rid=rid_of(r,"reservation_id");TEST_ASSERT_TRUE(rid>0);
  TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));

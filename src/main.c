@@ -5,8 +5,51 @@
 #include <string.h>
 #include <direct.h>
 #include <windows.h>
- static int app_main(int argc,char **argv){
- Config c={"data/lab.db","web",8080,900,30,30,1,5,900,500,NULL,NULL,NULL,1800,21600};int seed=0,init=0,check=0;
+/* -- r12 演示数据：为过去 demo_days 天生成可复现的预约/签到/爽约/候补历史（固定随机种子 42） -- */
+static int gen_demo(DB *db,int days,const char *password){
+ (void)password;
+ unsigned long long rng=42;
+ #define DEMO_NEXT() (rng=rng*6364136223846793005ULL+1442695040888963407ULL)
+ for(int d=days;d>=1;d--){
+  Id day_start=(now_sec()+28800)/86400*86400-28800-(Id)d*86400; /* 北京当天 0 点 */
+  for(int hour=0;hour<8;hour++){
+   static const int hours[8]={8,9,10,11,14,15,16,17};
+   Id start=day_start+(Id)hours[hour]*3600;
+   Id lab=1+(Id)(hour%3); /* 种子只建未来场次，历史场次需自行插入：三个实验室轮换 */
+   db_run(db,"INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,1,2,NULL)","iiii",lab,start,start+3600);
+   Id slot=db_num(db,"SELECT id FROM slots WHERE start_at=?","i",start);
+   if(!slot)continue;
+   Id capacity=db_num(db,"SELECT capacity FROM slots WHERE id=?","i",slot);
+   /* 2..capacity 人预约 */
+   int n=(int)(2+DEMO_NEXT()%((unsigned long long)capacity<3?1:(unsigned long long)capacity-2+1));
+   if(n>(int)capacity)n=(int)capacity;
+   for(int k=0;k<n;k++){
+    Id uid=2+(Id)(DEMO_NEXT()%8); /* user01..user08 */
+    if(db_num(db,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=?","ii",slot,uid))continue;
+    if((int)(DEMO_NEXT()%10)<2)continue; /* 20% 空缺 */
+    db_run(db,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?, 'CONFIRMED','DIRECT',?)","iii",uid,slot,start-86400);
+    Id rid=sqlite3_last_insert_rowid(db->sql);
+    unsigned long long roll=DEMO_NEXT()%100;
+    if(roll<15){ /* 15% 爽约 */
+     db_run(db,"UPDATE reservations SET status='CANCELLED',cancelled_at=?,cancel_reason='NO_SHOW' WHERE id=?","ii",start+3600,rid);
+    }else if(roll<75){ /* 60% 签到 */
+     db_run(db,"UPDATE reservations SET checked_in_at=? WHERE id=?","ii",start+600+ (Id)(DEMO_NEXT()%1800),rid);
+    }else{ /* 25% 已取消 */
+     db_run(db,"UPDATE reservations SET status='CANCELLED',cancelled_at=?,cancel_reason='USER' WHERE id=?","ii",start-3600,rid);
+    }
+   }
+   /* 候补：容量小时 0..2 人 */
+   if(capacity<=2&&(DEMO_NEXT()%3)==0){
+    Id uid=2+(Id)(DEMO_NEXT()%8);
+    db_run(db,"INSERT OR IGNORE INTO waitlist(user_id,slot_id,status,created_at) VALUES(?,?,'PROMOTED',?)","iii",uid,slot,start-86400);
+   }
+  }
+ }
+ #undef DEMO_NEXT
+ return 1;
+}
+ int app_main(int argc,char **argv){
+ Config c={"data/lab.db","web",8080,900,30,30,1,5,900,500,NULL,NULL,NULL,1800,21600};int seed=0,init=0,check=0,demo_days=0;
  for(int i=1;i<argc;i++){
   if(!strcmp(argv[i],"--seed"))seed=1;else if(!strcmp(argv[i],"--init-only"))init=1;else if(!strcmp(argv[i],"--check"))check=1;
   else if(!strcmp(argv[i],"--db")&&i+1<argc)c.db_path=argv[++i];
@@ -22,11 +65,12 @@
   else if(!strcmp(argv[i],"--backup")&&i+1<argc)c.backup_dest=argv[++i];
   else if(!strcmp(argv[i],"--remind-sec")&&i+1<argc){const char *v=argv[++i];Id n=0;if(strcmp(v,"0")&&(!parse_id(v,&n)||n>86400)){fprintf(stderr,"Remind seconds must be 0..86400 (0 disables)\n");return 2;}c.remind_sec=(int)n;}
   else if(!strcmp(argv[i],"--backup-interval")&&i+1<argc){const char *v=argv[++i];Id n=0;if(strcmp(v,"0")&&(!parse_id(v,&n)||n>604800)){fprintf(stderr,"Backup interval must be 0..604800 seconds (0 disables)\n");return 2;}c.backup_interval=(int)n;}
+  else if(!strcmp(argv[i],"--demo-days")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n>365){fprintf(stderr,"Demo days must be 1..365\n");return 2;}demo_days=(int)n;}
 #ifdef TEST_FAULTS
   else if(!strcmp(argv[i],"--fault")&&i+1<argc)c.fault=argv[++i];
   else if(!strcmp(argv[i],"--fault-request")&&i+1<argc)c.fault_request=argv[++i];
 #endif
-  else {fprintf(stderr,"Usage: lab-booking --db FILE --web DIR --port PORT [--checkin-window SEC] [--sweep-interval SEC] [--rate-burst N] [--rate-refill-sec SEC] [--login-max-fails N] [--login-lockout SEC] [--slow-ms MS] [--backup DEST] [--remind-sec SEC] [--backup-interval SEC] [--seed --init-only] [--check]\n");return 2;}
+  else {fprintf(stderr,"Usage: lab-booking --db FILE --web DIR --port PORT [--checkin-window SEC] [--sweep-interval SEC] [--rate-burst N] [--rate-refill-sec SEC] [--login-max-fails N] [--login-lockout SEC] [--slow-ms MS] [--backup DEST] [--remind-sec SEC] [--backup-interval SEC] [--demo-days N] [--seed --init-only] [--check]\n");return 2;}
  }
  int sweep_mid=c.fault&&!strcmp(c.fault,"sweep-mid");
  if(sweep_mid){/* 扫描故障注入无需请求编号 */}
@@ -36,6 +80,7 @@
  if(!db_open(&db,c.db_path)){fprintf(stderr,"Cannot open database\n");db_close(&db);return 1;}
  if(db_num(&db,"PRAGMA user_version","")>3){fprintf(stderr,"Unsupported schema version\n");db_close(&db);return 1;}
  if(!db_init(&db)||(seed&&!db_seed(&db,getenv("LAB_SEED_PASSWORD")))||!db_check(&db)){fprintf(stderr,"Database initialization/integrity check failed (code %d).\n",db.error);db_close(&db);return 1;}
+ if(demo_days>0){if(!gen_demo(&db,demo_days,getenv("LAB_SEED_PASSWORD"))){fprintf(stderr,"Demo data generation failed\n");db_close(&db);return 1;}printf("Demo history generated for past %d days.\n",demo_days);}
  if(!init&&!check&&!db_run(&db,"DELETE FROM sessions WHERE expires_at<?","i",now_sec())){fprintf(stderr,"Session cleanup failed (code %d).\n",db.error);db_close(&db);return 1;}
  if(c.backup_dest){int ok=db_backup(c.db_path,c.backup_dest);db_close(&db);printf(ok?"Backup written: %s\n":"Backup failed\n",c.backup_dest);return ok?0:1;}
  db_close(&db);if(init||check){puts("Database ready; integrity checks passed.");return 0;}return serve(&c);

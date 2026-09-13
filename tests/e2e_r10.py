@@ -114,7 +114,9 @@ def prepare(server):
     lab_name = f"E2E 场次管理实验室{uid()[:6]}"
     lab = str(admin.post("/api/admin/labs", {"name": lab_name, "location": "信息楼", "description": "R10 端到端验收"})["data"]["lab_id"])
     day = bj_today()
-    admin.post("/api/admin/slots/publish", {"lab_id": lab, "start_date": day, "end_date": day, "capacity": "3"})
+    next_day = (datetime.date.fromisoformat(day) + datetime.timedelta(days=1)).isoformat()
+    # 发布今天+明天两天：深夜运行时今天的时刻可能全部已开始而被跳过，明天保证有可挪场次
+    admin.post("/api/admin/slots/publish", {"lab_id": lab, "start_date": day, "end_date": next_day, "capacity": "3"})
     slots = admin.request("GET", f"/api/slots?lab_id={lab}&date={day}")[1]["data"]["slots"]
     if not slots:
         future = server.sql("SELECT id FROM slots WHERE lab_id=? AND start_at>? ORDER BY start_at LIMIT 1", (lab, int(time.time())))

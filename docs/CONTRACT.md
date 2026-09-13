@@ -8,7 +8,7 @@
 - POST /api/login `{username,password,role_hint?}` -> data `{user:{id,username,role},csrf_token}`，设置cookie。role_hint 为可选的登录入口声明：仅接受 `"ADMIN"` 或 `"USER"`，其他值返回 400 INVALID_INPUT；缺省视为 `"USER"`，不携带该字段的旧客户端行为不变。口令校验通过后才比对入口——role_hint="ADMIN" 而账号实际为 USER 时返回 403 ROLE_MISMATCH（消息"该账号不是管理员，请使用用户入口登录"），不建立会话、不计入登录失败计数（这不是口令错误）；role_hint="USER" 时管理员账号可正常登录（管理员也可用用户入口）。
 - 管理控制台：`/admin.html`（独立页面，静态文件）。页面加载时经 GET /api/me 校验会话与角色，非管理员跳回 `/`；全部管理操作仍走上列 /api/admin/* 端点，服务端 403 鉴权不变。登录页提供「用户登录 / 管理员登录」双入口，管理员入口提交 role_hint="ADMIN"，成功后跳转控制台。
 - GET /api/me -> 同上。POST /api/logout -> OK。
-- GET /api/health -> data `{status:"ok"}`。
+- GET /api/health -> data `{status:"ok",version,uptime_s}`。
 - GET /api/labs -> data `{labs:[{id,name,location,description,enabled}]}`。
 - GET /api/slots?lab_id=1&date=YYYY-MM-DD -> data `{slots:[{id,lab_id,start_at,end_at,enabled,lab_enabled,occupied,waiting_count,my_reservation_id,my_checked_in_at,my_waitlist_id}],checkin_window}`。my_reservation_id/my_checked_in_at/my_waitlist_id 可为 null；checkin_window 为签到窗口秒数，页面据此判断何时显示签到按钮。
 - GET /api/me/records?page=&page_size= -> data `{reservations:[{id,slot_id,lab_name,start_at,end_at,status,source,cancel_reason,checked_in_at}],waitlist:[{id,slot_id,lab_name,start_at,end_at,status,position}],events:[],page,page_size,has_more}`。page_size 取值 1..200（默认 20），has_more 表示是否还有下一页。
@@ -51,6 +51,9 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 - 计数口径：请求在**响应写出之后**统一计数，因此 requests_total 为"已写完响应的累计请求数"；快照读取发生在本次响应写出之前，故返回值不含本次 `/api/admin/metrics` 请求自身，且恒有 requests_total = ok_2xx + err_4xx + err_5xx（本服务不返回 3xx）。ok_2xx/err_4xx/err_5xx 按 HTTP 状态分类；db_busy_503 为数据库忙碌导致的 503 次数（已含于 err_5xx，不重复累加）；logins 在 /api/login 成功路径单独计数。
 - 延迟直方图桶边界（毫秒）：1/2/5/10/20/50/100/200/500/1000/2000 及 >2000 溢出桶，共 12 桶；latency_ms.sum 与 max 单位为毫秒。
 - 计数器为进程内存态（无锁原子计数），服务重启清零，不持久化。
+
+- GET /api/admin/logs?lines=&level= -> data `{lines:[...],file_size,truncated}`。仅管理员；读取 data/logs/app.log 尾部（lines 1..500 默认 100，level 1/2/3 按行前缀过滤，缺省全部）。
+- 业务规则（r12）：① 时段重叠——同一用户不能预约/候补两个时间重叠的场次（409 TIME_CONFLICT）；取消或爽约释放后自动解除。② 爽约信用——近 7 天爽约（NO_SHOW）达 2 次后禁止新的预约与候补（409 PENALTY_ACTIVE），限制期至第 2 次爽约场次时间 +7 天；GET /api/admin/users 每行附 no_show_count。③ 历史归档——扫描线程周期清理结束超 30 天的候补记录与请求回执（预约记录保留供统计）。
 
 ## 用户管理与运营（r11）
 - GET /api/admin/users?page=&page_size=&q? -> data `{users:[{id,username,role,enabled,reservations,waitlisted}],total,page,page_size,has_more}`。仅管理员；q 为用户名前缀过滤；reservations 为该用户有效预约（CONFIRMED）数，waitlisted 为候补中数。

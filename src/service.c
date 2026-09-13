@@ -3,6 +3,10 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+/* -- r12 业务规则常量 -- */
+#define NO_SHOW_GRACE 2      /* 窗口内第 2 次爽约起触发限制 */
+#define PENALTY_DAYS 7       /* 限制时长：从触发爽约的场次时间起算 */
+#define ARCHIVE_DAYS 30      /* 候补/请求回执保留天数（过期归档清理） */
 static void event(DB *d,Id actor,const char *action,Id entity,const char *request){db_run(d,"INSERT INTO operation_events(actor_id,action,entity_id,request_id,created_at) VALUES(?,?,?,?,?)","isisi",actor,action,entity,request,now_sec());}
 int notify(DB *d,Id user,const char *kind,const char *title,const char *body,Id slot,Id reservation){return db_run(d,"INSERT INTO notifications(user_id,kind,title,body,slot_id,reservation_id,created_at) VALUES(?,?,?,?,?,?,?)","isssiii",user,kind,title,body,slot,reservation,now_sec());}
 static void slot_when(DB *d,Id slot,char out[40]){
@@ -96,6 +100,23 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
   if(d->error)goto failed;
   if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",sid,u->id)){r=result(409,"ALREADY_RESERVED","你已预约该场次",NULL);goto save;}
   if(d->error)goto failed;
+  /* 爽约信用：窗口内爽约达 NO_SHOW_GRACE 次，PENALTY_DAYS 内禁止新的预约与候补 */
+  {
+   Id window_start=now_sec()-(Id)PENALTY_DAYS*86400;
+   Id strikes=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=? AND r.cancel_reason='NO_SHOW' AND s2.start_at>=?","ii",u->id,window_start);
+   if(d->error)goto failed;
+   if(strikes>=NO_SHOW_GRACE){
+    char until[11];date_text((window_start+86400*(Id)PENALTY_DAYS+28800)/86400,until);
+    char msg[128];snprintf(msg,sizeof msg,"近 %d 天内爽约 %d 次，预约受限至 %s，如有疑问请联系管理员",PENALTY_DAYS,(int)strikes,until);
+    r=result(409,"PENALTY_ACTIVE",msg,NULL);goto save;
+   }
+  }
+  /* 时段重叠：同一用户不能预约/候补时间重叠的两个场次 */
+  {
+   Id overlap=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id JOIN slots s ON s.id=? WHERE r.user_id=? AND r.status='CONFIRMED' AND s.start_at<s2.end_at AND s2.start_at<s.end_at","ii",sid,u->id);
+   if(d->error)goto failed;
+   if(overlap){r=result(409,"TIME_CONFLICT","与您已预约的场次时间重叠，请先取消原场次",NULL);goto save;}
+  }
   if(taken>=capacity){r=slot_full(d,sid,"该场次已约满，可加入候补或选择替代时段");goto save;}
   promote_fill(d,sid,u->id,key);if(d->error)goto failed;
   taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid);
@@ -109,6 +130,16 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
   if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",sid,u->id)){r=result(409,"ALREADY_RESERVED","你已预约该场次",NULL);goto save;}
   if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid)<capacity){r=result(409,"SLOT_AVAILABLE","场次尚有余位，请直接预约",NULL);goto save;}
   if(d->error)goto failed;
+  /* 候补同样受爽约信用与时间重叠约束（补位成功即占用该时段） */
+  {
+   Id window_start=now_sec()-(Id)PENALTY_DAYS*86400;
+   Id strikes=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=? AND r.cancel_reason='NO_SHOW' AND s2.start_at>=?","ii",u->id,window_start);
+   if(d->error)goto failed;
+   if(strikes>=NO_SHOW_GRACE){r=result(409,"PENALTY_ACTIVE","爽约次数过多，预约受限，如有疑问请联系管理员",NULL);goto save;}
+   Id overlap=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id JOIN slots s ON s.id=? WHERE r.user_id=? AND r.status='CONFIRMED' AND s.start_at<s2.end_at AND s2.start_at<s.end_at","ii",sid,u->id);
+   if(d->error)goto failed;
+   if(overlap){r=result(409,"TIME_CONFLICT","与您已预约的场次时间重叠，不能加入候补",NULL);goto save;}
+  }
   Id wid=db_num(d,"SELECT id FROM waitlist WHERE user_id=? AND slot_id=? AND status='WAITING'","ii",u->id,sid);
   if(!wid){db_run(d,"INSERT INTO waitlist(user_id,slot_id,status,created_at) VALUES(?,?,'WAITING',?)","iii",u->id,sid,now_sec());wid=sqlite3_last_insert_rowid(d->sql);event(d,u->id,"WAIT",wid,key);}
   r=ok_id("waitlist_id",wid);
@@ -403,16 +434,32 @@ int sweep_once(const Config *config){
  fault(config,"sweep-mid",NULL); /* 事务已写未提交：崩溃后应整体回滚（exit 88） */
  if(d.error){sqlite3_exec(d.sql,"ROLLBACK",NULL,NULL,NULL);db_close(&d);return count;}
  if(!db_run(&d,"COMMIT","")){db_close(&d);return count;}
- log_write(1,"SWEEP released=%d",count);db_close(&d);return count;
+ log_write(1,"SWEEP released=%d",count);
+ /* -- r12 历史归档：每 10 个扫描周期清理过期候补与请求回执（预约记录保留供统计） -- */
+ {static int archive_tick=0;
+  if(++archive_tick%10==0){
+   Id cutoff=now_sec()-(Id)ARCHIVE_DAYS*86400,removed=0;
+   if(db_run(&d,"BEGIN IMMEDIATE","")){
+    db_run(&d,"DELETE FROM waitlist WHERE slot_id IN (SELECT id FROM slots WHERE end_at<?)","i",cutoff);
+    removed+=(Id)sqlite3_changes(d.sql);
+    db_run(&d,"DELETE FROM request_receipts WHERE created_at<?","i",cutoff);
+    removed+=(Id)sqlite3_changes(d.sql);
+    if(d.error)sqlite3_exec(d.sql,"ROLLBACK",NULL,NULL,NULL);
+    else if(db_run(&d,"COMMIT",""))log_write(1,"ARCHIVE removed=%lld",(long long)removed);
+   }
+  }
+ }
+ db_close(&d);return count;
 }
 /* -- r11 用户管理与运营增强 -- */
 /* 管理员用户列表：含有效预约数与候补数；q 为用户名前缀过滤（substr 比较，避免 LIKE 通配符转义问题）。 */
 Result users_list(DB *d,int page,int size,const char *q){
  cJSON *j=cJSON_CreateObject();
- char sql[512];Id limit=(Id)size+1,offset=(Id)(page-1)*size;
- snprintf(sql,sizeof sql,"SELECT u.id,u.username,u.role,u.enabled,(SELECT count(*) FROM reservations r WHERE r.user_id=u.id AND r.status='CONFIRMED') AS reservations,(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.status='WAITING') AS waitlisted FROM users u %sORDER BY u.id LIMIT ? OFFSET ?",
+ char sql[640];Id limit=(Id)size+1,offset=(Id)(page-1)*size;
+ Id window_start=now_sec()-(Id)PENALTY_DAYS*86400;
+ snprintf(sql,sizeof sql,"SELECT u.id,u.username,u.role,u.enabled,(SELECT count(*) FROM reservations r WHERE r.user_id=u.id AND r.status='CONFIRMED') AS reservations,(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.status='WAITING') AS waitlisted,(SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=u.id AND r.cancel_reason='NO_SHOW' AND s2.start_at>=?) AS no_show_count FROM users u %sORDER BY u.id LIMIT ? OFFSET ?",
   q?"WHERE substr(u.username,1,length(?))=? ":"");
- cJSON *rows=q?db_rows(d,sql,"ssii",q,q,limit,offset):db_rows(d,sql,"ii",limit,offset);
+ cJSON *rows=q?db_rows(d,sql,"issii",window_start,q,q,limit,offset):db_rows(d,sql,"iii",window_start,limit,offset);
  if(!rows)return db_failure(d);
  int more=cJSON_GetArraySize(rows)>size;if(more)cJSON_DeleteItemFromArray(rows,size);
  Id total=q?db_num(d,"SELECT count(*) FROM users WHERE substr(username,1,length(?))=?","ss",q,q):db_num(d,"SELECT count(*) FROM users","");
@@ -476,6 +523,35 @@ Result notifications_sent(DB *d,int page,int size){
  if(d->error){cJSON_Delete(rows);return db_failure(d);}
  cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"sent",rows);cJSON_AddNumberToObject(j,"total",(double)total);
  cJSON_AddNumberToObject(j,"page",(double)page);cJSON_AddNumberToObject(j,"page_size",(double)size);cJSON_AddBoolToObject(j,"has_more",more);
+ return result(200,"OK","查询成功",j);
+}
+/* 管理员查看服务日志尾部：按级别过滤（日志行以 [level] 前缀），最多返回 lines 行。 */
+ Result logs_tail(int lines,int level){
+ if(lines<1)lines=1;
+ if(lines>500)lines=500;
+ if(level<1||level>3)level=0; /* 0=不过滤 */
+ const char *path="data/logs/app.log";
+ FILE *f=fopen(path,"rb");
+ cJSON *j=cJSON_CreateObject();cJSON *arr=cJSON_AddArrayToObject(j,"lines");
+ if(!f){cJSON_AddBoolToObject(j,"truncated",0);cJSON_AddNumberToObject(j,"file_size",0);return result(200,"OK","日志为空",j);}
+ fseek(f,0,SEEK_END);long size=ftell(f);
+ /* 只读尾部最多 512KB，足够 500 行 */
+ long window=size>512*1024?512*1024:size;
+ fseek(f,size-window,SEEK_SET);
+ char *buf=malloc((size_t)window+1);if(!buf){fclose(f);cJSON_Delete(j);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
+ size_t got=fread(buf,1,(size_t)window,f);fclose(f);buf[got]=0;
+ int truncated=(window<size);
+ /* 滑动窗口收集匹配级别的最后 lines 行 */
+ char **sel=calloc((size_t)lines,sizeof *sel);if(!sel){free(buf);cJSON_Delete(j);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
+ int found=0;
+ char *ctx=NULL;
+ for(char *p=buf;;p=NULL){char *tok=strtok_r(p,"\n",&ctx);if(!tok)break;
+  if(level){const char *name=level>=3?"ERROR":level==2?"WARN":"INFO";char prefix[12];snprintf(prefix,sizeof prefix,"[%s] ",name);size_t pl=strlen(prefix);if(strncmp(tok,prefix,pl))continue;}
+  if(found<lines)sel[found++]=tok;else{for(int i=1;i<lines;i++)sel[i-1]=sel[i];sel[lines-1]=tok;}
+ }
+ for(int i=0;i<found;i++){cJSON *it=cJSON_CreateString(sel[i]);cJSON_AddItemToArray(arr,it);}
+ free(sel);free(buf);
+ cJSON_AddBoolToObject(j,"truncated",truncated?1:0);cJSON_AddNumberToObject(j,"file_size",(double)size);
  return result(200,"OK","查询成功",j);
 }
 /* 场次开始提醒：向即将开始（remind_sec 窗口内）且未提醒过场次的全部有效预约用户发送站内通知，reminded_at 防重。 */
