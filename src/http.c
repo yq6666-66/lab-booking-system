@@ -122,6 +122,9 @@ static Result admin(DB *d,const User *u,const char *path,const cJSON *body){
  }
  if(path_id(path,"/api/admin/slots/","/update",&target))return slot_update(d,u,target,body);
  if(!strcmp(path,"/api/admin/notifications"))return admin_notify(d,u,body);
+ if(path_id(path,"/api/admin/users/","/disable",&target))return user_admin(d,u,target,"disable");
+ if(path_id(path,"/api/admin/users/","/enable",&target))return user_admin(d,u,target,"enable");
+ if(path_id(path,"/api/admin/users/","/reset-password",&target))return user_admin(d,u,target,"reset-password");
  if(!strcmp(path,"/api/admin/labs")||path_id(path,"/api/admin/labs/","/update",&target)){
   const char *name=jstr(body,"name"),*loc=jstr(body,"location"),*desc=jstr(body,"description");cJSON *enabled=cJSON_GetObjectItemCaseSensitive(body,"enabled");
   if(!text_ok(name,180,0)||!text_ok(loc,180,0)||!text_ok(desc,1000,1)||(target&&!cJSON_IsBool(enabled)))return invalid();
@@ -150,10 +153,17 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
     "iiiiii",u.id,u.id,u.id,lab,start,start+86400));
    cJSON_AddNumberToObject(j,"checkin_window",(double)cfg->checkin_window);return result(200,"OK","查询成功",j);
   }
-  if(!strcmp(path,"/api/me/records")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();return records(d,&u,0,0,pg,ps);}
+  if(!strcmp(path,"/api/me/records")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char st[24]={0};query(ri,"status",st,sizeof st);
+   const char *status=NULL;
+   if(st[0]){if(strcmp(st,"CONFIRMED")&&strcmp(st,"CANCELLED")&&strcmp(st,"NO_SHOW"))return invalid();status=st;}
+   return records(d,&u,0,0,pg,ps,status,NULL,NULL);}
   if(!strcmp(path,"/api/me/notifications")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char uf[8]={0};query(ri,"unread",uf,sizeof uf);return notifications(d,&u,!strcmp(uf,"1")||!strcmp(uf,"true"),pg,ps);}
   if(!strcmp(path,"/api/me/sessions"))return sessions_list(d,&u,tokenhash);
-  if(!strcmp(path,"/api/admin/records")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);char dt[32];Id date=0;if(query(ri,"date",dt,sizeof dt)){date=date_start(dt);if(date<0)return invalid();}int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();return records(d,&u,1,date,pg,ps);}
+  if(!strcmp(path,"/api/admin/records")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);char dt[32],ea[36],eu[68];Id date=0;if(query(ri,"date",dt,sizeof dt)){date=date_start(dt);if(date<0)return invalid();}int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();
+   ea[0]=eu[0]=0;query(ri,"action",ea,sizeof ea);query(ri,"user",eu,sizeof eu);
+   if(ea[0]&&strlen(ea)>32)return invalid();
+   if(eu[0]&&strlen(eu)>64)return invalid();
+   return records(d,&u,1,date,pg,ps,NULL,ea[0]?ea:NULL,eu[0]?eu:NULL);}
   if(!strcmp(path,"/api/admin/stats/export")){
    if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
    char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
@@ -167,6 +177,8 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
    return stats(d,a,b);
   }
   if(!strcmp(path,"/api/admin/metrics")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return result(200,"OK","查询成功",metrics_snapshot());}
+  if(!strcmp(path,"/api/admin/users")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char q[68]={0};query(ri,"q",q,sizeof q);if(q[0]&&strlen(q)>64)return invalid();return users_list(d,pg,ps,q[0]?q:NULL);}
+  if(!strcmp(path,"/api/admin/notifications/sent")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();return notifications_sent(d,pg,ps);}
   return result(404,"NOT_FOUND","接口不存在",NULL);
  }
  if(!strcmp(path,"/api/logout")){db_run(d,"DELETE FROM sessions WHERE token_hash=?","s",tokenhash);strcpy(cookie,"Set-Cookie: lab_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n");return result(200,"OK","已退出",NULL);}
@@ -212,28 +224,44 @@ send:
  serialized=r.body?cJSON_PrintUnformatted(r.body):NULL;
  if(!serialized){r.status=500;cookie[0]=0;}
  const char *out=serialized?serialized:"{\"code\":\"INTERNAL_ERROR\",\"message\":\"Memory error\",\"data\":{}}";
- mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'self'\r\nReferrer-Policy: no-referrer\r\nConnection: keep-alive\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
+ /* 安全头（CSP/nosniff/XFO/Referrer-Policy）由 serve() 的 additional_header 全局下发，含静态页。 */
+ mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
  {LARGE_INTEGER mt1;QueryPerformanceCounter(&mt1);double ms=(double)(mt1.QuadPart-mt0.QuadPart)*1000.0/(double)mfreq.QuadPart;metrics_record_request(r.status,ms);
   int lvl=ms>=(double)cfg->slow_ms?2:1;if(r.status>=500)lvl=3;
   log_write(lvl,"ACCESS %s %s %d %.1fms",ri->request_method,ri->local_uri,r.status,ms);}
  return 1;
 }
-/* 后台扫描：定期释放超过签到时限仍未签到的预约，并按 FIFO 补位。 */
+/* 后台扫描：定期释放超过签到时限仍未签到的预约并按 FIFO 补位；顺带发送开场提醒。 */
 static void *sweeper(void *arg){
  const Config *cfg=arg;int waited=0;
  while(!stopping){
   Sleep(200);waited+=200;
-  if(waited>=cfg->sweep_interval*1000){waited=0;sweep_once(cfg);}
+  if(waited>=cfg->sweep_interval*1000){waited=0;sweep_once(cfg);remind_once(cfg);}
+ }
+ return NULL;
+}
+/* 后台备份：每 backup_interval 秒对库做在线快照并轮转保留最近 7 份。 */
+static void *backupper(void *arg){
+ const Config *cfg=arg;int waited=0;
+ if(!cfg->backup_dest||cfg->backup_interval<=0)return NULL;
+ while(!stopping){
+  Sleep(200);waited+=200;
+  if(waited>=cfg->backup_interval*1000){waited=0;
+   if(backup_rotate(cfg->db_path,cfg->backup_dest,7))log_write(1,"BACKUP rotated ok");
+   else log_write(3,"BACKUP failed");
+  }
  }
  return NULL;
 }
 void sweep_start(const Config *config){
  if(config->sweep_interval<=0)return;
  mg_start_thread(sweeper,(void*)config);
+ mg_start_thread(backupper,(void*)config);
 }
 int serve(const Config *cfg){
  char port[48];snprintf(port,sizeof port,"127.0.0.1:%d",cfg->port);
- const char *opts[]={"listening_ports",port,"document_root",cfg->web_path,"num_threads","8","enable_directory_listing","no","request_timeout_ms","5000","enable_keep_alive","yes","keep_alive_timeout_ms","15000",NULL};
+ const char *opts[]={"listening_ports",port,"document_root",cfg->web_path,"num_threads","8","enable_directory_listing","no","request_timeout_ms","5000","enable_keep_alive","yes","keep_alive_timeout_ms","15000",
+  "additional_header","Content-Security-Policy: default-src 'self'\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer",NULL};
  struct mg_callbacks callbacks;memset(&callbacks,0,sizeof callbacks);mg_init_library(0);
  rl_configure(cfg);log_init("data/logs/app.log",5*1024*1024);app_boot=GetTickCount64();
  rl_configure(cfg);
