@@ -47,7 +47,7 @@ box(ax, 6.9, 2.6, 2.6, 0.8, "限流防爆破 ratelimit.c\n（令牌桶+登录锁
 box(ax, 6.9, 1.6, 2.6, 0.8, "运行指标 metrics.c\n（原子计数+延迟直方图）", fc="#f6efdf")
 box(ax, 0.5, 2.6, 6.0, 0.8, "结构化日志 log.c（分级 · 轮转 · 访问日志 · 慢请求告警）", fc="#f6efdf")
 box(ax, 0.5, 1.2, 9, 1.0, "数据访问 src/db.c（参数绑定 · 语句缓存 · 线程连接复用 · 看门狗 · 幂等迁移）", bold=True)
-box(ax, 0.5, 0.1, 9, 0.8, "SQLite 3.53（WAL · synchronous=FULL · 外键 · schema v3 容量制 · 备份 API）", fc="#dbe9e2", bold=True)
+box(ax, 0.5, 0.1, 9, 0.8, "SQLite 3.53（WAL · synchronous=FULL · 外键 · schema v2→v4 幂等迁移 · 备份 API）", fc="#dbe9e2", bold=True)
 for y in (7.9, 6.3, 4.1, 2.5, 1.15):
     ax.add_patch(FancyArrowPatch((5, y), (5, y - 0.25), arrowstyle="-|>", mutation_scale=12, color=BD))
 save(fig, "fig4-1-architecture.png")
