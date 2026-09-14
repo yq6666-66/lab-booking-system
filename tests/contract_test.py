@@ -157,6 +157,8 @@ SCHEMAS = [
     ("POST", "/api/waitlist",                  {"waitlist_id": T_ID}),
     ("POST", "/api/waitlist/{wid2}/withdraw",  {"waitlist_id": T_ID}),
     ("POST", "/api/reservations/{rid2}/checkin", {"reservation_id": T_ID, "checked_in_at": T_INT}),
+    ("POST", "/api/reservations/{rid2}/checkout", {"reservation_id": T_ID, "checked_out_at": nb(T_INT)}),
+    ("GET",  "/api/me/calendar/export", {"filename": T_STR, "content": T_STR}),
     ("GET",  "/api/admin/records?date={today}&page=1&page_size=5", ADMIN_RECORDS),
     ("GET",  "/api/admin/stats?start_date={today}&end_date={today}", {"stats": arr(STAT_ROW), "totals": TOTALS_OBJ}),
     ("GET",  "/api/admin/stats/export?start_date={today}&end_date={today}", {"filename": T_STR, "content": T_STR}),
@@ -295,7 +297,7 @@ def run_scenarios(server):
         def scenario(method=method, path=path, spec=spec, name=name, payload=payload, tpl=path_tpl):
             client = admin if path.startswith("/api/admin") else a
             if "/waitlist" in path: client = b
-            if tpl == "/api/reservations/{rid2}/checkin": client = b  # rid2 属于 user02，必须用其本人客户端
+            if tpl in ("/api/reservations/{rid2}/checkin", "/api/reservations/{rid2}/checkout"): client = b  # rid2 属于 user02，必须用其本人客户端
             if path == "/api/login": client = Client(server.port)  # 必须用全新客户端，避免覆盖既有会话的 cookie/CSRF
             if path == "/api/logout": client = Client(server.port).login("user04")
             if path == "/api/register": client = Client(server.port)

@@ -6,8 +6,8 @@
 #include "cJSON.h"
 typedef sqlite3_int64 Id;
 typedef struct { sqlite3 *sql; int error; void *cache; } DB;
-typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *fault; const char *fault_request; int remind_sec; int backup_interval; } Config;
-#define LAB_VERSION "1.5.0"
+typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *fault; const char *fault_request; int remind_sec; int backup_interval; int quota_weekly; } Config;
+#define LAB_VERSION "1.6.0"
 typedef struct { Id id; int admin; char username[65]; char csrf[65]; } User;
 typedef struct { int status; cJSON *body; } Result;
 int db_open(DB *db,const char *path);
@@ -22,6 +22,7 @@ int db_init(DB *db);
 int db_check(DB *db);
 int db_seed(DB *db,const char *password);
 int publish_slots(DB *db,Id lab,Id start,Id end,Id capacity);
+int publish_slots_week(DB *db,Id lab,Id start,Id end,Id capacity,int mask);
 Id now_sec(void);
 Id date_start(const char *date);
 void date_text(Id day,char out[11]);
@@ -45,6 +46,8 @@ Result assets_list(DB *db,Id lab);
 Result asset_admin(DB *db,const User *actor,Id lab,Id asset,const cJSON *body);
 Result lab_utilization(DB *db,Id start,Id end);
 Result asset_usage(DB *db,Id asset,Id start,Id end);
+Result reservation_checkout(DB *db,const Config *cfg,const User *u,Id target,const char *request_id);
+Result calendar_export(DB *db,const User *u);
 Result utilization_export(DB *db,Id start,Id end);
 Result notifications_sent(DB *db,int page,int size);
 Result logs_tail(int lines,int level);

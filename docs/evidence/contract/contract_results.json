@@ -1,12 +1,13 @@
 {
-  "timestamp_utc": "2026-09-14T13:06:10.619589+00:00",
+  "timestamp_utc": "2026-09-14T15:28:33.735838+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
-  "endpoints_total": 31,
-  "endpoints_passed": 31,
+  "endpoints_total": 33,
+  "endpoints_passed": 33,
   "error_cases_total": 14,
   "error_cases_passed": 14,
   "all_passed": true,
   "contract_drift": [
+    "GET /api/admin/labs/utilization?start_date={today}&end_date={today}.data.utilization[]: 实现多返回契约未记录的字段 ['actual_minutes', 'seat_minutes', 'utilization_actual']",
     "GET /api/admin/records?date={today}&page=1&page_size=5.data.events[]: 实现多返回契约未记录的字段 ['id']",
     "GET /api/health.data: 实现多返回契约未记录的字段 ['uptime_s', 'version']",
     "GET /api/me/records?page=1&page_size=5.data.reservations[]: 实现多返回契约未记录的字段 ['username']"
@@ -91,6 +92,16 @@
       "name": "POST /api/reservations/{rid2}/checkin",
       "passed": true,
       "detail": "data 字段 ['checked_in_at', 'reservation_id']"
+    },
+    {
+      "name": "POST /api/reservations/{rid2}/checkout",
+      "passed": true,
+      "detail": "data 字段 ['checked_out_at', 'reservation_id']"
+    },
+    {
+      "name": "GET /api/me/calendar/export",
+      "passed": true,
+      "detail": "data 字段 ['content', 'filename']"
     },
     {
       "name": "GET /api/admin/records?date={today}&page=1&page_size=5",

@@ -800,6 +800,94 @@ def feature_checks(s):
         require(st10==403,"non-admin usage rejected")
         return {"quota_enforced":True,"release_ok":True}
     record("T44 asset claim quota",t44) # -- r14/claims
+    def t45(): # -- r16/recurrence
+        """周期性发布：7 天区间仅发周一三五，断言场次数与星期。"""
+        import datetime as _dt
+        lab=admin.post("/api/admin/labs",{"name":"周期实验室"+uid()[:6],"location":"实验楼","description":"rec"})["data"]["lab_id"]
+        st,b=admin.request("POST","/api/admin/slots/publish",{"lab_id":lab,"start_date":"2026-10-05","end_date":"2026-10-11","capacity":"2","weekdays":"1010100"})
+        require(st==200 and b["data"]["created"]==24,f"recurrence create: {st} {b}")
+        days=_dt.date(2026,10,5),_dt.date(2026,10,7),_dt.date(2026,10,9)
+        for d0 in days:
+            cnt=len(admin.request("GET",f"/api/slots?lab_id={lab}&date={d0.isoformat()}")[1]["data"]["slots"])
+            require(cnt==8,f"{d0} should have 8 slots, got {cnt}")
+        bad=_dt.date(2026,10,6)
+        cnt=len(admin.request("GET",f"/api/slots?lab_id={lab}&date={bad.isoformat()}")[1]["data"]["slots"])
+        require(cnt==0,f"tuesday should be empty, got {cnt}")
+        st2,_=admin.request("POST","/api/admin/slots/publish",{"lab_id":lab,"start_date":"2026-10-05","end_date":"2026-10-11","capacity":"2","weekdays":"0000000"})
+        require(st2==400,f"all-zero weekdays rejected: {st2}")
+        st3,_=admin.request("POST","/api/admin/slots/publish",{"lab_id":lab,"start_date":"2026-10-05","end_date":"2026-10-11","capacity":"2","weekdays":"1234567"})
+        require(st3==400,f"non-binary weekdays rejected: {st3}")
+        return {"created":3}
+    record("T45 recurring publish",t45) # -- r16/recurrence
+    def t46(): # -- r16/weekly-quota
+        """每周配额 BR13：独立实例 --quota-weekly 2，本周第 3 单 409 WEEKLY_QUOTA。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="quota-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"q.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"quota seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"q.db",extra=["--quota-weekly","2"]) as sq:
+            ru=Client(sq.port);st,b=ru.request("POST","/api/register",{"username":"wq"+uid()[:6],"password":PASSWORD});ru.csrf=b["data"]["csrf_token"]
+            ad=Client(sq.port).login("admin")
+            lab=ad.post("/api/admin/labs",{"name":"配额实验室"+uid()[:6],"location":"实验楼","description":"quota"})["data"]["lab_id"]
+            now=int(time.time())
+            base=((now+86400+28800)//86400*86400-28800)+9*3600
+            sids=[]
+            with _sq.connect(sq.db,timeout=5) as conn:
+                for k in range(3):
+                    sd=base+k*86400
+                    conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),sd,sd+3600,1))
+                    sids.append(conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),sd)).fetchone()[0])
+            for k in range(2):
+                st2,_=ru.request("POST","/api/reservations",{"slot_id":str(sids[k]),"request_id":uid()})
+                require(st2==200,f"booking {k}: {st2}")
+            st3,b3=ru.request("POST","/api/reservations",{"slot_id":str(sids[2]),"request_id":uid()})
+            require(st3==409 and b3["code"]=="WEEKLY_QUOTA",f"weekly quota: {st3} {b3}")
+            # 跨周重置：把一单挪到上周 → 本周计数减一，可再约
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("UPDATE slots SET start_at=start_at-7*86400,end_at=end_at-7*86400 WHERE id=?",(sids[0],))
+            st4,_=ru.request("POST","/api/reservations",{"slot_id":str(sids[2]),"request_id":uid()})
+            require(st4==200,f"next week reset: {st4}")
+        return {"quota_enforced":True}
+    record("T46 weekly quota",t46) # -- r16/weekly-quota
+    def t47(): # -- r16/checkout
+        """签退：签到后签退落库；未签到 409；非本人 403；利用率实机时>0。"""
+        import sqlite3 as _sq
+        ru=Client(s.port);st,b=ru.request("POST","/api/register",{"username":"co"+uid()[:6],"password":PASSWORD});ru.csrf=b["data"]["csrf_token"]
+        ru2=Client(s.port);st,b=ru2.request("POST","/api/register",{"username":"co2"+uid()[:6],"password":PASSWORD});ru2.csrf=b["data"]["csrf_token"]
+        lab=admin.post("/api/admin/labs",{"name":"签退实验室"+uid()[:6],"location":"实验楼","description":"co"})["data"]["lab_id"]
+        now=int(time.time())
+        start=now+3600
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,2,NULL)",(int(lab),start,start+3600,1))
+            sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),start)).fetchone()[0]
+        stb,bb=ru.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+        require(stb==200,f"t47 reserve: {stb} {bb}")
+        ru2.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+        rid=ru.request("GET","/api/me/records?page=1&page_size=10")[1]["data"]["reservations"]
+        mine=[x for x in rid if str(x["slot_id"])==str(sid)][0]["id"]
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(now-30,now+3570,sid))
+        st0,b0=ru.request("POST",f"/api/reservations/{mine}/checkout",{"request_id":uid()})
+        require(st0==409 and b0["code"]=="STATE_CONFLICT",f"checkout before checkin: {st0} {b0}")
+        st1,b1=ru.request("POST",f"/api/reservations/{mine}/checkin",{"request_id":uid()})
+        require(st1==200,f"checkin: {st1}")
+        st2,b2=ru2.request("POST",f"/api/reservations/{mine}/checkout",{"request_id":uid()})
+        require(st2==403,f"non-owner checkout: {st2}")
+        st3,b3=ru.request("POST",f"/api/reservations/{mine}/checkout",{"request_id":uid()})
+        require(st3==200 and b3["data"]["checked_out_at"]>0,f"checkout: {st3} {b3}")
+        st4,b4=ru.request("POST",f"/api/reservations/{mine}/checkout",{"request_id":uid()})
+        require(st4==200 and b4["data"]["checked_out_at"]==b3["data"]["checked_out_at"],f"re-checkout idempotent: {st4} {b4}")
+        da=time.strftime("%Y-%m-%d",time.gmtime(now+28800))  # 拨时间后场次在北京今天
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("UPDATE reservations SET checked_in_at=?,checked_out_at=? WHERE id=?",(now-1800,now,mine))
+        st5,d5=admin.request("GET",f"/api/admin/labs/utilization?start_date={da}&end_date={da}")
+        row=[x for x in d5["data"]["utilization"] if str(x["lab_id"])==str(lab)]
+        require(row and row[0]["actual_minutes"]>=25,f"actual minutes: {row}")
+        st6,d6=admin.request("GET",f"/api/admin/stats/utilization/export?start_date={da}&end_date={da}")
+        require(st6==200,f"csv export: {st6}")
+        return {"actual_minutes":row[0]["actual_minutes"]}
+    record("T47 checkout and actual usage",t47) # -- r16/checkout
     def t39(): # -- r12/archive
         """历史归档：sweep 周期性清理 30 天前的候补与请求回执（预约记录保留）。"""
         import sqlite3 as _sq

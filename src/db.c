@@ -144,6 +144,12 @@ static int db_migrate(DB *d){
   if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
   if(!db_run(d,"COMMIT",""))return 0;
  }
+ if(!has_column(d,"reservations","checked_out_at")){ /* r16 签退列：幂等追加 */
+  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+  db_run(d,"ALTER TABLE reservations ADD COLUMN checked_out_at INTEGER","");
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(!db_run(d,"COMMIT",""))return 0;
+ }
  if(!has_column(d,"slots","reminded_at")){ /* v3/v4→提醒列：幂等追加 */
   if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
   db_run(d,"ALTER TABLE slots ADD COLUMN reminded_at INTEGER","");
@@ -195,6 +201,18 @@ int db_init(DB *d){
  if(d->error)return 0;
  return db_migrate(d);
 }
+int publish_slots(DB *d,Id lab,Id start,Id end,Id capacity){ /* capacity 必须 Id：绑定格式 i 按 8 字节变参读取 */
+ return publish_slots_week(d,lab,start,end,capacity,0); /* mask=0 表示每日 */
+}
+int publish_slots_week(DB *d,Id lab,Id start,Id end,Id capacity,int mask){ /* mask bit0..bit6=周一..周日，0=每日；北京周=(days+3)%7 */
+ int count=0;const int hours[]={8,9,10,11,14,15,16,17};
+ for(Id day=start;day<=end;day+=86400)for(int h=0;h<8;h++){
+  Id s=day+hours[h]*3600;if(s<=now_sec())continue;
+  if(mask){int wd=(int)(((s+28800)/86400+3)%7);if(!(mask&(1<<wd)))continue;}
+  if(!db_run(d,"INSERT INTO slots(lab_id,start_at,end_at,capacity) VALUES(?,?,?,?) ON CONFLICT(lab_id,start_at) DO NOTHING","iiii",lab,s,s+3600,capacity))return count;
+  count+=sqlite3_changes(d->sql);
+ }return count;
+}
 int db_check(DB *d){
  int ok=1;
  cJSON *r=db_first(d,"PRAGMA integrity_check","");if(!(r&&jstr(r,"integrity_check")&&!strcmp(jstr(r,"integrity_check"),"ok"))){ok=0;fprintf(stderr,"[check] integrity_check failed\n");}cJSON_Delete(r);
@@ -206,16 +224,10 @@ int db_check(DB *d){
  if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason='NO_SHOW' AND (status<>'CANCELLED' OR checked_in_at IS NOT NULL)","")>0){ok=0;fprintf(stderr,"[check] no_show inconsistent\n");}
  if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason IS NOT NULL AND status<>'CANCELLED'","")>0){ok=0;fprintf(stderr,"[check] cancel_reason on non-cancelled\n");}
  if(db_num(d,"SELECT count(*) FROM reservations WHERE status='CANCELLED' AND cancelled_at IS NOT NULL AND cancel_reason IS NULL","")>0){ok=0;fprintf(stderr,"[check] cancelled without reason\n");}
+ if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_out_at IS NOT NULL AND checked_in_at IS NULL","")>0){ok=0;fprintf(stderr,"[check] checkout without checkin\n");}
+ if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_out_at IS NOT NULL AND checked_out_at<checked_in_at","")>0){ok=0;fprintf(stderr,"[check] checkout before checkin\n");}
  if(d->error){fprintf(stderr,"[check] db.error=%d\n",d->error);ok=0;}
  return ok;
-}
-int publish_slots(DB *d,Id lab,Id start,Id end,Id capacity){ /* capacity 必须 Id：绑定格式 i 按 8 字节变参读取 */
- int count=0;const int hours[]={8,9,10,11,14,15,16,17};
- for(Id day=start;day<=end;day+=86400)for(int h=0;h<8;h++){
-  Id s=day+hours[h]*3600;if(s<=now_sec())continue;
-  if(!db_run(d,"INSERT INTO slots(lab_id,start_at,end_at,capacity) VALUES(?,?,?,?) ON CONFLICT(lab_id,start_at) DO NOTHING","iiii",lab,s,s+3600,capacity))return count;
-  count+=sqlite3_changes(d->sql);
- }return count;
 }
 int db_seed(DB *d,const char *password){
  if(!password||strlen(password)<8||strlen(password)>128){fprintf(stderr,"LAB_SEED_PASSWORD must contain 8..128 bytes.\n");return 0;}

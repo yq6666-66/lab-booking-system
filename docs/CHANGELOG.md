@@ -2,6 +2,17 @@
 
 本项目遵循语义化版本。所有重要变更记录于此。
 
+## [1.6.0] - 2026-09-14
+
+第十五轮：对标 LibreBooking/Booked Scheduler 的四项能力深化。
+
+### 新增
+- 周期性场次发布：`weekdays` 7 位掩码（仅周一三五等），实验室真实排课场景；
+- 每周预约配额（BR13）：`--quota-weekly N` 限本周有效预约数，超限 409 WEEKLY_QUOTA，跨周自动重置；
+- 签退与实机时利用率：`POST /api/reservations/{id}/checkout`（幂等），reservations 幂等追加 checked_out_at，利用率新增实机时口径（actual_minutes/utilization_actual）并列展示；
+- 我的预约 iCalendar 导出：`GET /api/me/calendar/export`（VEVENT/UTC，兼容日历应用）。
+- 明确不做：QR 码签到（无第三方库前提下 C 端 QR 编码成本过高，见论文取舍说明）。
+
 ## [1.5.0] - 2026-09-14
 
 第十四轮：资源-预约深度一体化（声明配额机制）。

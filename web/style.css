@@ -40,3 +40,6 @@
 
 .slot-assets{margin:2px 0 4px}
 .slot-assets .chips{cursor:pointer;font-size:11px;padding:4px 10px}
+
+.wd-row{display:flex;gap:8px;flex-wrap:wrap}
+.wd-row .check{display:flex;align-items:center;gap:4px;margin:0}
