@@ -309,6 +309,7 @@ def run(pw, exe) -> int:
                 ("case3 通知发布流", lambda: case3(env), admin_page),
                 ("case4 用户端签到Tab与通知", lambda: case4(env), user_page),
                 ("case5 普通用户管理员入口403", lambda: case5(env), user_page),
+                ("case6 资源管理与用户端可见", lambda: case6(env), admin_page),
             ]
             rows = []
             for name, fn, page_for_shot in cases:
@@ -330,6 +331,52 @@ def run(pw, exe) -> int:
     print(json.dumps({"passed": passed, "failed": failed, "total": len(rows)}, ensure_ascii=False), flush=True)
     return 0 if not failed else 1
 
+
+def case6(env):
+    """r13：管理端「资源管理」新增维修中资源 → 用户端预约页资源 chips 立即可见。"""
+    admin_page, user_page, base = env["admin_page"], env["user_page"], env["base"]
+    admin_page.goto(base + "/admin.html")
+    admin_page.get_by_role("button", name="资源管理").click()
+    admin_page.wait_for_timeout(600)
+    admin_page.evaluate("""() => { const f = document.querySelector('#asset-form');
+      f.elements.name.value = 'E2E 示波器'; f.elements.spec.value = '4 通道';
+      f.elements.total.value = 5; f.elements.status.value = 'MAINTENANCE';
+      document.querySelector('#asset-form button[type=submit]').click(); }""")
+    admin_page.wait_for_timeout(900)
+    require("E2E 示波器" in admin_page.evaluate("() => document.querySelector('#admin-assets')?.textContent || ''"),
+            "管理端资源列表未出现新资源")
+    user_page.goto(base + "/")
+    user_page.wait_for_timeout(800)
+    if user_page.evaluate("() => !!document.querySelector('#login-view:not([hidden])') || !!document.querySelector('input[placeholder]')") or user_page.locator("#login-view").count():
+        pass
+    # 会话可能已过期：出现登录表单则先以 user01 登录
+    if user_page.locator("button", has_text="登 录").count() or user_page.locator("#login-view").count():
+        try:
+            user_page.get_by_role("textbox", name="用户名").fill("user01", timeout=2000)
+            user_page.get_by_role("textbox", name="密码").fill(PASSWORD, timeout=2000)
+            user_page.get_by_role("button", name="登录", exact=True).click()
+            user_page.wait_for_timeout(1200)
+        except Exception:
+            pass
+    try:
+        user_page.wait_for_selector("#lab-assets .chips", timeout=8000)
+    except Exception:
+        pass
+    chips = user_page.evaluate("() => document.querySelector('#lab-assets')?.textContent || ''")
+    if "E2E 示波器" not in chips:
+        # 实验室切换会触发资源加载：显式切一次实验室再等
+        user_page.evaluate("""() => { const s = document.querySelector('#lab-select');
+          s.value = s.options[s.selectedIndex]?.value || s.options[0]?.value || '';
+          s.dispatchEvent(new Event('change')); }""")
+        try:
+            user_page.wait_for_selector("#lab-assets .chips", timeout=8000)
+        except Exception:
+            pass
+        chips = user_page.evaluate("() => document.querySelector('#lab-assets')?.textContent || ''")
+    diag = user_page.evaluate("""() => ({ url: location.href, labs: document.querySelector('#lab-select')?.options.length,
+      sel: document.querySelector('#lab-select')?.value, raw: document.querySelector('#lab-assets')?.textContent.slice(0,80),
+      bookViewHidden: document.querySelector('#book-view')?.hidden })""")
+    require("E2E 示波器" in chips, f"用户端预约页未显示新资源 chips: {chips[:60]} diag={diag}")
 
 def main():
     parser = argparse.ArgumentParser(description="R10 浏览器端到端验收（Playwright）")
