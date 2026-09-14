@@ -142,6 +142,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
  const struct mg_request_info *ri=mg_get_request_info(c);const char *path=ri->local_uri;int post=!strcmp(ri->request_method,"POST");
  if(!strcmp(path,"/api/login"))return post?login(d,body,cookie):result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);
  if(!strcmp(path,"/api/register"))return post?do_register(d,body,cookie):result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);
+ Id aid_target=0;
  User u={0};char tokenhash[65];if(!authenticated(d,c,&u,tokenhash))return d->error?db_failure(d):result(401,"UNAUTHORIZED","请先登录",NULL);
  if(post){const char *csrf=mg_get_header(c,"X-CSRF-Token");if(!csrf||strlen(csrf)!=64||sodium_memcmp(csrf,u.csrf,64))return result(403,"CSRF","请求校验失败，请刷新后重试",NULL);
   if(!rl_consume(u.id))return result(429,"RATE_LIMITED","操作过于频繁，请稍后再试",NULL);}
@@ -188,6 +189,12 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
    return stats(d,a,b);
   }
   if(!strcmp(path,"/api/admin/metrics")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return result(200,"OK","查询成功",metrics_snapshot());}
+  if(path_id(path,"/api/admin/assets/","/usage",&aid_target)){
+   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
+   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+   return asset_usage(d,aid_target,a,b);
+  }
   if(!strcmp(path,"/api/admin/labs/utilization")||!strcmp(path,"/api/admin/stats/utilization/export")){
    if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
    char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
@@ -218,7 +225,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
  else if(path_id(path,"/api/waitlist/","/withdraw",&target))action="withdraw";
  else return result(404,"NOT_FOUND","接口不存在",NULL);
  const char *key=jstr(body,"request_id");if(!target||!uuid_valid(key))return invalid();
- return booking(d,cfg,&u,action,target,key);
+ return booking(d,cfg,&u,action,target,body,key);
 }
 static int api(struct mg_connection *c,void *userdata){
  LARGE_INTEGER mfreq,mt0;QueryPerformanceFrequency(&mfreq);QueryPerformanceCounter(&mt0);

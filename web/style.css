@@ -37,3 +37,6 @@
 @media(max-width:600px){.cards{grid-template-columns:1fr}.card{padding:15px 18px}.card strong{font-size:26px}.tabs{gap:14px}}
 .log-view{background:#14231f;color:#d7e5dd;border-radius:10px;padding:16px;font-family:Consolas,monospace;font-size:12px;line-height:1.7;max-height:520px;overflow:auto;white-space:pre-wrap}
 .util-heading{margin-top:22px}
+
+.slot-assets{margin:2px 0 4px}
+.slot-assets .chips{cursor:pointer;font-size:11px;padding:4px 10px}

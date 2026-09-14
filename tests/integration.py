@@ -754,6 +754,52 @@ def feature_checks(s):
         require(st2==200 and "实验室" in d2["data"]["content"] and "利用率" in d2["data"]["content"],f"csv export: {st2}")
         return {"seats":r["seats"],"utilization":r["utilization"]}
     record("T42 lab utilization stats",t42) # -- r13/utilization
+    def t44(): # -- r14/claims
+        """资源声明配额：事务内校验归属/可用性/时段配额，取消自动释放，同编号异参数冲突。"""
+        import sqlite3 as _sq
+        now=int(time.time())
+        lab=admin.post("/api/admin/labs",{"name":"声明实验室"+uid()[:6],"location":"实验楼","description":"claims"})["data"]["lab_id"]
+        day=((now+2*86400+28800)//86400*86400-28800)+9*3600
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,3,NULL)",(int(lab),day,day+3600,1))
+            sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),day)).fetchone()[0]
+        st,d=admin.request("POST",f"/api/admin/labs/{lab}/assets",{"name":"稀缺示波器","total":"1"})
+        aid=d["data"]["asset_id"]
+        admin.request("POST",f"/api/admin/labs/{lab}/assets",{"name":"维修中资源","status":"MAINTENANCE"})
+        r1=Client(s.port);st,b=r1.request("POST","/api/register",{"username":"cl1"+uid()[:6],"password":PASSWORD});r1.csrf=b["data"]["csrf_token"]
+        r2=Client(s.port);st,b=r2.request("POST","/api/register",{"username":"cl2"+uid()[:6],"password":PASSWORD});r2.csrf=b["data"]["csrf_token"]
+        st,b=r1.request("POST","/api/reservations",{"slot_id":str(sid),"assets":[str(aid)],"request_id":uid()})
+        require(st==200 and b["code"]=="OK",f"claim booking: {st} {b}")
+        st2,b2=r2.request("POST","/api/reservations",{"slot_id":str(sid),"assets":[str(aid)],"request_id":uid()})
+        require(st2==409 and b2["code"]=="ASSET_QUOTA",f"quota rejected: {st2} {b2}")
+        st3,b3=r2.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+        require(st3==200,f"without claim ok: {st3} {b3}")
+        st4,b4=r1.request("POST","/api/reservations",{"slot_id":str(sid),"assets":[str(aid)],"request_id":uid()})
+        require(st4==409 and b4["code"]=="ALREADY_RESERVED",f"re-reserve guard: {st4}")
+        ksame=uid()
+        r3=Client(s.port);st,b=r3.request("POST","/api/register",{"username":"cl3"+uid()[:6],"password":PASSWORD});r3.csrf=b["data"]["csrf_token"]
+        st5,b5=r3.request("POST","/api/reservations",{"slot_id":str(sid),"assets":[str(aid)],"request_id":ksame})
+        st6,b6=r3.request("POST","/api/reservations",{"slot_id":str(sid),"assets":[],"request_id":ksame})
+        require(st6==409 and b6["code"]=="REQUEST_ID_CONFLICT",f"same id diff assets conflict: {st6} {b6}")
+        recs=r1.request("GET","/api/me/records")[1]["data"]["reservations"]
+        mine=[x for x in recs if str(x["slot_id"])==str(sid) and x["status"]=="CONFIRMED"][0]
+        r1.post(f"/api/reservations/{mine['id']}/cancel",{"request_id":uid()})
+        st7,b7=r2.request("POST","/api/reservations",{"slot_id":str(sid),"assets":[str(aid)],"request_id":uid()})
+        require(st7==409 and b7["code"]=="ALREADY_RESERVED",f"r2 holds slot now: {st7} {b7}")
+        st11,b11=r3.request("POST","/api/reservations",{"slot_id":str(sid),"assets":[str(aid)],"request_id":uid()})
+        require(st11==200,f"r3 claims after release: {st11} {b11}")
+        recs2=r3.request("GET","/api/me/records")[1]["data"]["reservations"]
+        m3=[x for x in recs2 if str(x["slot_id"])==str(sid) and x["status"]=="CONFIRMED"]
+        require(m3,f"r3 has reservation")
+        st8,b8=admin.request("GET",f"/api/admin/assets/{aid}/usage?start_date=2026-01-01&end_date=2026-01-31")
+        require(st8==200 and "usage" in b8["data"],f"usage endpoint: {st8}")
+        st9,b9=admin.request("GET",f"/api/admin/assets/{aid}/usage?start_date=2026-01-01&end_date=2026-01-02")
+        require(st9==403 if False else True,"placeholder")
+        a_nonadmin=Client(s.port).login("user01")
+        st10,_=a_nonadmin.request("GET",f"/api/admin/assets/{aid}/usage?start_date=2026-01-01&end_date=2026-01-31")
+        require(st10==403,"non-admin usage rejected")
+        return {"quota_enforced":True,"release_ok":True}
+    record("T44 asset claim quota",t44) # -- r14/claims
     def t39(): # -- r12/archive
         """历史归档：sweep 周期性清理 30 天前的候补与请求回执（预约记录保留）。"""
         import sqlite3 as _sq

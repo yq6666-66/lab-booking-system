@@ -7,7 +7,7 @@
 typedef sqlite3_int64 Id;
 typedef struct { sqlite3 *sql; int error; void *cache; } DB;
 typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *fault; const char *fault_request; int remind_sec; int backup_interval; } Config;
-#define LAB_VERSION "1.4.0"
+#define LAB_VERSION "1.5.0"
 typedef struct { Id id; int admin; char username[65]; char csrf[65]; } User;
 typedef struct { int status; cJSON *body; } Result;
 int db_open(DB *db,const char *path);
@@ -35,7 +35,7 @@ void hash_text(const char *s,char out[65]);
 void random_hex(char out[65]);
 Result result(int status,const char *code,const char *message,cJSON *data);
 Result db_failure(DB *db);
-Result booking(DB *db,const Config *cfg,const User *u,const char *action,Id target,const char *request_id);
+Result booking(DB *db,const Config *cfg,const User *u,const char *action,Id target,const cJSON *body,const char *request_id);
 Result records(DB *db,const User *u,int all,Id date,int page,int size,const char *status,const char *ev_action,const char *ev_user);
 Result stats(DB *db,Id start,Id end);
 Result stats_export(DB *db,Id start,Id end);
@@ -44,6 +44,7 @@ Result user_admin(DB *db,const User *actor,Id target,const char *op);
 Result assets_list(DB *db,Id lab);
 Result asset_admin(DB *db,const User *actor,Id lab,Id asset,const cJSON *body);
 Result lab_utilization(DB *db,Id start,Id end);
+Result asset_usage(DB *db,Id asset,Id start,Id end);
 Result utilization_export(DB *db,Id start,Id end);
 Result notifications_sent(DB *db,int page,int size);
 Result logs_tail(int lines,int level);

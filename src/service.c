@@ -58,9 +58,24 @@ static Result slot_full(DB *d,Id slot,const char *message){
  cJSON *data=cJSON_CreateObject();if(!data){cJSON_Delete(list);d->error=SQLITE_NOMEM;return db_failure(d);}
  cJSON_AddItemToObject(data,"alternatives",list);return result(409,"SLOT_FULL",message,data);
 }
-Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id target,const char *key){
- Result r={500,NULL};cJSON *old=NULL,*row=NULL,*slot=NULL;char canonical[128],digest[65];Id sid=target;
- snprintf(canonical,sizeof canonical,"%s:%lld",action,(long long)target);hash_text(canonical,digest);
+Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id target,const cJSON *body,const char *key){
+ Result r={500,NULL};cJSON *old=NULL,*row=NULL,*slot=NULL;char canonical[224],digest[65];Id sid=target;
+ snprintf(canonical,sizeof canonical,"%s:%lld",action,(long long)target);
+ /* r14：预约可声明所需资源，资源列表纳入请求摘要（同编号异参数仍为冲突） */
+ cJSON *claim_arr=NULL;
+ if(!strcmp(action,"reserve")&&body){
+  cJSON *arr=cJSON_GetObjectItemCaseSensitive(body,"assets");
+  if(arr&&cJSON_IsArray(arr)&&cJSON_GetArraySize(arr)){
+   if(cJSON_GetArraySize(arr)>5)return result(400,"INVALID_INPUT","最多声明 5 项资源",NULL);
+   claim_arr=arr;
+   char *ser=cJSON_PrintUnformatted(arr);
+   if(!ser)return result(500,"INTERNAL_ERROR","内存不足",NULL);
+   size_t len=strlen(canonical);
+   snprintf(canonical+len,sizeof canonical-len,"|%s",ser);
+   cJSON_free(ser);
+  }
+ }
+ hash_text(canonical,digest);
  if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
  if(!db_num(d,"SELECT enabled FROM users WHERE id=?","i",u->id)){r=result(401,"UNAUTHORIZED","账号不可用",NULL);goto finish_nosave;}
  old=db_first(d,"SELECT action,payload_digest,http_status,result_json FROM request_receipts WHERE user_id=? AND request_id=?","is",u->id,key);
@@ -123,8 +138,33 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
   if(d->error)goto failed;
   if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",sid,u->id)){r=slot_full(d,sid,"你已通过候补补位获得该场次，可在我的记录查看");goto save;}
   if(taken>=capacity){r=slot_full(d,sid,"名额已按顺序分配给候补用户，可选择替代时段");goto save;}
+  /* r14 资源声明：先在事务内校验归属/可用性与时段配额（BR12），通过后再创建预约并落 claims */
+  if(claim_arr){
+   Id slot_end=start_at+3600;
+   cJSON *it;int n=0;
+   cJSON_ArrayForEach(it,claim_arr){
+    if(n>=5)break;n++;
+    Id aid=0;const char *sv=cJSON_IsString(it)?cJSON_GetStringValue(it):NULL;
+    if(!sv||!parse_id(sv,&aid)||aid<1){r=result(400,"INVALID_INPUT","资源编号不合法",NULL);goto save;}
+    if(!db_num(d,"SELECT count(*) FROM assets WHERE id=? AND lab_id=(SELECT lab_id FROM slots WHERE id=?) AND status='AVAILABLE'","ii",aid,sid)){
+     r=result(409,"STATE_CONFLICT","所声明的资源不存在、已停用或不属于该实验室",NULL);goto save;}
+    Id total=db_num(d,"SELECT total FROM assets WHERE id=?","i",aid);
+    Id used=db_num(d,"SELECT count(*) FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id JOIN slots s2 ON s2.id=r.slot_id WHERE c.asset_id=? AND r.status='CONFIRMED' AND s2.start_at<? AND s2.end_at>?",
+                      "iii",aid,slot_end,start_at);
+    if(d->error)goto failed;
+    if(used>=total){r=result(409,"ASSET_QUOTA","该时段所声明的资源已被约满，可减少资源或改约其他时段",NULL);goto save;}
+   }
+  }
   if(!db_run(d,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?,'CONFIRMED','DIRECT',?)","iii",u->id,sid,now_sec()))goto failed;
-  Id rid=sqlite3_last_insert_rowid(d->sql);event(d,u->id,"RESERVE",rid,key);r=ok_id("reservation_id",rid);
+  Id rid=sqlite3_last_insert_rowid(d->sql);
+  if(claim_arr){
+   cJSON *it2;cJSON_ArrayForEach(it2,claim_arr){
+    const char *sv2=cJSON_IsString(it2)?cJSON_GetStringValue(it2):NULL;Id aid2=0;
+    if(!sv2||!parse_id(sv2,&aid2))continue;
+    if(!db_run(d,"INSERT OR IGNORE INTO asset_claims(reservation_id,asset_id,created_at) VALUES(?,?,?)","iii",rid,aid2,now_sec()))goto failed;
+   }
+  }
+  event(d,u->id,"RESERVE",rid,key);r=ok_id("reservation_id",rid);
  }else if(!strcmp(action,"wait")){
   Id capacity=(Id)cJSON_GetObjectItemCaseSensitive(slot,"capacity")->valuedouble;
   if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",sid,u->id)){r=result(409,"ALREADY_RESERVED","你已预约该场次",NULL);goto save;}
@@ -592,8 +632,26 @@ Result lab_utilization(DB *d,Id start,Id end){
  cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"utilization",out);
  return result(200,"OK","查询成功",j);
 }
-Result utilization_export(DB *d,Id start,Id end){
- Result r=lab_utilization(d,start,end);if(r.status!=200)return r;
+/* r14 资源使用统计：区间内某资源的声明次数（按有效预约、按日聚合），用于资源维度闭环分析。 */
+Result asset_usage(DB *d,Id aid,Id start,Id end){
+ cJSON *a=db_first(d,"SELECT id,name,spec,total,status FROM assets WHERE id=?","i",aid);
+ if(d->error)return db_failure(d);
+ if(!a)return result(404,"NOT_FOUND","资源不存在",NULL);
+ cJSON *days=db_rows(d,"SELECT (s.start_at+28800)/86400 AS day,count(*) AS claims FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id AND r.status='CONFIRMED' JOIN slots s ON s.id=r.slot_id WHERE c.asset_id=? AND s.start_at>=? AND s.start_at<? GROUP BY day ORDER BY day","iii",aid,start,end+86400);
+ if(!days){cJSON_Delete(a);return db_failure(d);}
+ cJSON *out=cJSON_CreateArray();cJSON *it;
+ cJSON_ArrayForEach(it,days){
+  cJSON *row=cJSON_CreateObject();if(!row)break;
+  char date[11];date_text((Id)cJSON_GetObjectItemCaseSensitive(it,"day")->valuedouble,date);
+  cJSON_AddStringToObject(row,"date",date);
+  cJSON_AddNumberToObject(row,"claims",cJSON_GetObjectItemCaseSensitive(it,"claims")->valuedouble);
+  cJSON_AddItemToArray(out,row);
+ }
+ cJSON_Delete(days);
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"asset",a);cJSON_AddItemToObject(j,"usage",out);
+ return result(200,"OK","查询成功",j);
+}
+Result utilization_export(DB *d,Id start,Id end){ Result r=lab_utilization(d,start,end);if(r.status!=200)return r;
  cJSON *rows=cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(r.body,"data"),"utilization");
  char a[11],b[11];date_text((start+28800)/86400,a);date_text((end+28800)/86400,b);
  size_t cap=2048+(size_t)(rows?cJSON_GetArraySize(rows):0)*160;char *csv=malloc(cap);
