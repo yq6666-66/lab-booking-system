@@ -45,7 +45,7 @@ static int gen_demo(DB *db,int days,const char *password){
  return 1;
 }
  int app_main(int argc,char **argv){
- Config c={"data/lab.db","web",8080,900,30,30,1,5,900,500,NULL,NULL,NULL,1800,21600,0};int seed=0,init=0,check=0,demo_days=0;
+ Config c={"data/lab.db","web",8080,900,30,30,1,5,900,500,NULL,NULL,NULL,NULL,1800,21600,0,0,NULL};int seed=0,init=0,check=0,demo_days=0;
  for(int i=1;i<argc;i++){
   if(!strcmp(argv[i],"--seed"))seed=1;else if(!strcmp(argv[i],"--init-only"))init=1;else if(!strcmp(argv[i],"--check"))check=1;
   else if(!strcmp(argv[i],"--db")&&i+1<argc)c.db_path=argv[++i];
@@ -63,6 +63,8 @@ static int gen_demo(DB *db,int days,const char *password){
   else if(!strcmp(argv[i],"--backup-interval")&&i+1<argc){const char *v=argv[++i];Id n=0;if(strcmp(v,"0")&&(!parse_id(v,&n)||n>604800)){fprintf(stderr,"Backup interval must be 0..604800 seconds (0 disables)\n");return 2;}c.backup_interval=(int)n;}
   else if(!strcmp(argv[i],"--demo-days")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n>365){fprintf(stderr,"Demo days must be 1..365\n");return 2;}demo_days=(int)n;}
   else if(!strcmp(argv[i],"--quota-weekly")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n>100){fprintf(stderr,"Quota weekly must be 0..100\n");return 2;}c.quota_weekly=(int)n;}
+  else if(!strcmp(argv[i],"--lead-time")&&i+1<argc){Id n=0;if(!parse_id(argv[++i],&n)||n>86400){fprintf(stderr,"Lead time must be 0..86400 seconds\n");return 2;}c.lead_time=(int)n;}
+  else if(!strcmp(argv[i],"--restore")&&i+1<argc)c.restore_from=argv[++i];
 #ifdef TEST_FAULTS
   else if(!strcmp(argv[i],"--fault")&&i+1<argc)c.fault=argv[++i];
   else if(!strcmp(argv[i],"--fault-request")&&i+1<argc)c.fault_request=argv[++i];
@@ -79,6 +81,15 @@ static int gen_demo(DB *db,int days,const char *password){
  if(!db_init(&db)||(seed&&!db_seed(&db,getenv("LAB_SEED_PASSWORD")))||!db_check(&db)){fprintf(stderr,"Database initialization/integrity check failed (code %d).\n",db.error);db_close(&db);return 1;}
  if(demo_days>0){if(!gen_demo(&db,demo_days,getenv("LAB_SEED_PASSWORD"))){fprintf(stderr,"Demo data generation failed\n");db_close(&db);return 1;}printf("Demo history generated for past %d days.\n",demo_days);}
  if(!init&&!check&&!db_run(&db,"DELETE FROM sessions WHERE expires_at<?","i",now_sec())){fprintf(stderr,"Session cleanup failed (code %d).\n",db.error);db_close(&db);return 1;}
+ if(c.restore_from){ /* r17 恢复：备份文件灌回主库并验证完整性 */
+  DB src={0};
+  if(!db_open(&src,c.restore_from)){fprintf(stderr,"Cannot open backup file: %s\n",c.restore_from);db_close(&db);return 1;}
+  db_close(&src);
+  int ok=db_backup(c.restore_from,c.db_path);
+  if(ok){DB v={0};if(db_open(&v,c.db_path)){cJSON *ic=db_first(&v,"PRAGMA integrity_check","");ok=ic&&jstr(ic,"integrity_check")&&!strcmp(jstr(ic,"integrity_check"),"ok");printf("Restore integrity_check=%s\n",ic&&jstr(ic,"integrity_check")?jstr(ic,"integrity_check"):"?");cJSON_Delete(ic);db_close(&v);}else ok=0;}
+  printf(ok?"Restored %s from %s\n":"Restore failed\n",c.db_path,c.restore_from);
+  db_close(&db);return ok?0:1;
+ }
  if(c.backup_dest){int ok=db_backup(c.db_path,c.backup_dest);db_close(&db);printf(ok?"Backup written: %s\n":"Backup failed\n",c.backup_dest);return ok?0:1;}
  db_close(&db);if(init||check){puts("Database ready; integrity checks passed.");return 0;}return serve(&c);
 }
