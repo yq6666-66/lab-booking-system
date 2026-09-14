@@ -16,6 +16,9 @@ def main():
     env=dict(os.environ);env["LAB_SEED_PASSWORD"]=PASSWORD
     r=subprocess.run([str(args.exe),"--db",str(db),"--seed","--init-only"],env=env,capture_output=True,text=True,timeout=60)
     require(r.returncode==0,f"seed failed: {r.stderr}")
+    # CLI 分支走查：演示数据生成与在线备份（覆盖 main.c 的 gen_demo/db_backup 路径）
+    subprocess.run([str(args.exe),"--db",str(db),"--demo-days","3","--init-only"],env=env,capture_output=True,text=True,timeout=60)
+    subprocess.run([str(args.exe),"--db",str(db),"--backup",str(run_dir/"cov-backup.db")],env=env,capture_output=True,text=True,timeout=60)
     flags=subprocess.CREATE_NEW_PROCESS_GROUP
     proc=subprocess.Popen([str(args.exe),"--db",str(db),"--web",str(ROOT/"web"),"--port",str(args.port),"--rate-burst","100000"],
                           env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=flags)
