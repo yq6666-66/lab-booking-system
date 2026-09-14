@@ -62,6 +62,8 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 - GET /api/admin/labs/utilization?start_date=&end_date= -> data `{utilization:[{lab_id,lab_name,slots,seats,confirmed,checked_in,no_show,utilization}]}`。仅管理员；区间 ≤31 天；utilization=confirmed÷seats×100（保留 1 位小数，seats=0 时为 0）。
 - GET /api/admin/stats/utilization/export?start_date=&end_date= -> data `{filename,content}`。利用率 CSV（BOM，Excel 直开）。
 - 数据不变量：assets(lab_id,name) 唯一；status CHECK 约束；实验室内资源随 labs 保留（停用实验室不清空清单）。
+- GET /api/admin/assets/{id}/usage?start_date=&end_date= -> data `{asset:{...},usage:[{date,claims}]}`。仅管理员；区间 ≤31 天；按有效预约（CONFIRMED）逐日聚合资源声明次数。
+- 业务规则（r14）BR12 资源时段配额：POST /api/reservations 请求体可携带 `assets:[资源id]`（≤5 项，仅预约，候补无效）；服务在单写者事务内逐项校验——资源存在、属于该场次实验室且状态 AVAILABLE、同时段（区间相交）内声明该资源的有效预约数 < total，任一不满足返回 409 STATE_CONFLICT / ASSET_QUOTA；校验通过后资源声明（asset_claims）与预约同事务落库；预约取消/爽约后声明自动失效（统计口径仅计 CONFIRMED）；资源列表纳入请求摘要，同编号不同资源仍为 REQUEST_ID_CONFLICT。
 
 ## 用户管理与运营（r11）
 - GET /api/admin/users?page=&page_size=&q? -> data `{users:[{id,username,role,enabled,reservations,waitlisted}],total,page,page_size,has_more}`。仅管理员；q 为用户名前缀过滤；reservations 为该用户有效预约（CONFIRMED）数，waitlisted 为候补中数。

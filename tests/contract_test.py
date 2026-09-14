@@ -125,6 +125,7 @@ STAT_ROW = {"date": T_STR, "slots": T_INT, "confirmed": T_INT, "cancelled": T_IN
             "no_show": T_INT, "checked_in": T_INT, "waiting": T_INT}
 ASSET_OBJ = {"id": T_ID, "name": T_STR, "spec": T_STR, "total": T_INT, "status": T_STR}
 UTIL_ROW = {"lab_id": T_ID, "lab_name": T_STR, "slots": T_INT, "seats": T_INT, "confirmed": T_INT, "checked_in": T_INT, "no_show": T_INT, "utilization": T_NUM}
+STAT_DAY = {"date": T_STR, "claims": T_INT}
 TOTALS_OBJ = {"slots": T_INT, "confirmed": T_INT, "cancelled": T_INT, "no_show": T_INT,
               "checked_in": T_INT, "waiting": T_INT}
 COUNTERS_OBJ = {"requests_total": T_NUM, "ok_2xx": T_NUM, "err_4xx": T_NUM, "err_5xx": T_NUM,
@@ -166,6 +167,7 @@ SCHEMAS = [
     ("POST", "/api/admin/assets/{aid}/update", {"asset_id": T_ID}),
     ("GET",  "/api/labs/{lid}/assets",         {"assets": arr(ASSET_OBJ)}),
     ("GET",  "/api/admin/labs/utilization?start_date={today}&end_date={today}", {"utilization": arr(UTIL_ROW)}),
+    ("GET",  "/api/admin/assets/{aid}/usage?start_date={today}&end_date={today}", {"asset": ASSET_OBJ, "usage": arr(STAT_DAY)}),
     ("GET",  "/api/admin/stats/utilization/export?start_date={today}&end_date={today}", {"filename": T_STR, "content": T_STR}),
     ("POST", "/api/admin/slots/publish",       {"created": T_INT}),
     ("POST", "/api/register",                  LOGIN_DATA),

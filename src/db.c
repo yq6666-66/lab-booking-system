@@ -187,6 +187,8 @@ int db_init(DB *d){
  "CREATE TABLE IF NOT EXISTS assets(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL REFERENCES labs(id),name TEXT NOT NULL,spec TEXT NOT NULL DEFAULT '',total INTEGER NOT NULL DEFAULT 1 CHECK(total BETWEEN 1 AND 999),status TEXT NOT NULL DEFAULT 'AVAILABLE' CHECK(status IN('AVAILABLE','MAINTENANCE','DISABLED')),created_at INTEGER NOT NULL);"
  "CREATE INDEX IF NOT EXISTS assets_lab ON assets(lab_id,id);"
  "CREATE UNIQUE INDEX IF NOT EXISTS assets_uniq ON assets(lab_id,name);"
+ "CREATE TABLE IF NOT EXISTS asset_claims(reservation_id INTEGER NOT NULL REFERENCES reservations(id),asset_id INTEGER NOT NULL REFERENCES assets(id),created_at INTEGER NOT NULL,PRIMARY KEY(reservation_id,asset_id));"
+ "CREATE INDEX IF NOT EXISTS claims_asset ON asset_claims(asset_id);"
  "PRAGMA user_version=3;COMMIT;";
  cJSON *wal=db_first(d,"PRAGMA journal_mode=WAL","");int ok=wal&&jstr(wal,"journal_mode")&&!strcmp(jstr(wal,"journal_mode"),"wal");cJSON_Delete(wal);if(!ok)return 0;
  int rc=sqlite3_exec(d->sql,schema,NULL,NULL,NULL);if(rc!=SQLITE_OK)d->error=rc;

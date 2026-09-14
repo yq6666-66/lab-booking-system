@@ -143,6 +143,8 @@ ent(8.9, 9.3, 2.5, "request_receipts", ["user_id+req_id PK", "action / digest", 
 ent(8.9, 5.8, 2.5, "operation_events", ["id PK", "actor_id FK", "action", "entity_id / req_id"])
 ent(8.9, 2.6, 2.5, "notifications", ["id PK", "user_id FK", "kind（四类）", "read_at", "slot / rsv FK"])
 ent(5.8, 1.6, 2.5, "assets（r13）", ["id PK", "lab_id FK", "name UQ per lab", "spec / total", "status（3 态）"])
+ent(8.9, 0.35, 2.5, "asset_claims（r14）", ["rsv+asset PK", "reservation FK", "asset FK", "created_at"])
+line(8.05, 2.4, 8.9, 1.3, "1:N", lx=9.2, ly=1.55)
 line(4.2, 6.0, 5.8, 2.6, "1:N 配备", lx=4.9, ly=4.1)
 line(2.5, 9.55, 3.0, 9.6, "1:N", lx=2.75, ly=9.87)
 line(1.0, 9.3, 1.0, 6.6, "会话 1:N", lx=1.15, ly=8.0)

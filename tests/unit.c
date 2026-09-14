@@ -164,13 +164,13 @@ static void test_reserve_conflict_and_alternatives(void){
  User u1=make_user("user01"),u2=make_user("user02");
  Id s=free_slot(),lab=slot_field(s,"lab_id"),start=slot_field(s,"start_at");
  char k1[40],k2[40],k3[40],kc[40];new_key(k1);new_key(k2);new_key(k3);new_key(kc);
- Result r=booking(&db,NULL,&u1,"reserve",s,k1);
+ Result r=booking(&db,NULL,&u1,"reserve",s,NULL,k1);
  if(r.status!=200){fprintf(stderr,"DEBUG code=%s msg=%s start=%lld\n",rcode(r),jstr(r.body,"message"),(long long)s);fflush(stderr);}
  TEST_ASSERT_EQUAL_INT(200,r.status);TEST_ASSERT_EQUAL_STRING("OK",rcode(r));
  Id rid=rid_of(r,"reservation_id");TEST_ASSERT_TRUE(rid>0);
  TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
  drop(r);
- r=booking(&db,NULL,&u2,"reserve",s,k2);
+ r=booking(&db,NULL,&u2,"reserve",s,NULL,k2);
  TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("SLOT_FULL",rcode(r));
  cJSON *alts=cJSON_GetObjectItemCaseSensitive(rdata(r),"alternatives");
  TEST_ASSERT_TRUE(cJSON_IsArray(alts));
@@ -185,41 +185,41 @@ static void test_reserve_conflict_and_alternatives(void){
   TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",aid));
  }
  char *first=cJSON_PrintUnformatted(r.body);drop(r);
- Result again=booking(&db,NULL,&u2,"reserve",s,k2); /* 同编号同参数重放：返回原结果 */
+ Result again=booking(&db,NULL,&u2,"reserve",s,NULL,k2); /* 同编号同参数重放：返回原结果 */
  char *second=cJSON_PrintUnformatted(again.body);
  TEST_ASSERT_EQUAL_STRING(first,second);
  cJSON_free(first);cJSON_free(second);drop(again);
- r=booking(&db,NULL,&u2,"reserve",s,k3); /* 新编号同场次：仍满，属新的失败请求 */
+ r=booking(&db,NULL,&u2,"reserve",s,NULL,k3); /* 新编号同场次：仍满，属新的失败请求 */
  TEST_ASSERT_EQUAL_INT(409,r.status);drop(r);
- drop(booking(&db,NULL,&u1,"cancel",rid,kc)); /* 取消使用新编号；释放该场次 */
+ drop(booking(&db,NULL,&u1,"cancel",rid,NULL,kc)); /* 取消使用新编号；释放该场次 */
  TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
 }
 static void test_wait_guards(void){
  User u1=make_user("user01");
  Id s=free_slot();char k[3][40];for(int i=0;i<3;i++)new_key(k[i]);
- Result r=booking(&db,NULL,&u1,"wait",s,k[0]); /* 空闲场次禁止候补 */
+ Result r=booking(&db,NULL,&u1,"wait",s,NULL,k[0]); /* 空闲场次禁止候补 */
  TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("SLOT_AVAILABLE",rcode(r));drop(r);
- r=booking(&db,NULL,&u1,"reserve",s,k[1]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
- r=booking(&db,NULL,&u1,"wait",s,k[2]); /* 已预约者禁止再候补 */
+ r=booking(&db,NULL,&u1,"reserve",s,NULL,k[1]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+ r=booking(&db,NULL,&u1,"wait",s,NULL,k[2]); /* 已预约者禁止再候补 */
  TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("ALREADY_RESERVED",rcode(r));drop(r);
 }
 static void test_wait_queue_idempotent_reentry(void){
  User u1=make_user("user01"),u2=make_user("user02"),u3=make_user("user03");
  Id s=free_slot();char k[6][40];for(int i=0;i<6;i++)new_key(k[i]);
- drop(booking(&db,NULL,&u1,"reserve",s,k[0]));
- Result r=booking(&db,NULL,&u2,"wait",s,k[1]);TEST_ASSERT_EQUAL_INT(200,r.status);
+ drop(booking(&db,NULL,&u1,"reserve",s,NULL,k[0]));
+ Result r=booking(&db,NULL,&u2,"wait",s,NULL,k[1]);TEST_ASSERT_EQUAL_INT(200,r.status);
  Id w2=rid_of(r,"waitlist_id");TEST_ASSERT_TRUE(w2>0);drop(r);
- r=booking(&db,NULL,&u2,"wait",s,k[1]); /* 同编号重放：同一候补编号 */
+ r=booking(&db,NULL,&u2,"wait",s,NULL,k[1]); /* 同编号重放：同一候补编号 */
  TEST_ASSERT_EQUAL_INT(200,r.status);TEST_ASSERT_EQUAL_INT64(w2,rid_of(r,"waitlist_id"));drop(r);
- r=booking(&db,NULL,&u3,"wait",s,k[2]);TEST_ASSERT_EQUAL_INT(200,r.status);
+ r=booking(&db,NULL,&u3,"wait",s,NULL,k[2]);TEST_ASSERT_EQUAL_INT(200,r.status);
  Id w3=rid_of(r,"waitlist_id");TEST_ASSERT_TRUE(w3>w2); /* 入队顺序 */
  drop(r);
- r=booking(&db,NULL,&u2,"withdraw",w2,k[3]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+ r=booking(&db,NULL,&u2,"withdraw",w2,NULL,k[3]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
  TEST_ASSERT_EQUAL_STRING("WITHDRAWN",wait_status(w2));
- r=booking(&db,NULL,&u2,"wait",s,k[4]); /* 重新入队排在队尾 */
+ r=booking(&db,NULL,&u2,"wait",s,NULL,k[4]); /* 重新入队排在队尾 */
  Id w2b=rid_of(r,"waitlist_id");TEST_ASSERT_TRUE(w2b>w3);drop(r);
  Id rid1=db_num(&db,"SELECT id FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s);
- r=booking(&db,NULL,&u1,"cancel",rid1,k[5]); /* 取消触发 FIFO 补位 */
+ r=booking(&db,NULL,&u1,"cancel",rid1,NULL,k[5]); /* 取消触发 FIFO 补位 */
  TEST_ASSERT_EQUAL_INT(200,r.status);
  Id promoted=rid_of(r,"promoted_reservation_id");TEST_ASSERT_TRUE(promoted>0);
  TEST_ASSERT_EQUAL_INT64(db_num(&db,"SELECT user_id FROM reservations WHERE id=?","i",promoted),u3.id);
@@ -265,17 +265,17 @@ static void test_hex_and_page_args(void){
 static void test_checkin_business(void){
  User u1=make_user("user01"),u2=make_user("user02");
  Id s=free_slot();char k[40];
- new_key(k);Result r=booking(&db,NULL,&u1,"reserve",s,k);TEST_ASSERT_EQUAL_INT(200,r.status);
+ new_key(k);Result r=booking(&db,NULL,&u1,"reserve",s,NULL,k);TEST_ASSERT_EQUAL_INT(200,r.status);
  Id rid=rid_of(r,"reservation_id");drop(r);
- new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(409,r.status);drop(r); /* 未开始 */
+ new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,NULL,k);TEST_ASSERT_EQUAL_INT(409,r.status);drop(r); /* 未开始 */
  db_run(&db,"UPDATE slots SET start_at=?,end_at=? WHERE id=?","iii",now_sec()-1,now_sec()+3599,s);
- new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(200,r.status);
+ new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,NULL,k);TEST_ASSERT_EQUAL_INT(200,r.status);
  cJSON *ci=cJSON_GetObjectItemCaseSensitive(rdata(r),"checked_in_at");
  TEST_ASSERT_TRUE(cJSON_IsNumber(ci));Id when=(Id)ci->valuedouble;TEST_ASSERT_TRUE(when>0);drop(r);
  TEST_ASSERT_EQUAL_INT64(when,db_num(&db,"SELECT checked_in_at FROM reservations WHERE id=?","i",rid));
- new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(200,r.status); /* 重复签到幂等 */
+ new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,NULL,k);TEST_ASSERT_EQUAL_INT(200,r.status); /* 重复签到幂等 */
  cJSON *ci2=cJSON_GetObjectItemCaseSensitive(rdata(r),"checked_in_at");TEST_ASSERT_TRUE(cJSON_IsNumber(ci2));TEST_ASSERT_EQUAL_INT64(when,(Id)ci2->valuedouble);drop(r);
- new_key(k);r=booking(&db,NULL,&u2,"checkin",rid,k);TEST_ASSERT_EQUAL_INT(403,r.status);drop(r); /* 非本人 */
+ new_key(k);r=booking(&db,NULL,&u2,"checkin",rid,NULL,k);TEST_ASSERT_EQUAL_INT(403,r.status);drop(r); /* 非本人 */
  Config cfg={"build/unit-test.db",NULL,0,900,30,30,1,5,900,500,NULL,NULL,NULL,0,0};
  TEST_ASSERT_EQUAL_INT(0,sweep_once(&cfg)); /* 已签到不被判爽约 */
  TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE id=? AND status='CONFIRMED' AND checked_in_at IS NOT NULL","i",rid));
@@ -283,7 +283,7 @@ static void test_checkin_business(void){
 static void test_notify_sessions_and_password(void){
  User u1=make_user("user01");char k[40];
  Id s=free_slot();
- new_key(k);Result rr=booking(&db,NULL,&u1,"reserve",s,k);TEST_ASSERT_EQUAL_INT(200,rr.status);
+ new_key(k);Result rr=booking(&db,NULL,&u1,"reserve",s,NULL,k);TEST_ASSERT_EQUAL_INT(200,rr.status);
  Id rid=rid_of(rr,"reservation_id");drop(rr);
  notify(&db,u1.id,"PROMOTED","候补补位成功","你的候补已补位，请按时签到。",s,rid);
  Result r=notifications(&db,&u1,1,1,20);TEST_ASSERT_EQUAL_INT(200,r.status);
@@ -357,25 +357,25 @@ static void test_capacity_fill_and_promotion(void){
  Id s=free_slot();
  TEST_ASSERT_TRUE(db_run(&db,"UPDATE slots SET capacity=3 WHERE id=?","i",s));
  char k[6][40];for(int i=0;i<6;i++)new_key(k[i]);
- Result r=booking(&db,NULL,&u1,"reserve",s,k[0]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+ Result r=booking(&db,NULL,&u1,"reserve",s,NULL,k[0]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
  /* 注入两名候补：正常路径下有空位时接口会引导直约（SLOT_AVAILABLE），候补只能在满员后产生 */
  TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO waitlist(user_id,slot_id,status,created_at) VALUES(?,?,'WAITING',?)","iii",u2.id,s,now_sec()));
  TEST_ASSERT_TRUE(db_run(&db,"INSERT INTO waitlist(user_id,slot_id,status,created_at) VALUES(?,?,'WAITING',?)","iii",u3.id,s,now_sec()));
  Id w2=db_num(&db,"SELECT id FROM waitlist WHERE user_id=? AND slot_id=? AND status='WAITING'","ii",u2.id,s),w3=db_num(&db,"SELECT id FROM waitlist WHERE user_id=? AND slot_id=? AND status='WAITING'","ii",u3.id,s);
- r=booking(&db,NULL,&u4,"reserve",s,k[1]); /* 有余位：先按 FIFO 补满 u2/u3，再满员拒绝 u4 */
+ r=booking(&db,NULL,&u4,"reserve",s,NULL,k[1]); /* 有余位：先按 FIFO 补满 u2/u3，再满员拒绝 u4 */
  TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("SLOT_FULL",rcode(r));drop(r);
  TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
  TEST_ASSERT_EQUAL_STRING("PROMOTED",wait_status(w2));
  TEST_ASSERT_EQUAL_STRING("PROMOTED",wait_status(w3));
  TEST_ASSERT_EQUAL_INT64(2,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND source='WAITLIST' AND status='CONFIRMED'","i",s));
- r=booking(&db,NULL,&u2,"reserve",s,k[2]); /* 已持席位再约 */
+ r=booking(&db,NULL,&u2,"reserve",s,NULL,k[2]); /* 已持席位再约 */
  TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("ALREADY_RESERVED",rcode(r));drop(r);
  Id u1rid=db_num(&db,"SELECT id FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",s,u1.id);
- r=booking(&db,NULL,&u1,"cancel",u1rid,k[3]); /* 队列已空：取消后不再补位 */
+ r=booking(&db,NULL,&u1,"cancel",u1rid,NULL,k[3]); /* 队列已空：取消后不再补位 */
  TEST_ASSERT_EQUAL_INT(200,r.status);
  TEST_ASSERT_FALSE(cJSON_IsString(cJSON_GetObjectItemCaseSensitive(rdata(r),"promoted_reservation_id")));drop(r);
  TEST_ASSERT_EQUAL_INT64(2,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
- r=booking(&db,NULL,&u4,"reserve",s,k[4]); /* 余位释放后可直接预约 */
+ r=booking(&db,NULL,&u4,"reserve",s,NULL,k[4]); /* 余位释放后可直接预约 */
  TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
  TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s));
 }
@@ -410,13 +410,13 @@ static void test_boundary_extremes(void){
  Id s1=db_num(&db,"SELECT id FROM slots WHERE lab_id=? AND start_at=?","ii",lab,t+2*86400);
  User b1=make_user("user01"),b2=make_user("user02");
  char k[4][40];for(int i=0;i<4;i++)new_key(k[i]);
- Result r=booking(&db,NULL,&b1,"reserve",s1,k[0]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
- r=booking(&db,NULL,&b2,"reserve",s1,k[1]);TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("SLOT_FULL",rcode(r));drop(r);
- r=booking(&db,NULL,&b2,"wait",s1,k[2]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r); /* 满员后显式入队 */
+ Result r=booking(&db,NULL,&b1,"reserve",s1,NULL,k[0]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+ r=booking(&db,NULL,&b2,"reserve",s1,NULL,k[1]);TEST_ASSERT_EQUAL_INT(409,r.status);TEST_ASSERT_EQUAL_STRING("SLOT_FULL",rcode(r));drop(r);
+ r=booking(&db,NULL,&b2,"wait",s1,NULL,k[2]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r); /* 满员后显式入队 */
  Id w2=db_num(&db,"SELECT id FROM waitlist WHERE user_id=? AND slot_id=? AND status='WAITING'","ii",b2.id,s1);
  TEST_ASSERT_TRUE(w2>0);
  Id r1=db_num(&db,"SELECT id FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",s1,b1.id);
- r=booking(&db,NULL,&b1,"cancel",r1,k[3]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
+ r=booking(&db,NULL,&b1,"cancel",r1,NULL,k[3]);TEST_ASSERT_EQUAL_INT(200,r.status);drop(r);
  TEST_ASSERT_EQUAL_STRING("PROMOTED",wait_status(w2));
  TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",s1));
  TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE slot_id=? AND source='WAITLIST' AND status='CONFIRMED'","i",s1));

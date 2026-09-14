@@ -1,8 +1,8 @@
 {
-  "timestamp_utc": "2026-09-14T08:09:44.361879+00:00",
+  "timestamp_utc": "2026-09-14T13:06:10.619589+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
-  "endpoints_total": 30,
-  "endpoints_passed": 30,
+  "endpoints_total": 31,
+  "endpoints_passed": 31,
   "error_cases_total": 14,
   "error_cases_passed": 14,
   "all_passed": true,
@@ -141,6 +141,11 @@
       "name": "GET /api/admin/labs/utilization?start_date={today}&end_date={today}",
       "passed": true,
       "detail": "data 字段 ['utilization']"
+    },
+    {
+      "name": "GET /api/admin/assets/{aid}/usage?start_date={today}&end_date={today}",
+      "passed": true,
+      "detail": "data 字段 ['asset', 'usage']"
     },
     {
       "name": "GET /api/admin/stats/utilization/export?start_date={today}&end_date={today}",
