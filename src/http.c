@@ -235,6 +235,16 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
  const char *key=jstr(body,"request_id");if(!target||!uuid_valid(key))return invalid();
  return booking(d,cfg,&u,action,target,body,key);
 }
+/* r17 Prometheus 抓取端点：标准文本格式 0.0.4，仅回环监听故不对外暴露。 */
+static int metrics_handler(struct mg_connection *c,void *userdata){
+ (void)userdata;
+ char *text=metrics_prometheus();
+ if(!text){mg_printf(c,"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");return 200;}
+ mg_printf(c,"HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",(int)strlen(text));
+ mg_write(c,text,(unsigned)strlen(text));
+ free(text);
+ return 200;
+}
 static int api(struct mg_connection *c,void *userdata){
  LARGE_INTEGER mfreq,mt0;QueryPerformanceFrequency(&mfreq);QueryPerformanceCounter(&mt0);
  const Config *cfg=userdata;const struct mg_request_info *ri=mg_get_request_info(c);Result r={0,NULL};cJSON *body=NULL;char cookie[256]={0};char *raw=NULL,*serialized=NULL;
@@ -304,7 +314,7 @@ int serve(const Config *cfg){
  rl_configure(cfg);log_init("data/logs/app.log",5*1024*1024);app_boot=GetTickCount64();
  rl_configure(cfg);
  struct mg_context *ctx=mg_start(&callbacks,NULL,opts);if(!ctx){fprintf(stderr,"HTTP server startup failed. Check port and web directory.\n");mg_exit_library();return 1;}
- mg_set_request_handler(ctx,"/api",api,(void*)cfg);signal(SIGINT,on_stop);signal(SIGTERM,on_stop);signal(SIGBREAK,on_stop); /* CTRL_BREAK 用于优雅停机（覆盖率数据落盘依赖正常退出） */
+ mg_set_request_handler(ctx,"/api",api,(void*)cfg);mg_set_request_handler(ctx,"/metrics",metrics_handler,NULL);signal(SIGINT,on_stop);signal(SIGTERM,on_stop);signal(SIGBREAK,on_stop); /* CTRL_BREAK 用于优雅停机（覆盖率数据落盘依赖正常退出） */
  sweep_start(cfg);
  printf("Lab Booking ready: http://127.0.0.1:%d\n",cfg->port);fflush(stdout);
  while(!stopping)Sleep(100);

@@ -110,6 +110,11 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
  if((!strcmp(action,"reserve")||!strcmp(action,"wait"))&&(!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(slot,"enabled"))||!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(slot,"lab_enabled")))){
   r=result(409,"STATE_CONFLICT","场次未开放",NULL);goto save;
  }
+ /* r17 BR14 预约提前量：开始前不足 lead_time 秒的场次停止受理预约与候补 */
+ if(cfg&&cfg->lead_time>0&&start_at-now_sec()<(Id)cfg->lead_time){
+  char msg[96];snprintf(msg,sizeof msg,"距场次开始不足 %d 分钟，停止受理预约",(int)(cfg->lead_time/60));
+  r=result(409,"LEAD_TIME",msg,NULL);goto save;
+ }
  if(!strcmp(action,"reserve")){
   Id capacity=(Id)cJSON_GetObjectItemCaseSensitive(slot,"capacity")->valuedouble;
   Id taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid);

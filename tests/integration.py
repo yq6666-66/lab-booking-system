@@ -888,6 +888,51 @@ def feature_checks(s):
         require(st6==200,f"csv export: {st6}")
         return {"actual_minutes":row[0]["actual_minutes"]}
     record("T47 checkout and actual usage",t47) # -- r16/checkout
+    def t48(): # -- r17/lead-time
+        """预约提前量 BR14：--lead-time 3600 下，30 分钟后场次 409 LEAD_TIME、2 小时后 200。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="lead-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"l.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"lead seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"l.db",extra=["--lead-time","3600"]) as sq:
+            ru=Client(sq.port);st,b=ru.request("POST","/api/register",{"username":"lt"+uid()[:6],"password":PASSWORD});ru.csrf=b["data"]["csrf_token"]
+            now=int(time.time())
+            soon=now+1800;far=now+7200
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(1,?,?,1,2,NULL)",(soon,soon+3600))
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(1,?,?,1,2,NULL)",(far,far+3600))
+            soon_id=conn_id=sq.sql("SELECT id FROM slots WHERE start_at=?",(soon,))[0][0] if False else sq.sql("SELECT id FROM slots WHERE start_at=?",(soon,))[0][0]
+            far_id=sq.sql("SELECT id FROM slots WHERE start_at=?",(far,))[0][0]
+            st2,b2=ru.request("POST","/api/reservations",{"slot_id":str(soon_id),"request_id":uid()})
+            require(st2==409 and b2["code"]=="LEAD_TIME",f"lead rejected: {st2} {b2}")
+            st3,b3=ru.request("POST","/api/reservations",{"slot_id":str(far_id),"request_id":uid()})
+            require(st3==200,f"far allowed: {st3} {b3}")
+        return {"lead_enforced":True}
+    record("T48 lead time guard",t48) # -- r17/lead-time
+    def t49(): # -- r17/restore
+        """备份生命周期：备份→篡改→恢复→完整性验证。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="restore-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        exe=str(pathlib.Path("build/lab-booking.exe").resolve())
+        dbf=tdir/"r.db"
+        r0=_sp.run([exe,"--db",str(dbf),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,"seed failed")
+        r1=_sp.run([exe,"--db",str(dbf),"--backup",str(tdir/"bk.db")],capture_output=True,text=True,timeout=60)
+        require(r1.returncode==0,"backup failed")
+        with _sq.connect(dbf,timeout=5) as conn:
+            conn.execute("INSERT INTO labs(name,location,description) VALUES('篡改实验室','x','x')")
+            conn.commit()
+        tampered=_sq.connect(dbf,timeout=5).execute("SELECT count(*) FROM labs WHERE name='篡改实验室'").fetchone()[0]
+        require(tampered==1,"tamper setup")
+        r2=_sp.run([exe,"--db",str(dbf),"--restore",str(tdir/"bk.db")],capture_output=True,text=True,timeout=60)
+        require(r2.returncode==0,f"restore exit: {r2.stdout} {r2.stderr}")
+        require("integrity_check=ok" in r2.stdout+r2.stderr,f"integrity in output: {r2.stdout}{r2.stderr}")
+        after=_sq.connect(dbf,timeout=5).execute("SELECT count(*) FROM labs WHERE name='篡改实验室'").fetchone()[0]
+        require(after==0,f"tamper gone after restore: {after}")
+        return {"restore_verified":True}
+    record("T49 backup restore lifecycle",t49) # -- r17/restore
     def t39(): # -- r12/archive
         """历史归档：sweep 周期性清理 30 天前的候补与请求回执（预约记录保留）。"""
         import sqlite3 as _sq
