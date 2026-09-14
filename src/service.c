@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 /* -- r12 业务规则常量 -- */
 #define NO_SHOW_GRACE 2      /* 窗口内第 2 次爽约起触发限制 */
 #define PENALTY_DAYS 7       /* 限制时长：从触发爽约的场次时间起算 */
@@ -131,6 +132,18 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
    Id overlap=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id JOIN slots s ON s.id=? WHERE r.user_id=? AND r.status='CONFIRMED' AND s.start_at<s2.end_at AND s2.start_at<s.end_at","ii",sid,u->id);
    if(d->error)goto failed;
    if(overlap){r=result(409,"TIME_CONFLICT","与您已预约的场次时间重叠，请先取消原场次",NULL);goto save;}
+  }
+  /* r16 BR13 每周配额：本周（北京周一 0 点起）有效预约数达上限则拒绝（候补不入配额，补位为 FIFO 公平结果） */
+  if(cfg&&cfg->quota_weekly>0){
+   Id day0=(now_sec()+28800)/86400*86400-28800;
+   int wd=(int)(((day0+28800)/86400+3)%7); /* 0=周一 */
+   Id week_start=day0-(Id)wd*86400;
+   Id used=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=? AND r.status='CONFIRMED' AND s2.start_at>=?","ii",u->id,week_start);
+   if(d->error)goto failed;
+   if(used>=(Id)cfg->quota_weekly){
+    char msg[96];snprintf(msg,sizeof msg,"本周预约已达上限 %d 场，下周一 0 点后重试",(int)cfg->quota_weekly);
+    r=result(409,"WEEKLY_QUOTA",msg,NULL);goto save;
+   }
   }
   if(taken>=capacity){r=slot_full(d,sid,"该场次已约满，可加入候补或选择替代时段");goto save;}
   promote_fill(d,sid,u->id,key);if(d->error)goto failed;
@@ -606,9 +619,10 @@ Result lab_utilization(DB *d,Id start,Id end){
   "SELECT l.id AS lab_id,l.name AS lab_name,count(s.id) AS slots,CAST(total(s.capacity) AS INTEGER) AS seats,"
   "(SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE s2.lab_id=l.id AND r.status='CONFIRMED' AND s2.start_at>=? AND s2.start_at<?) AS confirmed,"
   "(SELECT count(*) FROM reservations r JOIN slots s3 ON s3.id=r.slot_id WHERE s3.lab_id=l.id AND r.checked_in_at IS NOT NULL AND s3.start_at>=? AND s3.start_at<?) AS checked_in,"
-  "(SELECT count(*) FROM reservations r JOIN slots s4 ON s4.id=r.slot_id WHERE s4.lab_id=l.id AND r.cancel_reason='NO_SHOW' AND s4.start_at>=? AND s4.start_at<?) AS no_show "
+  "(SELECT count(*) FROM reservations r JOIN slots s4 ON s4.id=r.slot_id WHERE s4.lab_id=l.id AND r.cancel_reason='NO_SHOW' AND s4.start_at>=? AND s4.start_at<?) AS no_show,"
+  "(SELECT CAST(total(r.checked_out_at-r.checked_in_at)/60 AS INTEGER) FROM reservations r JOIN slots s5 ON s5.id=r.slot_id WHERE s5.lab_id=l.id AND r.checked_out_at IS NOT NULL AND r.checked_in_at IS NOT NULL AND s5.start_at>=? AND s5.start_at<?) AS actual_minutes "
   "FROM labs l LEFT JOIN slots s ON s.lab_id=l.id AND s.start_at>=? AND s.start_at<? GROUP BY l.id ORDER BY l.id",
-  "iiiiiiii",start,end+86400,start,end+86400,start,end+86400,start,end+86400);
+  "iiiiiiiiii",start,end+86400,start,end+86400,start,end+86400,start,end+86400,start,end+86400);
  if(!rows)return db_failure(d);
  cJSON *out=cJSON_CreateArray();cJSON *it;
  cJSON_ArrayForEach(it,rows){
@@ -626,11 +640,79 @@ Result lab_utilization(DB *d,Id start,Id end){
   cJSON_AddNumberToObject(row,"checked_in",cJSON_GetObjectItemCaseSensitive(it,"checked_in")->valuedouble);
   cJSON_AddNumberToObject(row,"no_show",cJSON_GetObjectItemCaseSensitive(it,"no_show")->valuedouble);
   cJSON_AddNumberToObject(row,"utilization",((int)(util*10+0.5))/10.0);
+  {double actual=cJSON_GetObjectItemCaseSensitive(it,"actual_minutes")->valuedouble;
+   double seat_min=seats*60.0;
+   cJSON_AddNumberToObject(row,"actual_minutes",(int)actual);
+   cJSON_AddNumberToObject(row,"seat_minutes",(int)seat_min);
+   cJSON_AddNumberToObject(row,"utilization_actual",seat_min>0?((int)(actual/seat_min*1000.0+0.5))/10.0:0.0);}
   cJSON_AddItemToArray(out,row);
  }
  cJSON_Delete(rows);
  cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"utilization",out);
  return result(200,"OK","查询成功",j);
+}
+/* r16 签退：本人+已签到+场次未结束；重复签退返回首次时间（对齐签到幂等语义） */
+Result reservation_checkout(DB *d,const Config *cfg,const User *u,Id target,const char *key){
+ (void)cfg;
+ Result r={500,NULL};cJSON *row=NULL;
+ if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
+ row=db_first(d,"SELECT r.user_id,r.status,r.checked_in_at,r.checked_out_at,s.end_at FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE r.id=?","i",target);
+ if(d->error)goto failed;
+ if(!row){r=result(404,"NOT_FOUND","记录不存在",NULL);goto save;}
+ {Id owner=0;parse_id(jstr(row,"user_id"),&owner);
+  if(owner!=u->id){r=result(403,"FORBIDDEN","只能操作自己的记录",NULL);goto save;}}
+ if(strcmp(jstr(row,"status"),"CONFIRMED")){r=result(409,"STATE_CONFLICT","该预约当前状态不能签退",NULL);goto save;}
+ {cJSON *ci=cJSON_GetObjectItemCaseSensitive(row,"checked_in_at");
+  if(!(ci&&cJSON_IsNumber(ci)&&ci->valuedouble>0)){r=result(409,"STATE_CONFLICT","尚未签到，请先签到",NULL);goto save;}}
+ {cJSON *co=cJSON_GetObjectItemCaseSensitive(row,"checked_out_at");
+  if(co&&cJSON_IsNumber(co)&&co->valuedouble>0){
+   cJSON *j=cJSON_CreateObject();jid(j,"reservation_id",target);cJSON_AddNumberToObject(j,"checked_out_at",co->valuedouble);
+   r=result(200,"OK","该预约已签退",j);goto save;}}
+ {Id end_at=(Id)cJSON_GetObjectItemCaseSensitive(row,"end_at")->valuedouble;
+  if(now_sec()>=end_at){r=result(409,"STATE_CONFLICT","场次已结束，无需签退",NULL);goto save;}}
+ {Id when=now_sec();
+  if(!db_run(d,"UPDATE reservations SET checked_out_at=? WHERE id=?","ii",when,target))goto failed;
+  event(d,u->id,"CHECKOUT",target,key);
+  cJSON *j=cJSON_CreateObject();jid(j,"reservation_id",target);cJSON_AddNumberToObject(j,"checked_out_at",(double)when);
+  r=result(200,"OK","签退成功",j);}
+save:
+ if(d->error)goto failed;
+ if(!r.body){d->error=SQLITE_NOMEM;goto failed;}
+ {char *serialized=cJSON_PrintUnformatted(r.body);if(!serialized){d->error=SQLITE_NOMEM;goto failed;}
+  db_run(d,"INSERT INTO request_receipts(user_id,request_id,action,payload_digest,http_status,result_json,created_at) VALUES(?,?,?,?,?,?,?)","isssisi",u->id,key,"checkout","checkout",0,serialized,now_sec());cJSON_free(serialized);}
+ if(d->error)goto failed;
+ if(!db_run(d,"COMMIT",""))goto failed;
+ cJSON_Delete(row);
+ return r;
+failed:
+ sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cJSON_Delete(row);cJSON_Delete(r.body);return db_failure(d);
+}
+/* r16 日历导出：全部有效预约导出 iCalendar VEVENT（UTC 时间，含实验室与签到状态）。 */
+Result calendar_export(DB *d,const User *u){
+ cJSON *rows=db_rows(d,"SELECT r.id,r.checked_in_at,s.start_at,s.end_at,l.name AS lab FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id WHERE r.user_id=? AND r.status='CONFIRMED' ORDER BY s.start_at","i",u->id);
+ if(!rows)return db_failure(d);
+ size_t cap=1024+(size_t)(rows?cJSON_GetArraySize(rows):0)*400;char *cal=malloc(cap);
+ if(!cal){cJSON_Delete(rows);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
+ int n=snprintf(cal,cap,"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//LabBooking//CN\r\n");
+ cJSON *it;cJSON_ArrayForEach(it,rows){
+  Id st=(Id)cJSON_GetObjectItemCaseSensitive(it,"start_at")->valuedouble;
+  Id en=(Id)cJSON_GetObjectItemCaseSensitive(it,"end_at")->valuedouble;
+  Id rid=(Id)cJSON_GetObjectItemCaseSensitive(it,"id")->valuedouble;
+  cJSON *ci=cJSON_GetObjectItemCaseSensitive(it,"checked_in_at");
+  const char *lab=jstr(it,"lab");
+  char ds[24],de[24],tstat[32];
+  time_t tu=(time_t)st;strftime(ds,sizeof ds,"%Y%m%dT%H%M%SZ",gmtime(&tu));
+  tu=(time_t)en;strftime(de,sizeof de,"%Y%m%dT%H%M%SZ",gmtime(&tu));
+  snprintf(tstat,sizeof tstat," · %s",(ci&&cJSON_IsNumber(ci)&&ci->valuedouble>0)?"已签到":"未签到");
+  char sum[160];snprintf(sum,sizeof sum,"实验室预约：%s%s",lab?lab:"",tstat);
+  if((size_t)n+460>=cap)break;
+  n+=snprintf(cal+n,cap-(size_t)n,"BEGIN:VEVENT\r\nUID:lab-booking-%lld@lab-booking\r\nDTSTART:%s\r\nDTEND:%s\r\nSUMMARY:%s\r\nEND:VEVENT\r\n",(long long)rid,ds,de,sum);
+ }
+ cJSON_Delete(rows);
+ n+=snprintf(cal+n,cap-(size_t)n,"END:VCALENDAR\r\n");
+ char name[40];snprintf(name,sizeof name,"lab-schedule.ics");
+ cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"filename",name);cJSON_AddStringToObject(j,"content",cal);free(cal);
+ return result(200,"OK","导出完成",j);
 }
 /* r14 资源使用统计：区间内某资源的声明次数（按有效预约、按日聚合），用于资源维度闭环分析。 */
 Result asset_usage(DB *d,Id aid,Id start,Id end){

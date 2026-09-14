@@ -113,10 +113,16 @@ static Result admin(DB *d,const User *u,const char *path,const cJSON *body){
   if(cap&&cJSON_IsString(cap)&&!parse_id(cap->valuestring,&capacity))return invalid();
   if(cap&&cJSON_IsNumber(cap))capacity=(Id)cap->valuedouble;
   if(capacity<1||capacity>200)return invalid();
+  int mask=0;const char *wd=jstr(body,"weekdays");
+  if(wd&&wd[0]){
+   if(strlen(wd)!=7||strspn(wd,"01")!=7)return invalid();
+   for(int k=0;k<7;k++)if(wd[k]=='1')mask|=1<<k;
+   if(!mask)return invalid();
+  }
   if(!parse_id(jstr(body,"lab_id"),&lab)||start<0||end<start||end-start>13*86400)return invalid();
   if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
   if(!db_num(d,"SELECT count(*) FROM labs WHERE id=? AND enabled=1","i",lab)){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return d->error?db_failure(d):result(409,"STATE_CONFLICT","实验室不存在或已停用",NULL);}
-  int n=publish_slots(d,lab,start,end,capacity);
+  int n=publish_slots_week(d,lab,start,end,capacity,mask);
   if(d->error||!db_run(d,"COMMIT","")){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
   cJSON *j=cJSON_CreateObject();cJSON_AddNumberToObject(j,"created",n);return result(200,"OK","场次发布完成",j);
  }
@@ -171,6 +177,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
    return records(d,&u,0,0,pg,ps,status,NULL,NULL);}
   if(!strcmp(path,"/api/me/notifications")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char uf[8]={0};query(ri,"unread",uf,sizeof uf);return notifications(d,&u,!strcmp(uf,"1")||!strcmp(uf,"true"),pg,ps);}
   if(!strcmp(path,"/api/me/sessions"))return sessions_list(d,&u,tokenhash);
+  if(!strcmp(path,"/api/me/calendar/export"))return calendar_export(d,&u);
   if(!strcmp(path,"/api/admin/records")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);char dt[32],ea[36],eu[68];Id date=0;if(query(ri,"date",dt,sizeof dt)){date=date_start(dt);if(date<0)return invalid();}int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();
    ea[0]=eu[0]=0;query(ri,"action",ea,sizeof ea);query(ri,"user",eu,sizeof eu);
    if(ea[0]&&strlen(ea)>32)return invalid();
@@ -222,6 +229,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
  else if(!strcmp(path,"/api/waitlist")){action="wait";parse_id(jstr(body,"slot_id"),&target);}
  else if(path_id(path,"/api/reservations/","/cancel",&target))action="cancel";
  else if(path_id(path,"/api/reservations/","/checkin",&target))action="checkin";
+ else if(path_id(path,"/api/reservations/","/checkout",&target)){const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_checkout(d,cfg,&u,target,key2);}
  else if(path_id(path,"/api/waitlist/","/withdraw",&target))action="withdraw";
  else return result(404,"NOT_FOUND","接口不存在",NULL);
  const char *key=jstr(body,"request_id");if(!target||!uuid_valid(key))return invalid();

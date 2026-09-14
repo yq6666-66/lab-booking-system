@@ -63,6 +63,11 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 - GET /api/admin/stats/utilization/export?start_date=&end_date= -> data `{filename,content}`。利用率 CSV（BOM，Excel 直开）。
 - 数据不变量：assets(lab_id,name) 唯一；status CHECK 约束；实验室内资源随 labs 保留（停用实验室不清空清单）。
 - GET /api/admin/assets/{id}/usage?start_date=&end_date= -> data `{asset:{...},usage:[{date,claims}]}`。仅管理员；区间 ≤31 天；按有效预约（CONFIRMED）逐日聚合资源声明次数。
+- POST /api/admin/slots/publish 请求体可选 `weekdays`（7 位 0/1 串，bit0=周一…bit6=周日，缺省全发）：周期性发布，仅创建命中星期、未开始的场次（r16）。
+- POST /api/reservations/{id}/checkout -> data `{reservation_id,checked_out_at}`（r16）。仅本人、CONFIRMED、已签到且场次未结束；重复签退返回首次时间；审计 CHECKOUT。
+- GET /api/admin/assets/{id}/usage?start_date=&end_date= -> data `{asset:{...},usage:[{date,claims}]}`（r14，仅管理员）。
+- GET /api/me/calendar/export -> data `{filename,content}`（r16）。全部有效预约导出 iCalendar VEVENT（UTC）。
+- 业务规则（r16）BR13 每周预约配额：`--quota-weekly N`（0=不限）启用后，本周（北京周一 0 点起）有效预约数达 N 时新的预约返回 409 WEEKLY_QUOTA；候补不入配额（补位为 FIFO 公平结果）。
 - 业务规则（r14）BR12 资源时段配额：POST /api/reservations 请求体可携带 `assets:[资源id]`（≤5 项，仅预约，候补无效）；服务在单写者事务内逐项校验——资源存在、属于该场次实验室且状态 AVAILABLE、同时段（区间相交）内声明该资源的有效预约数 < total，任一不满足返回 409 STATE_CONFLICT / ASSET_QUOTA；校验通过后资源声明（asset_claims）与预约同事务落库；预约取消/爽约后声明自动失效（统计口径仅计 CONFIRMED）；资源列表纳入请求摘要，同编号不同资源仍为 REQUEST_ID_CONFLICT。
 
 ## 用户管理与运营（r11）
