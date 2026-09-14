@@ -184,6 +184,9 @@ int db_init(DB *d){
  "CREATE TABLE IF NOT EXISTS operation_events(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL REFERENCES users(id),action TEXT NOT NULL,entity_id INTEGER NOT NULL,request_id TEXT,created_at INTEGER NOT NULL);"
  "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN('PROMOTED','NO_SHOW','NOTICE','REMIND')),title TEXT NOT NULL,body TEXT NOT NULL,slot_id INTEGER REFERENCES slots(id),reservation_id INTEGER REFERENCES reservations(id),read_at INTEGER,created_at INTEGER NOT NULL);"
  "CREATE INDEX IF NOT EXISTS notify_user ON notifications(user_id,id);"
+ "CREATE TABLE IF NOT EXISTS assets(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL REFERENCES labs(id),name TEXT NOT NULL,spec TEXT NOT NULL DEFAULT '',total INTEGER NOT NULL DEFAULT 1 CHECK(total BETWEEN 1 AND 999),status TEXT NOT NULL DEFAULT 'AVAILABLE' CHECK(status IN('AVAILABLE','MAINTENANCE','DISABLED')),created_at INTEGER NOT NULL);"
+ "CREATE INDEX IF NOT EXISTS assets_lab ON assets(lab_id,id);"
+ "CREATE UNIQUE INDEX IF NOT EXISTS assets_uniq ON assets(lab_id,name);"
  "PRAGMA user_version=3;COMMIT;";
  cJSON *wal=db_first(d,"PRAGMA journal_mode=WAL","");int ok=wal&&jstr(wal,"journal_mode")&&!strcmp(jstr(wal,"journal_mode"),"wal");cJSON_Delete(wal);if(!ok)return 0;
  int rc=sqlite3_exec(d->sql,schema,NULL,NULL,NULL);if(rc!=SQLITE_OK)d->error=rc;
@@ -219,6 +222,12 @@ int db_seed(DB *d,const char *password){
  for(int i=0;i<=20;i++){char name[32];if(i)snprintf(name,sizeof name,"user%02d",i);else strcpy(name,"admin");db_run(d,"INSERT INTO users(username,password_hash,role) VALUES(?,?,?) ON CONFLICT(username) DO NOTHING","sss",name,hash,i?"USER":"ADMIN");}
  const char *names[]={"软件工程实验室","计算机网络实验室","系统与数据实验室"};
  for(int i=0;i<3;i++)db_run(d,"INSERT INTO labs(name,location,description) VALUES(?,?,?) ON CONFLICT(name) DO NOTHING","sss",names[i],"信息楼","整间实验室 · 固定一小时场次");
+ /* r13 资源清单种子：随实验室名关联（重跑幂等），让「资源管理」开箱即用 */
+ db_run(d,"INSERT OR IGNORE INTO assets(lab_id,name,spec,total,status,created_at) SELECT id,'高性能图形工作站','32 核 / 128 GB / RTX 级 GPU',20,'AVAILABLE',strftime('%s','now') FROM labs WHERE name='软件工程实验室'","");
+ db_run(d,"INSERT OR IGNORE INTO assets(lab_id,name,spec,total,status,created_at) SELECT id,'软件开发套件终端','双屏开发机',24,'AVAILABLE',strftime('%s','now') FROM labs WHERE name='软件工程实验室'","");
+ db_run(d,"INSERT OR IGNORE INTO assets(lab_id,name,spec,total,status,created_at) SELECT id,'网络协议分析套件','抓包网卡 + 分析平台',16,'AVAILABLE',strftime('%s','now') FROM labs WHERE name='计算机网络实验室'","");
+ db_run(d,"INSERT OR IGNORE INTO assets(lab_id,name,spec,total,status,created_at) SELECT id,'路由交换实验台','三层交换机 × 4',6,'MAINTENANCE',strftime('%s','now') FROM labs WHERE name='计算机网络实验室'","");
+ db_run(d,"INSERT OR IGNORE INTO assets(lab_id,name,spec,total,status,created_at) SELECT id,'数据服务器机架','分布式存储节点',8,'AVAILABLE',strftime('%s','now') FROM labs WHERE name='系统与数据实验室'","");
  Id today=(now_sec()+28800)/86400*86400-28800;
  for(int i=0;i<3;i++){Id lab=db_num(d,"SELECT id FROM labs WHERE name=?","s",names[i]);publish_slots(d,lab,today,today+13*86400,1);}
  sodium_memzero(hash,sizeof hash);

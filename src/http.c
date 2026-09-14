@@ -121,6 +121,8 @@ static Result admin(DB *d,const User *u,const char *path,const cJSON *body){
   cJSON *j=cJSON_CreateObject();cJSON_AddNumberToObject(j,"created",n);return result(200,"OK","场次发布完成",j);
  }
  if(path_id(path,"/api/admin/slots/","/update",&target))return slot_update(d,u,target,body);
+ if(path_id(path,"/api/admin/labs/","/assets",&target))return asset_admin(d,u,target,0,body);
+ if(path_id(path,"/api/admin/assets/","/update",&target))return asset_admin(d,u,0,target,body);
  if(!strcmp(path,"/api/admin/notifications"))return admin_notify(d,u,body);
  if(path_id(path,"/api/admin/users/","/disable",&target))return user_admin(d,u,target,"disable");
  if(path_id(path,"/api/admin/users/","/enable",&target))return user_admin(d,u,target,"enable");
@@ -146,6 +148,15 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
  if(!post){
   if(!strcmp(path,"/api/me"))return result(200,"OK","查询成功",user_data(&u));
   if(!strcmp(path,"/api/labs")){cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"labs",db_rows(d,"SELECT id,name,location,description,enabled FROM labs ORDER BY id",""));return result(200,"OK","查询成功",j);}
+  { /* /api/labs/{id}/assets：登录用户查看实验室资源清单（不含已停用资源） */
+   size_t n=strlen(path);
+   if(n>17&&!strncmp(path,"/api/labs/",10)&&!strcmp(path+n-7,"/assets")){
+    char mid[24];size_t len=n-10-7;if(len>=sizeof mid)return invalid();
+    memcpy(mid,path+10,len);mid[len]=0;Id lab=0;
+    if(!parse_id(mid,&lab)||lab<1)return invalid();
+    return assets_list(d,lab);
+   }
+  }
   if(!strcmp(path,"/api/slots")){
    char a[40],dt[32];Id lab=0;query(ri,"lab_id",a,sizeof a);query(ri,"date",dt,sizeof dt);Id start=date_start(dt);if(!parse_id(a,&lab)||start<0)return invalid();
    cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"slots",db_rows(d,
@@ -177,6 +188,12 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
    return stats(d,a,b);
   }
   if(!strcmp(path,"/api/admin/metrics")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return result(200,"OK","查询成功",metrics_snapshot());}
+  if(!strcmp(path,"/api/admin/labs/utilization")||!strcmp(path,"/api/admin/stats/utilization/export")){
+   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
+   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+   return !strcmp(path,"/api/admin/labs/utilization")?lab_utilization(d,a,b):utilization_export(d,a,b);
+  }
   if(!strcmp(path,"/api/admin/users")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char q[68]={0};query(ri,"q",q,sizeof q);if(q[0]&&strlen(q)>64)return invalid();return users_list(d,pg,ps,q[0]?q:NULL);}
   if(!strcmp(path,"/api/admin/notifications/sent")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();return notifications_sent(d,pg,ps);}
   if(!strcmp(path,"/api/admin/logs")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);

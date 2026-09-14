@@ -55,6 +55,14 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 - GET /api/admin/logs?lines=&level= -> data `{lines:[...],file_size,truncated}`。仅管理员；读取 data/logs/app.log 尾部（lines 1..500 默认 100，level 1/2/3 按行前缀过滤，缺省全部）。
 - 业务规则（r12）：① 时段重叠——同一用户不能预约/候补两个时间重叠的场次（409 TIME_CONFLICT）；取消或爽约释放后自动解除。② 爽约信用——近 7 天爽约（NO_SHOW）达 2 次后禁止新的预约与候补（409 PENALTY_ACTIVE），限制期至第 2 次爽约场次时间 +7 天；GET /api/admin/users 每行附 no_show_count。③ 历史归档——扫描线程周期清理结束超 30 天的候补记录与请求回执（预约记录保留供统计）。
 
+## 资源管理与利用率（r13）
+- GET /api/labs/{id}/assets -> data `{assets:[{id,name,spec,total,status}]}`。登录即可调用（用户端预约页展示）；不含 status=DISABLED 的资源。
+- POST /api/admin/labs/{id}/assets `{name,spec?,total?,status?}` -> data `{asset_id}`。仅管理员；total 1..999；status ∈ AVAILABLE/MAINTENANCE/DISABLED（缺省 AVAILABLE）；同一实验室内资源名唯一（409 STATE_CONFLICT「该实验室已有同名资源」）；实验室不存在 404；审计 ASSET_CREATE。
+- POST /api/admin/assets/{id}/update `{name,spec?,total?,status?}` -> data `{asset_id}`。仅管理员；语义同上；资源不存在 404；审计 ASSET_UPDATE。
+- GET /api/admin/labs/utilization?start_date=&end_date= -> data `{utilization:[{lab_id,lab_name,slots,seats,confirmed,checked_in,no_show,utilization}]}`。仅管理员；区间 ≤31 天；utilization=confirmed÷seats×100（保留 1 位小数，seats=0 时为 0）。
+- GET /api/admin/stats/utilization/export?start_date=&end_date= -> data `{filename,content}`。利用率 CSV（BOM，Excel 直开）。
+- 数据不变量：assets(lab_id,name) 唯一；status CHECK 约束；实验室内资源随 labs 保留（停用实验室不清空清单）。
+
 ## 用户管理与运营（r11）
 - GET /api/admin/users?page=&page_size=&q? -> data `{users:[{id,username,role,enabled,reservations,waitlisted}],total,page,page_size,has_more}`。仅管理员；q 为用户名前缀过滤；reservations 为该用户有效预约（CONFIRMED）数，waitlisted 为候补中数。
 - POST /api/admin/users/{id}/disable -> data `{user_id,enabled:false}`。停用账号同时删除其全部会话（立即下线）且无法登录；目标不存在 404；管理员停用自己返回 409 STATE_CONFLICT「不能停用当前登录的管理员」；审计 USER_DISABLE。

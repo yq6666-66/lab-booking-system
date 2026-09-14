@@ -525,6 +525,93 @@ Result notifications_sent(DB *d,int page,int size){
  cJSON_AddNumberToObject(j,"page",(double)page);cJSON_AddNumberToObject(j,"page_size",(double)size);cJSON_AddBoolToObject(j,"has_more",more);
  return result(200,"OK","查询成功",j);
 }
+/* r13 实验室资源（设备）清单：用户端只读展示（不含 DISABLED），管理端增改。 */
+Result assets_list(DB *d,Id lab){
+ cJSON *rows=db_rows(d,"SELECT id,name,spec,total,status FROM assets WHERE lab_id=? AND status<>'DISABLED' ORDER BY id","i",lab);
+ if(d->error)return db_failure(d);
+ if(!rows)rows=cJSON_CreateArray();
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"assets",rows);
+ return result(200,"OK","查询成功",j);
+}
+Result asset_admin(DB *d,const User *u,Id lab,Id asset,const cJSON *body){
+ const char *name=jstr(body,"name"),*spec=jstr(body,"spec"),*ttotal=jstr(body,"total"),*status=jstr(body,"status");
+ if(!name||!strlen(name)||strlen(name)>180||(spec&&strlen(spec)>300))return result(400,"INVALID_INPUT","资源名称或规格不合法",NULL);
+ Id total=1;
+ if(ttotal&&(!parse_id(ttotal,&total)||total<1||total>999))return result(400,"INVALID_INPUT","总数需为 1..999 的整数",NULL);
+ static const char *statuses[]={"AVAILABLE","MAINTENANCE","DISABLED"};
+ int st=0,status_given=status&&status[0];
+ if(status_given){
+  while(st<3&&strcmp(status,statuses[st]))st++;
+  if(st>=3)return result(400,"INVALID_INPUT","status 需为 AVAILABLE/MAINTENANCE/DISABLED",NULL);
+ }
+ if(lab){ /* 新增 */
+  if(!db_num(d,"SELECT count(*) FROM labs WHERE id=?","i",lab))return result(404,"NOT_FOUND","实验室不存在",NULL);
+  if(!db_run(d,"INSERT INTO assets(lab_id,name,spec,total,status,created_at) VALUES(?,?,?,?,?,?)","issisi",lab,name,(spec&&spec[0])?spec:"",total,status_given?statuses[st]:"AVAILABLE",now_sec())){
+   if((d->error&255)==SQLITE_CONSTRAINT){d->error=0;return result(409,"STATE_CONFLICT","该实验室已有同名资源",NULL);}
+   return db_failure(d);
+  }
+  Id aid=sqlite3_last_insert_rowid(d->sql);
+  event(d,u->id,"ASSET_CREATE",aid,NULL);
+  cJSON *j=cJSON_CreateObject();jid(j,"asset_id",aid);return result(200,"OK","资源已添加",j);
+ }
+ /* 更新 */
+ if(!db_run(d,"UPDATE assets SET name=?,spec=?,total=?,status=? WHERE id=?","ssisi",name,(spec&&spec[0])?spec:"",total,status_given?statuses[st]:"AVAILABLE",asset))return db_failure(d);
+ if(!sqlite3_changes(d->sql))return result(404,"NOT_FOUND","资源不存在",NULL);
+ event(d,u->id,"ASSET_UPDATE",asset,NULL);
+ cJSON *j=cJSON_CreateObject();jid(j,"asset_id",asset);return result(200,"OK","资源已更新",j);
+}
+/* 资源利用率：按实验室聚合区间内的开放场次/席位与预约、签到、爽约，利用率=有效预约/总席位。 */
+Result lab_utilization(DB *d,Id start,Id end){
+ cJSON *rows=db_rows(d,
+  "SELECT l.id AS lab_id,l.name AS lab_name,count(s.id) AS slots,CAST(total(s.capacity) AS INTEGER) AS seats,"
+  "(SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE s2.lab_id=l.id AND r.status='CONFIRMED' AND s2.start_at>=? AND s2.start_at<?) AS confirmed,"
+  "(SELECT count(*) FROM reservations r JOIN slots s3 ON s3.id=r.slot_id WHERE s3.lab_id=l.id AND r.checked_in_at IS NOT NULL AND s3.start_at>=? AND s3.start_at<?) AS checked_in,"
+  "(SELECT count(*) FROM reservations r JOIN slots s4 ON s4.id=r.slot_id WHERE s4.lab_id=l.id AND r.cancel_reason='NO_SHOW' AND s4.start_at>=? AND s4.start_at<?) AS no_show "
+  "FROM labs l LEFT JOIN slots s ON s.lab_id=l.id AND s.start_at>=? AND s.start_at<? GROUP BY l.id ORDER BY l.id",
+  "iiiiiiii",start,end+86400,start,end+86400,start,end+86400,start,end+86400);
+ if(!rows)return db_failure(d);
+ cJSON *out=cJSON_CreateArray();cJSON *it;
+ cJSON_ArrayForEach(it,rows){
+  cJSON *row=cJSON_CreateObject();if(!row)break;
+  double seats=cJSON_GetObjectItemCaseSensitive(it,"seats")->valuedouble;
+  double confirmed=cJSON_GetObjectItemCaseSensitive(it,"confirmed")->valuedouble;
+  double util=seats>0?confirmed/seats*100.0:0.0;
+  cJSON *lid=cJSON_GetObjectItemCaseSensitive(it,"lab_id");
+  if(lid&&lid->valuestring)cJSON_AddStringToObject(row,"lab_id",lid->valuestring);
+  else if(lid)cJSON_AddNumberToObject(row,"lab_id",lid->valuedouble);
+  cJSON_AddStringToObject(row,"lab_name",jstr(it,"lab_name"));
+  cJSON_AddNumberToObject(row,"slots",cJSON_GetObjectItemCaseSensitive(it,"slots")->valuedouble);
+  cJSON_AddNumberToObject(row,"seats",seats);
+  cJSON_AddNumberToObject(row,"confirmed",confirmed);
+  cJSON_AddNumberToObject(row,"checked_in",cJSON_GetObjectItemCaseSensitive(it,"checked_in")->valuedouble);
+  cJSON_AddNumberToObject(row,"no_show",cJSON_GetObjectItemCaseSensitive(it,"no_show")->valuedouble);
+  cJSON_AddNumberToObject(row,"utilization",((int)(util*10+0.5))/10.0);
+  cJSON_AddItemToArray(out,row);
+ }
+ cJSON_Delete(rows);
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"utilization",out);
+ return result(200,"OK","查询成功",j);
+}
+Result utilization_export(DB *d,Id start,Id end){
+ Result r=lab_utilization(d,start,end);if(r.status!=200)return r;
+ cJSON *rows=cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(r.body,"data"),"utilization");
+ char a[11],b[11];date_text((start+28800)/86400,a);date_text((end+28800)/86400,b);
+ size_t cap=2048+(size_t)(rows?cJSON_GetArraySize(rows):0)*160;char *csv=malloc(cap);
+ if(!csv){cJSON_Delete(r.body);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
+ int n=snprintf(csv,cap,"\xEF\xBB\xBF" "实验室,开放场次,总席位,有效预约,已签到,已爽约,利用率%\n");
+ if(n<0||(size_t)n>=cap)n=0;
+ cJSON *it;cJSON_ArrayForEach(it,rows){
+  if((size_t)n+200>=cap)break;
+  n+=snprintf(csv+n,cap-(size_t)n,"%s,%g,%g,%g,%g,%g,%g\n",jstr(it,"lab_name"),
+   cJSON_GetObjectItemCaseSensitive(it,"slots")->valuedouble,cJSON_GetObjectItemCaseSensitive(it,"seats")->valuedouble,
+   cJSON_GetObjectItemCaseSensitive(it,"confirmed")->valuedouble,cJSON_GetObjectItemCaseSensitive(it,"checked_in")->valuedouble,
+   cJSON_GetObjectItemCaseSensitive(it,"no_show")->valuedouble,cJSON_GetObjectItemCaseSensitive(it,"utilization")->valuedouble);
+ }
+ cJSON_Delete(r.body);
+ char name[64];snprintf(name,sizeof name,"lab-utilization-%s_%s.csv",a,b);
+ cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"filename",name);cJSON_AddStringToObject(j,"content",csv);free(csv);
+ return result(200,"OK","导出完成",j);
+}
 /* 管理员查看服务日志尾部：按级别过滤（日志行以 [level] 前缀），最多返回 lines 行。 */
  Result logs_tail(int lines,int level){
  if(lines<1)lines=1;
