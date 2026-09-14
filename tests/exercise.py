@@ -43,6 +43,27 @@ def main():
         if not x["current"]:u2.post(f"/api/me/sessions/{x['id']}/revoke",{"request_id":str(uuid.uuid4())})
     a.post("/api/admin/labs/1/update",{"name":"软件工程实验室","location":"信息楼","description":"整间实验室 · 固定一小时场次","enabled":True})
     a.post("/api/admin/slots/publish",{"lab_id":lab,"start_date":"2026-09-25","end_date":"2026-09-26"})
+    # -- r9-r13 运营与资源端点走查（拉满 service.c/http.c 新分支覆盖） --
+    a.post("/api/admin/notifications",{"all":True,"title":"覆盖率公告","body":"exercise"})
+    a.request("GET","/api/admin/notifications/sent?page=1&page_size=5")
+    a.request("GET","/api/admin/logs?lines=50")
+    a.request("GET","/api/admin/logs?lines=20&level=3")
+    import sqlite3 as _sq
+    with _sq.connect("artifacts/coverage-run/cov.db") as conn:
+        row=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at>strftime('%s','now') ORDER BY start_at LIMIT 1",(int(lab),)).fetchone()
+    if row:
+        a.post(f"/api/admin/slots/{row[0]}/update",{"capacity":"4","enabled":True})
+    ru="cov"+uuid.uuid4().hex[:8]
+    ru_client=Client(port);ru_client.request("POST","/api/register",{"username":ru,"password":PASSWORD})
+    ru_id=ru_client.request("GET","/api/me")[1]["data"]["user"]["id"]
+    a.post(f"/api/admin/users/{ru_id}/disable",{"request_id":str(uuid.uuid4())})
+    a.post(f"/api/admin/users/{ru_id}/enable",{"request_id":str(uuid.uuid4())})
+    rst=a.post(f"/api/admin/users/{ru_id}/reset-password",{"request_id":str(uuid.uuid4())})
+    if rst.get("code")!="OK":print("reset-password:",rst)
+    a.post(f"/api/admin/labs/{lab}/assets",{"name":"覆盖率示波器","spec":"4 通道","total":"5","status":"MAINTENANCE"})
+    a.request("GET",f"/api/labs/{lab}/assets")
+    a.request("GET","/api/admin/labs/utilization?start_date=2026-09-20&end_date=2026-09-26")
+    a.request("GET","/api/admin/stats/utilization/export?start_date=2026-09-20&end_date=2026-09-26")
     a.post("/api/logout",{});u.post("/api/logout",{});u2.post("/api/logout",{})
     print("exercise 完成：全部接口路径已走遍")
 
