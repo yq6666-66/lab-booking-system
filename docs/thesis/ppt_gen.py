@@ -34,7 +34,7 @@ def slide(title, bullets=None, img=None, note=""):
             para.font.color.rgb = TX; para.space_after = Pt(10)
     return s
 
-slide("基于 C 语言的实验室预约与候补系统", bullets=[
+slide("基于 C 语言的实验室资源管理与预约候补一体化系统", bullets=[
     ("软件工程毕业设计答辩", 0), ("答辩人：＿＿＿＿＿＿　指导教师：＿＿＿＿＿＿", 0),
 ], note="封面")
 slide("一、背景与问题", bullets=[

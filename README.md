@@ -1,10 +1,10 @@
-# 基于 C 语言的实验室预约与候补系统
+# 基于 C 语言的实验室资源管理与预约候补一体化系统
 
 [![CI](https://github.com/yq6666-66/lab-booking-system/actions/workflows/ci.yml/badge.svg)](https://github.com/yq6666-66/lab-booking-system/actions/workflows/ci.yml)
 ![language](https://img.shields.io/badge/language-C11-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
-高校开放实验室预约与候补管理系统（软件工程毕业设计）。**C11 + CivetWeb + SQLite + cJSON + libsodium** 实现的 B/S 系统：固定一小时场次、容量制预约、FIFO 候补自动补位、限时签到与爽约回收、站内通知、请求去重与中断恢复。技术核心是**并发事务一致性、幂等请求去重、进程中断恢复验证**——全部结论由自动化实验实测支撑，详见[测试报告](docs/TEST_REPORT.md)。
+高校开放实验室资源管理与预约候补一体化系统（软件工程毕业设计）。**C11 + CivetWeb + SQLite + cJSON + libsodium** 实现的 B/S 系统：固定一小时场次、容量制预约、FIFO 候补自动补位、限时签到与爽约回收、站内通知、请求去重与中断恢复。技术核心是**并发事务一致性、幂等请求去重、进程中断恢复验证**——全部结论由自动化实验实测支撑，详见[测试报告](docs/TEST_REPORT.md)。
 
 ## 功能特性
 
