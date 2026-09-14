@@ -123,6 +123,8 @@ NOTIFY_ROW = {"id": T_ID, "kind": T_STR, "title": T_STR, "body": T_STR, "slot_id
 SESSION_ROW = {"id": T_STR, "created_at": nb(T_INT), "expires_at": T_INT, "current": T_BOOL}
 STAT_ROW = {"date": T_STR, "slots": T_INT, "confirmed": T_INT, "cancelled": T_INT,
             "no_show": T_INT, "checked_in": T_INT, "waiting": T_INT}
+ASSET_OBJ = {"id": T_ID, "name": T_STR, "spec": T_STR, "total": T_INT, "status": T_STR}
+UTIL_ROW = {"lab_id": T_ID, "lab_name": T_STR, "slots": T_INT, "seats": T_INT, "confirmed": T_INT, "checked_in": T_INT, "no_show": T_INT, "utilization": T_NUM}
 TOTALS_OBJ = {"slots": T_INT, "confirmed": T_INT, "cancelled": T_INT, "no_show": T_INT,
               "checked_in": T_INT, "waiting": T_INT}
 COUNTERS_OBJ = {"requests_total": T_NUM, "ok_2xx": T_NUM, "err_4xx": T_NUM, "err_5xx": T_NUM,
@@ -160,6 +162,11 @@ SCHEMAS = [
     ("GET",  "/api/admin/metrics",             {"counters": COUNTERS_OBJ, "latency_ms": LATENCY_OBJ}),
     ("POST", "/api/admin/labs",                {"lab_id": T_ID}),
     ("POST", "/api/admin/labs/{lid}/update",   {"lab_id": T_ID}),
+    ("POST", "/api/admin/labs/{lid}/assets",   {"asset_id": T_ID}),
+    ("POST", "/api/admin/assets/{aid}/update", {"asset_id": T_ID}),
+    ("GET",  "/api/labs/{lid}/assets",         {"assets": arr(ASSET_OBJ)}),
+    ("GET",  "/api/admin/labs/utilization?start_date={today}&end_date={today}", {"utilization": arr(UTIL_ROW)}),
+    ("GET",  "/api/admin/stats/utilization/export?start_date={today}&end_date={today}", {"filename": T_STR, "content": T_STR}),
     ("POST", "/api/admin/slots/publish",       {"created": T_INT}),
     ("POST", "/api/register",                  LOGIN_DATA),
     ("POST", "/api/me/sessions/{sid}/revoke",  "empty-or-obj"),
@@ -237,6 +244,9 @@ def run_scenarios(server):
     now = int(time.time())  # 把第二个预约所在场次推到“已开始”，使其处于可签到状态
     server.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?", (now - 1, now + 3599, slot_pairs[1][0]))
     bind["lid"] = str(server.sql("SELECT id FROM labs WHERE enabled=1 ORDER BY id LIMIT 1")[0][0])
+    st, body = admin.request("POST", f"/api/admin/labs/{bind['lid']}/assets", {"name": "契约资源", "spec": "contract", "total": "2"})
+    require(st == 200, f"准备资源失败：{st} {body}")
+    bind["aid"] = body["data"]["asset_id"]
     # 单独准备一条仍处于 WAITING 的候补（上面那条会在取消时被补位），用于校验 withdraw
     st, body = a.request("POST", "/api/reservations", {"slot_id": slot_pairs[3][0], "request_id": uid()})
     require(st == 200, f"准备第三预约失败：{st} {body}")
@@ -264,6 +274,10 @@ def run_scenarios(server):
                 payload = {"name": f"契约实验室{uid()[:6]}", "location": "实验楼", "description": "contract"}
             elif path_tpl == "/api/admin/labs/{lid}/update":
                 payload = {"name": f"契约实验室{uid()[:6]}", "location": "实验楼", "description": "contract", "enabled": True}
+            elif path_tpl == "/api/admin/labs/{lid}/assets":
+                payload = {"name": f"契约资源{uid()[:6]}", "spec": "contract", "total": "2"}
+            elif path_tpl == "/api/admin/assets/{aid}/update":
+                payload = {"name": "契约资源", "spec": "contract-v2", "total": "3", "status": "AVAILABLE"}
             elif path_tpl == "/api/admin/slots/publish":
                 payload = {"lab_id": lab, "start_date": today(), "end_date": today()}
             elif path_tpl == "/api/me/password":

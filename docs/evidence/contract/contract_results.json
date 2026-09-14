@@ -1,8 +1,8 @@
 {
-  "timestamp_utc": "2026-09-13T10:32:41.197564+00:00",
+  "timestamp_utc": "2026-09-14T08:09:44.361879+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
-  "endpoints_total": 25,
-  "endpoints_passed": 25,
+  "endpoints_total": 30,
+  "endpoints_passed": 30,
   "error_cases_total": 14,
   "error_cases_passed": 14,
   "all_passed": true,
@@ -121,6 +121,31 @@
       "name": "POST /api/admin/labs/{lid}/update",
       "passed": true,
       "detail": "data 字段 ['lab_id']"
+    },
+    {
+      "name": "POST /api/admin/labs/{lid}/assets",
+      "passed": true,
+      "detail": "data 字段 ['asset_id']"
+    },
+    {
+      "name": "POST /api/admin/assets/{aid}/update",
+      "passed": true,
+      "detail": "data 字段 ['asset_id']"
+    },
+    {
+      "name": "GET /api/labs/{lid}/assets",
+      "passed": true,
+      "detail": "data 字段 ['assets']"
+    },
+    {
+      "name": "GET /api/admin/labs/utilization?start_date={today}&end_date={today}",
+      "passed": true,
+      "detail": "data 字段 ['utilization']"
+    },
+    {
+      "name": "GET /api/admin/stats/utilization/export?start_date={today}&end_date={today}",
+      "passed": true,
+      "detail": "data 字段 ['content', 'filename']"
     },
     {
       "name": "POST /api/admin/slots/publish",

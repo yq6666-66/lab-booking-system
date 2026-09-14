@@ -697,6 +697,63 @@ def feature_checks(s):
         require(st3==403,"non-admin rejected")
         return {"lines":len(d["data"]["lines"])}
     record("T40 admin log viewer",t40) # -- r12/logs
+    def t41(): # -- r13/assets
+        """实验室资源清单：管理端增改、同名 409、越权 403、用户端只读且不含停用资源。"""
+        lab=admin.post("/api/admin/labs",{"name":"资源实验室"+uid()[:6],"location":"实验楼","description":"assets"})["data"]["lab_id"]
+        st,d=admin.request("POST",f"/api/admin/labs/{lab}/assets",{"name":"图形工作站","spec":"32 核 / 128 GB","total":"20"})
+        require(st==200 and d["data"]["asset_id"],f"asset create: {st} {d}")
+        aid=d["data"]["asset_id"]
+        st2,_=admin.request("POST",f"/api/admin/labs/{lab}/assets",{"name":"图形工作站","total":"5"})
+        require(st2==409,f"duplicate name 409: {st2}")
+        st3,_=admin.request("POST",f"/api/admin/assets/{aid}/update",{"name":"图形工作站","spec":"64 核 / 256 GB","total":"24","status":"MAINTENANCE"})
+        require(st3==200,f"asset update: {st3}")
+        st4,d4=a.request("GET",f"/api/labs/{lab}/assets")
+        require(st4==200,f"user read assets: {st4}")
+        lst=d4["data"]["assets"]
+        require(len(lst)==1 and lst[0]["status"]=="MAINTENANCE" and lst[0]["total"]==24,f"user sees maintenance asset: {lst}")
+        st5,d5=admin.request("POST",f"/api/admin/assets/{aid}/update",{"name":"图形工作站","total":"24","status":"DISABLED"})
+        require(st5==200,f"disable asset: {st5}")
+        st6,d6=a.request("GET",f"/api/labs/{lab}/assets")
+        require(st6==200 and len(d6["data"]["assets"])==0,"disabled asset hidden from users")
+        st7,_=a.request("POST",f"/api/admin/labs/{lab}/assets",{"name":"越权资源","total":"1"})
+        require(st7==403,"non-admin create rejected")
+        st8,_=a.request("GET",f"/api/admin/labs/utilization?start_date=2026-01-01&end_date=2026-01-02")
+        require(st8==403,"non-admin utilization rejected")
+        st9,_=admin.request("POST",f"/api/admin/labs/{lab}/assets",{"name":"坏总数","total":"0"})
+        require(st9==400,f"total=0 rejected: {st9}")
+        st10,_=admin.request("POST",f"/api/admin/assets/{aid}/update",{"name":"图形工作站","status":"BROKEN"})
+        require(st10==400,f"bad status rejected: {st10}")
+        return {"asset_hidden_when_disabled":True}
+    record("T41 lab assets management",t41) # -- r13/assets
+    def t42(): # -- r13/utilization
+        """资源利用率：与 SQL 对账（席位/预约/利用率），CSV 导出含实验室名。"""
+        import sqlite3 as _sq
+        ru="ut"+uid()[:8]
+        rc=Client(s.port);st,bd=rc.request("POST","/api/register",{"username":ru,"password":PASSWORD})
+        require(st==200,f"register: {st}");rc.csrf=bd["data"]["csrf_token"]
+        lab=admin.post("/api/admin/labs",{"name":"利用率实验室"+uid()[:6],"location":"实验楼","description":"util"})["data"]["lab_id"]
+        day=int(time.time())+2*86400
+        day=(day+28800)//86400*86400-28800+9*3600
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,2,NULL)",(int(lab),day,day+3600,1))
+            sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),day)).fetchone()[0]
+        rc.post("/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+        sd=(day+28800)//86400*86400-28800
+        date_a=date_b=time.strftime("%Y-%m-%d",time.gmtime(sd+28800))
+        st,d=admin.request("GET",f"/api/admin/labs/utilization?start_date={date_a}&end_date={date_b}")
+        require(st==200,f"utilization: {st}")
+        row=[x for x in d["data"]["utilization"] if str(x["lab_id"])==str(lab)]
+        require(row,f"lab in utilization: {d['data']['utilization'][:2]}")
+        r=row[0]
+        with _sq.connect(s.db,timeout=5) as conn:
+            seats=conn.execute("SELECT total(capacity) FROM slots WHERE lab_id=? AND start_at>=? AND start_at<?",(int(lab),sd,sd+86400)).fetchone()[0]
+            confirmed=conn.execute("SELECT count(*) FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE s.lab_id=? AND r.status='CONFIRMED' AND s.start_at>=? AND s.start_at<?",(int(lab),sd,sd+86400)).fetchone()[0]
+        require(r["seats"]==seats and r["confirmed"]==confirmed and seats>0,f"utilization vs sql: api={r} sql=({seats},{confirmed})")
+        require(abs(r["utilization"]-round(confirmed/seats*1000)/10)<0.11,f"utilization pct: {r['utilization']}")
+        st2,d2=admin.request("GET",f"/api/admin/stats/utilization/export?start_date={date_a}&end_date={date_b}")
+        require(st2==200 and "实验室" in d2["data"]["content"] and "利用率" in d2["data"]["content"],f"csv export: {st2}")
+        return {"seats":r["seats"],"utilization":r["utilization"]}
+    record("T42 lab utilization stats",t42) # -- r13/utilization
     def t39(): # -- r12/archive
         """历史归档：sweep 周期性清理 30 天前的候补与请求回执（预约记录保留）。"""
         import sqlite3 as _sq

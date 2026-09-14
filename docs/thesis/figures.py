@@ -142,6 +142,8 @@ ent(5.8, 4.6, 2.5, "waitlist", ["id PK", "user_id FK", "slot_id FK", "status（F
 ent(8.9, 9.3, 2.5, "request_receipts", ["user_id+req_id PK", "action / digest", "http_status", "result_json"])
 ent(8.9, 5.8, 2.5, "operation_events", ["id PK", "actor_id FK", "action", "entity_id / req_id"])
 ent(8.9, 2.6, 2.5, "notifications", ["id PK", "user_id FK", "kind（四类）", "read_at", "slot / rsv FK"])
+ent(5.8, 1.6, 2.5, "assets（r13）", ["id PK", "lab_id FK", "name UQ per lab", "spec / total", "status（3 态）"])
+line(4.2, 6.0, 5.8, 2.6, "1:N 配备", lx=4.9, ly=4.1)
 line(2.5, 9.55, 3.0, 9.6, "1:N", lx=2.75, ly=9.87)
 line(1.0, 9.3, 1.0, 6.6, "会话 1:N", lx=1.15, ly=8.0)
 line(2.5, 9.3, 5.8, 9.55, "1:N", lx=4.0, ly=9.87)
@@ -152,8 +154,8 @@ line(5.3, 5.6, 6.6, 5.4, "场次 1:N", lx=5.7, ly=5.15)
 line(8.3, 9.0, 8.9, 9.0, "去重 N:1", lx=8.6, ly=9.18)
 line(8.3, 8.6, 8.9, 6.3, "审计 N:1", lx=8.25, ly=7.4)
 line(8.3, 8.2, 8.9, 3.6, "通知 N:1", lx=8.05, ly=5.6)
-note(ax, 4.2, 1.4, "不变量：每场次有效预约 ≤ capacity（事务校验）；每（用户,场次）至多 1 条 WAITING；\n回执以（用户,请求编号）为主键实现幂等",
-        fontsize=9, color=BD, ha="center", linespacing=1.6)
+note(ax, 0.15, 0.25, "不变量：每场次 CONFIRMED 数 ≤ capacity；每（用户,场次）至多 1 条 WAITING\n回执（用户,请求编号）主键幂等；assets(lab_id,name) 唯一",
+        fontsize=9, color=BD, ha="left", linespacing=1.6)
 save(fig, "fig4-2-er.png")
 
 # ---- 图4-3 状态转换图（重排：标签显式错位，长短语拆行） ----
