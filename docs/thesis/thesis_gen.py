@@ -103,7 +103,7 @@ def add_toc():
 for _ in range(4): doc.add_paragraph()
 p = para("本科毕业设计（论文）", indent=False, align=WD_ALIGN_PARAGRAPH.CENTER, size=22, bold=True)
 doc.add_paragraph()
-p = para("基于 C 语言的实验室预约与候补系统的设计与实现", indent=False, align=WD_ALIGN_PARAGRAPH.CENTER, size=18, bold=True)
+p = para("基于 C 语言的实验室资源管理与预约候补一体化系统设计与实现", indent=False, align=WD_ALIGN_PARAGRAPH.CENTER, size=18, bold=True)
 doc.add_paragraph(); doc.add_paragraph()
 for line in ["学    院：＿＿＿＿＿＿＿＿＿＿", "专    业：软件工程", "姓    名：＿＿＿＿＿＿＿＿＿＿",
              "学    号：＿＿＿＿＿＿＿＿＿＿", "指导教师：＿＿＿＿＿＿＿＿＿＿", "完成日期：2026 年 6 月"]:
@@ -112,7 +112,7 @@ doc.add_page_break()
 
 # ---------- 摘要 ----------
 h1("摘  要")
-para("高校开放实验室普遍存在预约冲突、占而不用、候补无序等问题。本课题设计并实现了一个基于 C 语言的实验室预约与候补管理系统，"
+para("高校开放实验室普遍存在预约冲突、占而不用、候补无序等问题。本课题设计并实现了一个基于 C 语言的实验室资源管理与预约候补一体化系统，"
      "采用 C11 与 CivetWeb、SQLite、cJSON、libsodium 等嵌入式组件构建浏览器/服务器架构，重点解决三个工程问题：并发争抢下的容量一致性、"
      "重复请求与中断恢复的幂等性、签到爽约与候补补位的业务闭环。")
 para("系统以单写者事务（BEGIN IMMEDIATE）配合容量不变量保证并发正确性；以持久化请求回执实现同编号同参数重放幂等、同编号异参数冲突拒绝；"
