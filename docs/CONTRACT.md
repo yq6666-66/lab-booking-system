@@ -119,3 +119,12 @@ slots 增加 capacity 列（1..200，默认 1），schema user_version=3；v2 �
 - POST /api/register `{username,password}` -> 同登录响应 `{user:{id,username,role:"USER"},csrf_token}` 并直接建立会话（注册即登录）。
 - 规则：用户名 2..64 字节可见字符（禁空白/控制符）；密码 8..128 位；角色恒为 USER。重名 409 USERNAME_TAKEN；弱口令/非法用户名 400。
 - 防刷：全局注册桶（突发 20、每 30 秒补 1）超限 429 RATE_LIMITED。注册成功写 REGISTER 审计事件。事件仅在登录/注册路径写入，本接口无需 CSRF（会话尚未建立）。
+
+## 语义澄清（r25 组合验证基准）
+以下五条是规则组合语义的唯一正确答案，由集成测试 T63–T67 钉死；与既有 BR 条目的单条描述冲突时以本节为准。
+
+1. **容量口径**：仅 CONFIRMED 与 HELD 占用场次容量（容量校验、替代时段、候补守卫同口径）。PENDING 是待审批意向，不占容量——因此容量未满时审批实验室可同时存在多条 PENDING；批准事务内重校容量，已满则 409 APPROVAL_CAPACITY。候补 WAITING 不占容量，也不计入每周配额（BR13）。
+2. **抢占边界**：仅管理/高优先级角色触发；受害者限定「未签到（checked_in_at IS NULL）且 priority 低于请求者」的 CONFIRMED/HELD 预约，取 priority 最低者；**已签到者永不被抢占**。受害者置 CANCELLED/PREEMPTED、补偿 +1 信用（钳制 0..5，满额时补偿被吸收）、通知，可凭恢复的余额重新预约。
+3. **递补与审批**：候补递补是系统行为，不经过 require_approval——审批实验室的候补递补同样直接落 CONFIRMED（`--hold-window`>0 时落 HELD，截止=min(now+窗口, 开场)，确认接口 `/confirm`）；审批流只作用于用户主动预约。
+4. **资源维护与声明**：声明校验仅发生在预约事务内（资源存在、属于该场次实验室、状态 AVAILABLE）。资源转入 MAINTENANCE 后新声明返回 409 STATE_CONFLICT；**既有声明与对应预约不受影响、无需回收**；恢复 AVAILABLE 后可再次声明（BR12 同时段声明配额继续生效）。
+5. **改期与配额**：reschedule 不做每周配额检查；预约记录自旧场次更新到新场次后自然移出旧周、计入新周，本周有效预约（CONFIRMED/HELD，按场次 start_at 落周）总数守恒不增加——改期不会绕过也不会放松 BR13。

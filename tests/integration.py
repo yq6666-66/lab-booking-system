@@ -1302,6 +1302,222 @@ def feature_checks(s):
         require(st=="EXPIRED",f"expired HELD reclaimed by sweeper: {st}")
         return {"held_reclaimed":True}
     record("T62 HELD hold expiry reclaimed",t62) # -- r24/held
+    def t63(): # -- r25/approval-held
+        """审批×HELD 组合：PENDING 不占容量（capacity=1 可并存两条 PENDING）、批准时重校容量（APPROVAL_CAPACITY）、
+        候补递补绕过审批直接落 HELD（递补是系统行为）、确认后转 CONFIRMED。语义依据 CONTRACT「语义澄清」1/3。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="appr-held-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"ah.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"ah.db",extra=["--hold-window","3600"]) as sq:
+            ad=Client(sq.port).login("admin")
+            lab=ad.post("/api/admin/labs",{"name":"审批保留实验室"+uid()[:6],"location":"实验楼","description":"ah","require_approval":True})["data"]["lab_id"]
+            now=int(time.time())
+            base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),base,base+3600,1))
+                sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base)).fetchone()[0]
+            def reg(tag):
+                c=Client(sq.port);st,b=c.request("POST","/api/register",{"username":tag+uid()[:6],"password":PASSWORD})
+                require(st==200,f"register {tag}: {st} {b}")
+                c.csrf=b["data"]["csrf_token"]
+                return c,b["data"]["user"]["username"]
+            u1,n1=reg("ah1");u2,n2=reg("ah2");u3,n3=reg("ah3")
+            st,b=u1.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+            require(st==200,f"u1 reserve: {st} {b}")
+            rid1=b["data"]["reservation_id"]
+            st,b=u2.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+            require(st==200,f"u2 也 PENDING（PENDING 不占容量）: {st} {b}")
+            rid2=b["data"]["reservation_id"]
+            recs1=u1.request("GET","/api/me/records?page=1&page_size=10")[1]["data"]["reservations"]
+            require([x for x in recs1 if str(x["id"])==str(rid1)][0]["status"]=="PENDING","u1 PENDING")
+            recs2=u2.request("GET","/api/me/records?page=1&page_size=10")[1]["data"]["reservations"]
+            require([x for x in recs2 if str(x["id"])==str(rid2)][0]["status"]=="PENDING","u2 PENDING")
+            st,b=ad.request("POST",f"/api/reservations/{rid1}/approve",{"request_id":uid()})
+            require(st==200,f"approve u1: {st} {b}")
+            st,b=ad.request("POST",f"/api/reservations/{rid2}/approve",{"request_id":uid()})
+            require(st==409 and b["code"]=="APPROVAL_CAPACITY",f"批准时重校容量: {st} {b}")
+            st,b=u3.request("POST","/api/waitlist",{"slot_id":str(sid),"request_id":uid()})
+            require(st==200,f"u3 join waitlist: {st} {b}")
+            u1.post(f"/api/reservations/{rid1}/cancel",{"request_id":uid()})
+            row=sq.sql("SELECT id,status,hold_deadline FROM reservations WHERE slot_id=? AND user_id=(SELECT id FROM users WHERE username=?)",(int(sid),n3))
+            require(len(row)==1,f"u3 promoted row: {row}")
+            rid3,st3,dl=int(row[0][0]),row[0][1],row[0][2]
+            require(st3=="HELD",f"递补落 HELD 而非 PENDING（递补绕过审批）: {st3}")
+            require(dl and dl>time.time(),f"hold_deadline set: {dl}")
+            st,b=u3.request("POST",f"/api/reservations/{rid3}/confirm",{"request_id":uid()})
+            require(st==200,f"confirm: {st} {b}")
+            require(sq.sql("SELECT status FROM reservations WHERE id=?",(rid3,))==[("CONFIRMED",)],"确认后 CONFIRMED")
+        return {"approval_capacity":True,"promoted_held":True}
+    record("T63 approval x HELD promotion bypasses approval",t63) # -- r25/approval-held
+    def t64(): # -- r25/priority-fifo
+        """优先级×可执行 FIFO 组合：递补按 priority DESC 扫描——高优先级管理员因时间冲突被暂跳后，
+        低优先级普通用户获补位（可执行模式继续扫描）；strict 对照下遇冲突整体停止，无人递补。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        def build(sq):
+            ad=Client(sq.port).login("admin")
+            time.sleep(1.2)
+            tag=uid()[:6]
+            lab1=ad.post("/api/admin/labs",{"name":"优先A"+tag,"location":"实验楼","description":"p"})["data"]["lab_id"]
+            time.sleep(1.2)
+            lab2=ad.post("/api/admin/labs",{"name":"优先B"+tag,"location":"实验楼","description":"p"})["data"]["lab_id"]
+            day=time.strftime("%Y-%m-%d",time.localtime(time.time()+3*86400))  # +3d 避开 T61 遗留在 +2d 9 点的预约
+            time.sleep(1.0)
+            ad.post("/api/admin/slots/publish",{"lab_id":str(lab1),"start_date":day,"end_date":day,"capacity":"1"})
+            time.sleep(1.0)
+            ad.post("/api/admin/slots/publish",{"lab_id":str(lab2),"start_date":day,"end_date":day,"capacity":"1"})
+            t1=sq.sql("SELECT id FROM slots WHERE lab_id=? AND enabled=1 AND start_at>? ORDER BY start_at LIMIT 1",(int(lab1),int(time.time())))[0][0]
+            peer=sq.sql("SELECT id FROM slots WHERE lab_id=? AND start_at=(SELECT start_at FROM slots WHERE id=?) AND enabled=1",(int(lab2),t1))
+            require(peer,"peer slot same time exists")
+            return ad,t1,peer[0][0]
+        ad,t1,t2=build(s)  # 可执行模式（默认）
+        occ=Client(s.port).login("user18")
+        rr=occ.request("POST","/api/reservations",{"slot_id":str(t1),"request_id":uid()})
+        require(rr[0]==200,f"blocker reserves t1: {rr}")
+        a=Client(s.port).login("user19")
+        st,wb=a.request("POST","/api/waitlist",{"slot_id":str(t1),"request_id":uid()})
+        require(st==200,f"A joins: {st} {wb}")
+        wa=wb["data"]["waitlist_id"]
+        st,wb2=ad.request("POST","/api/waitlist",{"slot_id":str(t1),"request_id":uid()})
+        require(st==200,f"admin joins (priority 10): {st} {wb2}")
+        wadm=wb2["data"]["waitlist_id"]
+        require(wadm>wa,"admin queued after A by id")
+        st,_=ad.request("POST","/api/reservations",{"slot_id":str(t2),"request_id":uid()})
+        require(st==200,"admin takes peer slot -> temporary clash")
+        occ.post(f"/api/reservations/{rr[1]['data']['reservation_id']}/cancel",{"request_id":uid()})
+        require(s.sql("SELECT status FROM waitlist WHERE id=?",(int(wadm),))[0][0]=="WAITING","高优先级管理员被暂跳仍 WAITING")
+        require(s.sql("SELECT status FROM waitlist WHERE id=?",(int(wa),))[0][0]=="PROMOTED","低优先级 A 获递补（继续扫描而非停止）")
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="fifo-strict-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"fs.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"fs.db",extra=["--waitlist-strategy","strict"]) as sq2:
+            ad2,t1b,t2b=build(sq2)
+            occ2=Client(sq2.port).login("user18")
+            rr2=occ2.request("POST","/api/reservations",{"slot_id":str(t1b),"request_id":uid()})
+            require(rr2[0]==200,f"blocker: {rr2}")
+            a2=Client(sq2.port).login("user19")
+            st,wb3=a2.request("POST","/api/waitlist",{"slot_id":str(t1b),"request_id":uid()})
+            require(st==200,f"A joins: {st}")
+            st,wb4=ad2.request("POST","/api/waitlist",{"slot_id":str(t1b),"request_id":uid()})
+            require(st==200,f"admin joins: {st}")
+            st,_=ad2.request("POST","/api/reservations",{"slot_id":str(t2b),"request_id":uid()})
+            require(st==200,"admin clash")
+            occ2.post(f"/api/reservations/{rr2[1]['data']['reservation_id']}/cancel",{"request_id":uid()})
+            st_a=sq2.sql("SELECT status FROM waitlist WHERE id=?",(int(wb3["data"]["waitlist_id"]),))[0][0]
+            st_m=sq2.sql("SELECT status FROM waitlist WHERE id=?",(int(wb4["data"]["waitlist_id"]),))[0][0]
+            require(st_a=="WAITING" and st_m=="WAITING",f"strict 模式遇冲突停止: A={st_a} admin={st_m}")
+            require(sq2.sql("SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'",(t1b,))==[(0,)],"strict 下无人递补，名额保留")
+        return {"priority_skipped":True,"strict_stops":True}
+    record("T64 priority DESC x executable FIFO skip and strict stop",t64) # -- r25/priority-fifo
+    def t65(): # -- r25/preempt-credit
+        """抢占×信用组合：低余额用户被抢占获得 +1 补偿（PREEMPTED 流水，未触顶），信用恢复后可再次预约。
+        先借首次预约消耗本周 WEEKLY 回补标记，使后续余额完全由测试控制（否则回补会把余额刷回 5）。"""
+        import sqlite3 as _sq
+        adm=Client(s.port).login("admin")
+        time.sleep(1.5)
+        victim=Client(s.port);st,b=victim.request("POST","/api/register",{"username":"vc"+uid()[:6],"password":PASSWORD})
+        require(st==200,f"register victim: {st} {b}")
+        victim.csrf=b["data"]["csrf_token"]
+        vname=b["data"]["user"]["username"]
+        vuid=int(b["data"]["user"]["id"])
+        lab=adm.post("/api/admin/labs",{"name":"抢占信用实验室"+uid()[:6],"location":"实验楼","description":"pc"})["data"]["lab_id"]
+        time.sleep(1.2)
+        now=int(time.time())
+        base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),base,base+3600,1))
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),base+86400,base+86400+3600,1))
+            s1=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base)).fetchone()[0]
+            s2=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base+86400)).fetchone()[0]
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("UPDATE users SET credit=1 WHERE id=?",(vuid,))
+        rr=victim.request("POST","/api/reservations",{"slot_id":str(s1),"request_id":uid()})
+        require(rr[0]==200,f"victim reserves（触发本周回补标记）: {rr}")
+        vid=rr[1]["data"]["reservation_id"]
+        require(victim.request("GET","/api/me/credits?page=1&page_size=20")[1]["data"]["balance"]==5,"first booking topped up to 5")
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("UPDATE users SET credit=3 WHERE id=?",(vuid,))  # 本周已回补，余额自此测试可控
+        st,b=adm.request("POST","/api/reservations",{"slot_id":str(s1),"request_id":uid()})
+        require(st==200,f"admin preempts: {st} {b}")
+        require(s.sql("SELECT status,cancel_reason FROM reservations WHERE id=?",(int(vid),))==[("CANCELLED","PREEMPTED")],"victim CANCELLED/PREEMPTED")
+        led=victim.request("GET","/api/me/credits?page=1&page_size=20")[1]["data"]
+        require(led["balance"]==4,f"credit 3->4（+1 补偿未触顶）: {led}")
+        require(any(x["reason"]=="PREEMPTED" and int(x["delta"])==1 and str(x["reservation_id"])==str(vid) for x in led["ledger"]),f"PREEMPTED ledger: {led['ledger']}")
+        st,_=victim.request("POST","/api/reservations",{"slot_id":str(s2),"request_id":uid()})
+        require(st==200,f"信用>0 恢复预约资格: {st}")
+        return {"credit_compensated":True}
+    record("T65 preempt x credit compensation and rebook",t65) # -- r25/preempt-credit
+    def t66(): # -- r25/maintenance-claim
+        """维护×资源声明组合：资源转维护后新声明 409 STATE_CONFLICT，既有声明与 CONFIRMED 预约不受影响；恢复后可再声明。
+        使用种子用户（user13-15）避免消耗全局注册桶。"""
+        import sqlite3 as _sq
+        adm=Client(s.port).login("admin")
+        time.sleep(1.5)
+        lab=adm.post("/api/admin/labs",{"name":"维护声明实验室"+uid()[:6],"location":"实验楼","description":"mc"})["data"]["lab_id"]
+        time.sleep(1.2)
+        aid=adm.post(f"/api/admin/labs/{lab}/assets",{"name":"维护声明设备","spec":"x","total":"3"})["data"]["asset_id"]
+        now=int(time.time())
+        base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,3,NULL)",(int(lab),base,base+3600,1))
+            sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base)).fetchone()[0]
+        u1,u2,u3=(Client(s.port).login(n) for n in ("user13","user14","user15"))
+        for u in (u1,u2):
+            st,b=u.request("POST","/api/reservations",{"slot_id":str(sid),"assets":[str(aid)],"request_id":uid()})
+            require(st==200,f"claim reserve: {st} {b}")
+        require(s.sql("SELECT count(*) FROM asset_claims WHERE asset_id=?",(int(aid),))[0][0]==2,"2 claims recorded")
+        st,_=adm.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"open","reason":"例行保养","request_id":uid()})
+        require(st==200,"open maintenance")
+        st,b=u3.request("POST","/api/reservations",{"slot_id":str(sid),"assets":[str(aid)],"request_id":uid()})
+        require(st==409 and b["code"]=="STATE_CONFLICT",f"维护中新声明 409: {st} {b}")
+        kept=s.sql("SELECT count(*) FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id WHERE c.asset_id=? AND r.status='CONFIRMED'",(int(aid),))[0][0]
+        require(kept==2,f"既有声明与 CONFIRMED 预约不受影响: {kept}")
+        st,_=adm.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"close","request_id":uid()})
+        require(st==200,"close maintenance")
+        st,b=u3.request("POST","/api/reservations",{"slot_id":str(sid),"assets":[str(aid)],"request_id":uid()})
+        require(st==200,f"恢复后可再声明: {st} {b}")
+        return {"maintenance_blocks_new_claims":True}
+    record("T66 maintenance x asset claims",t66) # -- r25/maintenance-claim
+    def t67(): # -- r25/reschedule-quota
+        """改期×周配额组合：reschedule 不重计周配额——移出旧场次计入新场次，本周总数守恒；改期不放松 BR13。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="rs-quota-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"rq.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"rq.db",extra=["--quota-weekly","2"]) as sq:
+            ad=Client(sq.port).login("admin")
+            lab=ad.post("/api/admin/labs",{"name":"改期配额实验室"+uid()[:6],"location":"实验楼","description":"rq"})["data"]["lab_id"]
+            ru=Client(sq.port);st,b=ru.request("POST","/api/register",{"username":"rq"+uid()[:6],"password":PASSWORD})
+            require(st==200,f"register: {st} {b}")
+            ru.csrf=b["data"]["csrf_token"]
+            ruid=int(b["data"]["user"]["id"])
+            now=int(time.time())
+            base=((now+86400+28800)//86400*86400-28800)+9*3600
+            sids=[]
+            with _sq.connect(sq.db,timeout=5) as conn:
+                for k in range(4):
+                    sd=base+k*86400
+                    conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),sd,sd+3600,1))
+                    sids.append(conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),sd)).fetchone()[0])
+            rr=ru.request("POST","/api/reservations",{"slot_id":str(sids[0]),"request_id":uid()})
+            require(rr[0]==200,f"book s1: {rr}")
+            rid=rr[1]["data"]["reservation_id"]
+            require(ru.request("POST","/api/reservations",{"slot_id":str(sids[1]),"request_id":uid()})[0]==200,"book s2")
+            st,b=ru.request("POST","/api/reservations",{"slot_id":str(sids[2]),"request_id":uid()})
+            require(st==409 and b["code"]=="WEEKLY_QUOTA",f"配额满: {st} {b}")
+            st,b=ru.request("POST",f"/api/reservations/{rid}/reschedule",{"slot_id":str(sids[2]),"request_id":uid()})
+            require(st==200,f"reschedule s1->s3（不重计配额）: {st} {b}")
+            require(str(b["data"]["new_slot_id"])==str(sids[2]),f"new slot: {b}")
+            moved=sq.sql("SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD') AND s2.start_at>=?",(ruid,base))[0][0]
+            require(moved==2,f"本周有效预约数守恒（仍为 2）: {moved}")
+            require(sq.sql("SELECT count(*) FROM reservations WHERE user_id=? AND slot_id=?",(ruid,int(sids[0]),))==[(0,)],"旧场次记录移除")
+            st,b=ru.request("POST","/api/reservations",{"slot_id":str(sids[3]),"request_id":uid()})
+            require(st==409 and b["code"]=="WEEKLY_QUOTA",f"改期不放水仍 409: {st} {b}")
+        return {"quota_invariant":True}
+    record("T67 reschedule x weekly quota invariant",t67) # -- r25/reschedule-quota
 
 
 def account_checks(s):
