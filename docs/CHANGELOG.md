@@ -2,6 +2,25 @@
 
 本项目遵循语义化版本。所有重要变更记录于此。
 
+## [1.11.0] - 2026-09-15
+
+第二十轮：管理端待审批专页签、声明占用 CSV 导出与 API 令牌只读访问。
+
+### 新增
+- 管理端「待审批」专页签：`GET /api/admin/records?status=PENDING` 仅列出 PENDING 预约（不传 `date` 即不按日期过滤，覆盖跨天场次），支持就地批准/拒绝；概览新增「待审批」卡片与页签徽标计数（T52）。
+- 声明占用 CSV 导出：`GET /api/admin/asset-claims/export?start_date=&end_date=` 输出带 BOM 的 CSV（资源编号/资源名称/声明次数/最近占用日期 + 合计行），为只读操作（T53）。
+- X-API-Token 只读访问：GET 请求可携带 `X-API-Token` 头免 Cookie 认证，命中即刷新 `last_used_at`；写操作、令牌吊销端点与越权端点一律拒绝（T54）。
+
+### 修复
+- `/api/admin/records` 新增 `status` 过滤参数；`records()` 原将 status 拼为字面量 `'?'` 致条件恒不成立，现按白名单枚举直接拼接（T52 覆盖）。
+- 令牌吊销 `POST /api/me/tokens/{id}/revoke` 原误置于 GET 分支——GET 请求体不被解析、`request_id` 恒缺失，该端点恒返回 400、功能不可用；现按契约移入 POST 分支。
+- 管理端「声明占用」表调用未定义的 `stamp()`，致该表始终加载失败，改用 `fmtStamp()`。
+- `utilization_export` 表头 `利用率%\n` 的 `%` 未转义（触发 `-Wformat` 告警且表头错乱），改为 `%%`。
+- 契约文档与测试 schema 补齐既有漂移字段（health.version/uptime_s、records 的 username/lab_id/note、events.id、tokens.last_used_at、utilization 实机时三列），契约测试实现零漂移。
+
+### 变更
+- 契约端点 36 → 39（补入 r21 遗漏的 `asset-claims` 及本轮 `asset-claims/export`）；集成断言 52 → 55。
+
 ## [1.10.0] - 2026-09-15
 
 第十九轮：资源声明数据闭环可视化。

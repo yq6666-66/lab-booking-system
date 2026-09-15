@@ -152,7 +152,20 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
  if(!strcmp(path,"/api/login"))return post?login(d,body,cookie):result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);
  if(!strcmp(path,"/api/register"))return post?do_register(d,body,cookie):result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);
  Id aid_target=0;
- User u={0};char tokenhash[65];if(!authenticated(d,c,&u,tokenhash))return d->error?db_failure(d):result(401,"UNAUTHORIZED","请先登录",NULL);
+ User u={0};char tokenhash[65];
+ if(!authenticated(d,c,&u,tokenhash)){
+  if(d->error)return db_failure(d);
+  /* r22 X-API-Token 只读访问：仅在没有有效会话且请求为 GET 时尝试；写操作仍必须走会话 + CSRF。 */
+  const char *apitok=post?NULL:mg_get_header(c,"X-API-Token");
+  if(!apitok)return result(401,"UNAUTHORIZED","请先登录",NULL);
+  Result tr=token_auth(d,apitok,&u);
+  if(tr.status!=200)return tr;
+  if(d->error)return db_failure(d);
+  /* /api/me/tokens/{id}/revoke 虽挂在 GET 分支下，实为写操作；令牌访问一律拒绝，保持"只读"承诺。 */
+  {size_t pn=strlen(path);
+   if(pn>16&&!strncmp(path,"/api/me/tokens/",15)&&!strcmp(path+pn-7,"/revoke"))return result(403,"FORBIDDEN","令牌访问不支持该操作",NULL);}
+  tokenhash[0]=0;
+ }
  if(post){const char *csrf=mg_get_header(c,"X-CSRF-Token");if(!csrf||strlen(csrf)!=64||sodium_memcmp(csrf,u.csrf,64))return result(403,"CSRF","请求校验失败，请刷新后重试",NULL);
   if(!rl_consume(u.id))return result(429,"RATE_LIMITED","操作过于频繁，请稍后再试",NULL);}
  if(!post){
@@ -182,12 +195,14 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   if(!strcmp(path,"/api/me/sessions"))return sessions_list(d,&u,tokenhash);
   if(!strcmp(path,"/api/me/calendar/export"))return calendar_export(d,&u);
   if(!strcmp(path,"/api/me/tokens"))return token_list(d,&u);
-  if(path_id(path,"/api/me/tokens/","/revoke",&aid_target)){const char *rk=jstr(body,"request_id");if(!uuid_valid(rk))return invalid();return token_revoke(d,&u,aid_target,rk);}
-  if(!strcmp(path,"/api/admin/records")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);char dt[32],ea[36],eu[68];Id date=0;if(query(ri,"date",dt,sizeof dt)){date=date_start(dt);if(date<0)return invalid();}int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();
-   ea[0]=eu[0]=0;query(ri,"action",ea,sizeof ea);query(ri,"user",eu,sizeof eu);
+  /* r22：令牌吊销已移至下方 POST 分支，与本文件遵循"写操作走 POST"的既有约定一致。 */
+  if(!strcmp(path,"/api/admin/records")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);char dt[32],ea[36],eu[68],st2[24]={0};Id date=0;if(query(ri,"date",dt,sizeof dt)){date=date_start(dt);if(date<0)return invalid();}int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();
+   ea[0]=eu[0]=0;query(ri,"action",ea,sizeof ea);query(ri,"user",eu,sizeof eu);query(ri,"status",st2,sizeof st2);
    if(ea[0]&&strlen(ea)>32)return invalid();
    if(eu[0]&&strlen(eu)>64)return invalid();
-   return records(d,&u,1,date,pg,ps,NULL,ea[0]?ea:NULL,eu[0]?eu:NULL);}
+   const char *status=NULL;
+   if(st2[0]){if(strcmp(st2,"CONFIRMED")&&strcmp(st2,"CANCELLED")&&strcmp(st2,"NO_SHOW")&&strcmp(st2,"PENDING"))return invalid();status=st2;}
+   return records(d,&u,1,date,pg,ps,status,ea[0]?ea:NULL,eu[0]?eu:NULL);}
   if(!strcmp(path,"/api/admin/stats/export")){
    if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
    char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
@@ -201,6 +216,12 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
    return stats(d,a,b);
   }
   if(!strcmp(path,"/api/admin/metrics")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return result(200,"OK","查询成功",metrics_snapshot());}
+  if(!strcmp(path,"/api/admin/asset-claims/export")){
+   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
+   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+   return asset_claim_export(d,a,b);
+  }
   if(!strcmp(path,"/api/admin/asset-claims")){
    if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
    char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
@@ -229,9 +250,12 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   return result(404,"NOT_FOUND","接口不存在",NULL);
  }
  if(!strcmp(path,"/api/logout")){db_run(d,"DELETE FROM sessions WHERE token_hash=?","s",tokenhash);strcpy(cookie,"Set-Cookie: lab_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n");return result(200,"OK","已退出",NULL);}
- {char sh[65];const char *k=jstr(body,"request_id");
+ {char sh[65];Id tok_id=0;const char *k=jstr(body,"request_id");
   if(!strcmp(path,"/api/me/password")){if(!uuid_valid(k))return invalid();return password_change(d,&u,jstr(body,"old_password"),jstr(body,"new_password"),tokenhash,k);}
   if(!strcmp(path,"/api/me/notifications/read")){if(!uuid_valid(k))return invalid();return notifications_read(d,&u,body,k);}
+  /* r22 修正：令牌吊销原误置于 GET 分支——GET 请求体不会被解析，request_id 恒缺失导致该端点恒返回 400；
+     契约（CONTRACT.md）声明的是 POST，此处按契约移入 POST 分支。 */
+  if(path_id(path,"/api/me/tokens/","/revoke",&tok_id)){if(!uuid_valid(k))return invalid();return token_revoke(d,&u,tok_id,k);}
   if(path_hex(path,"/api/me/sessions/","/revoke",sh,sizeof sh)){if(!uuid_valid(k))return invalid();return session_revoke(d,&u,sh,k);}
  }
  if(!strncmp(path,"/api/admin/",11)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return admin(d,&u,path,body);}

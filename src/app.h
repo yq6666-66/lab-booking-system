@@ -7,7 +7,7 @@
 typedef sqlite3_int64 Id;
 typedef struct { sqlite3 *sql; int error; void *cache; } DB;
 typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *restore_from; const char *fault; const char *fault_request; int remind_sec; int backup_interval; int quota_weekly; int lead_time; } Config;
-#define LAB_VERSION "1.10.0"
+#define LAB_VERSION "1.11.0"
 typedef struct { Id id; int admin; char username[65]; char csrf[65]; } User;
 typedef struct { int status; cJSON *body; } Result;
 int db_open(DB *db,const char *path);
@@ -47,6 +47,8 @@ Result asset_admin(DB *db,const User *actor,Id lab,Id asset,const cJSON *body);
 Result lab_utilization(DB *db,Id start,Id end);
 Result asset_usage(DB *db,Id asset,Id start,Id end);
 Result asset_claim_report(DB *db,Id start,Id end);
+Result asset_claim_export(DB *db,Id start,Id end);
+Result token_auth(DB *db,const char *raw,User *u);
 Result reservation_checkout(DB *db,const Config *cfg,const User *u,Id target,const char *request_id);
 Result calendar_export(DB *db,const User *u);
 Result token_create(DB *db,const User *u,const cJSON *body);
