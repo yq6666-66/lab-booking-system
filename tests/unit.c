@@ -483,7 +483,7 @@ static void test_v2_to_v3_migration(void){
  db_close(&db); /* 先释放主测试库，避免句柄泄漏与文件占用 */
  TEST_ASSERT_TRUE(db_open(&db,path));
  TEST_ASSERT_TRUE(db_init(&db));
- TEST_ASSERT_EQUAL_INT64(3,db_num(&db,"PRAGMA user_version",""));
+ TEST_ASSERT_EQUAL_INT64(4,db_num(&db,"PRAGMA user_version","")); /* r23：信用账户/优先级/资源时段/维护工单使 schema 升至 v4 */
  cJSON *cap=db_first(&db,"SELECT capacity FROM slots WHERE id=1",""); /* 旧行以默认容量 1 迁移 */
  TEST_ASSERT_NOT_NULL(cap);TEST_ASSERT_EQUAL_INT(1,(int)cJSON_GetObjectItemCaseSensitive(cap,"capacity")->valuedouble);cJSON_Delete(cap);
  TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM sqlite_master WHERE type='index' AND name='one_booking'","")); /* 单占用索引退役 */

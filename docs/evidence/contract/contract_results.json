@@ -1,8 +1,8 @@
 {
-  "timestamp_utc": "2026-09-15T13:19:01.912846+00:00",
+  "timestamp_utc": "2026-09-15T13:57:21.911522+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
-  "endpoints_total": 39,
-  "endpoints_passed": 39,
+  "endpoints_total": 47,
+  "endpoints_passed": 47,
   "error_cases_total": 14,
   "error_cases_passed": 14,
   "all_passed": true,
@@ -187,6 +187,46 @@
       "name": "GET /api/admin/records?status=PENDING&page=1&page_size=5",
       "passed": true,
       "detail": "data 字段 ['events', 'has_more', 'page', 'page_size', 'reservations', 'waitlist']"
+    },
+    {
+      "name": "GET /api/me/credits?page=1&page_size=5",
+      "passed": true,
+      "detail": "data 字段 ['balance', 'base', 'has_more', 'ledger', 'page', 'page_size']"
+    },
+    {
+      "name": "GET /api/me/calendar.ics",
+      "passed": true,
+      "detail": "data 字段 ['content', 'filename']"
+    },
+    {
+      "name": "POST /api/reservations/batch",
+      "passed": true,
+      "detail": "data 字段 ['created']"
+    },
+    {
+      "name": "GET /api/admin/assets/{aid}/windows",
+      "passed": true,
+      "detail": "data 字段 ['windows']"
+    },
+    {
+      "name": "POST /api/admin/assets/{aid}/windows",
+      "passed": true,
+      "detail": "data 字段 ['window_id']"
+    },
+    {
+      "name": "GET /api/admin/assets/{aid}/maintenance",
+      "passed": true,
+      "detail": "data 字段 ['maintenance']"
+    },
+    {
+      "name": "POST /api/admin/assets/{aid}/maintenance",
+      "passed": true,
+      "detail": "data 字段 ['maintenance_id']"
+    },
+    {
+      "name": "POST /api/admin/users/{uid1}/credit",
+      "passed": true,
+      "detail": "data 字段 ['granted']"
     },
     {
       "name": "POST /api/admin/slots/publish",

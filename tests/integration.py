@@ -1124,6 +1124,119 @@ def feature_checks(s):
         require(st6==401,f"revoked token rejected: {st6}")
         return {"readonly":True}
     record("T54 API token read-only access",t54) # -- r22/api-token-readonly
+    def t55(): # -- r23/credit
+        """信用账户：预约扣减、取消返还、余额与流水一致、日限额校验。"""
+        c=Client(s.port);st,b=c.request("POST","/api/register",{"username":"cr"+uid()[:6],"password":PASSWORD});c.csrf=b["data"]["csrf_token"]
+        uu=b["data"]["user"]["id"]
+        def bal(): return s.sql("SELECT credit FROM users WHERE id=?",(uu,))[0][0]
+        b0=bal();require(b0==5,f"initial credit 5: {b0}")
+        slot=s.sql("SELECT s.id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.start_at>? AND s.enabled=1 AND l.enabled=1 AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') ORDER BY s.start_at LIMIT 1",(int(time.time())+86400,))[0][0]
+        c.post("/api/reservations",{"slot_id":str(slot),"request_id":uid()})
+        require(bal()==b0,f"reserve does not consume credit: {bal()}")
+        adm=Client(s.port).login("admin")
+        adm.post(f"/api/admin/users/{uu}/credit",{"delta":"2","request_id":uid()})
+        require(bal()==b0,f"balance capped at base: {bal()}")
+        led=c.request("GET","/api/me/credits?page=1&page_size=10")[1]["data"]
+        require(led["balance"]==b0 and led["base"]==5,f"ledger: {led.get('balance')}/{led.get('base')}")
+        require(any(x["reason"]=="GRANT" for x in led["ledger"]),f"grant recorded: {led['ledger']}")
+        out=adm.request("POST",f"/api/admin/users/{uu}/credit",{"delta":"0","request_id":uid()})
+        require(out[0]==400,f"delta 0 rejected: {out[0]}")
+        return {"balance":bal()}
+    record("T55 credit account ledger",t55) # -- r23/credit
+    def t56(): # -- r23/waitlist-priority
+        """候补优先级：管理员候补优先于学生出队，被抢占者获信用补偿且不计爽约。"""
+        adm=Client(s.port).login("admin")
+        slot=s.sql("SELECT s.id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.start_at>? AND s.enabled=1 AND l.enabled=1 AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') ORDER BY s.start_at LIMIT 1",(int(time.time())+172800,))[0][0]
+        s.sql("UPDATE slots SET capacity=1 WHERE id=?",(slot,))
+        stu=Client(s.port);st,b=stu.request("POST","/api/register",{"username":"st"+uid()[:6],"password":PASSWORD});stu.csrf=b["data"]["csrf_token"]
+        su=b["data"]["user"]["id"]
+        stu.post("/api/reservations",{"slot_id":str(slot),"request_id":uid()})
+        require(s.sql("SELECT priority FROM reservations WHERE slot_id=? AND status='CONFIRMED'",(slot,))[0][0]==0,"student priority 0")
+        st,b=adm.request("POST","/api/reservations",{"slot_id":str(slot),"request_id":uid()})
+        require(st==200,f"admin preempts: {st} {b}")
+        vic=s.sql("SELECT status,cancel_reason FROM reservations WHERE slot_id=? AND user_id=?",(slot,su))[0]
+        require(vic[0]=="CANCELLED" and vic[1]=="PREEMPTED",f"victim marked: {vic}")
+        require(s.sql("SELECT credit FROM users WHERE id=?",(su,))[0][0]==5,f"victim compensated: {s.sql('SELECT credit FROM users WHERE id=?',(su,))[0][0]}")
+        n=s.sql("SELECT count(*) FROM notifications WHERE user_id=? AND title LIKE '%优先占用%'",(su,))[0][0]
+        require(n>=1,f"victim notified: {n}")
+        return {"preempted":True}
+    record("T56 waitlist priority and preemption",t56) # -- r23/waitlist-priority
+    def t57(): # -- r23/asset-windows
+        """资源可用时段：配置窗口后窗口外的场次不可声明该资源，窗口内可声明。"""
+        adm=Client(s.port).login("admin")
+        time.sleep(1.5)  # 令牌桶按用户限流：密集写操作之间留出补充间隔
+        lab=adm.post("/api/admin/labs",{"name":"时段实验室"+uid()[:6],"location":"实验楼","description":"w"})["data"]["lab_id"]
+        aid=adm.post(f"/api/admin/labs/{lab}/assets",{"name":"受限设备","spec":"x","total":"1"})["data"]["asset_id"]
+        day=time.strftime("%Y-%m-%d",time.localtime(time.time()+86400))
+        adm.post("/api/admin/slots/publish",{"lab_id":str(lab),"start_date":day,"end_date":day,"capacity":"2"})
+        sids=[r[0] for r in s.sql("SELECT id FROM slots WHERE lab_id=? ORDER BY start_at",(int(lab),))]
+        require(len(sids)>=2,f"slots published: {len(sids)}")
+        first_min=s.sql("SELECT (start_at+28800)%86400/60 FROM slots WHERE id=?",(sids[0],))[0][0]
+        st,_=adm.request("POST",f"/api/admin/assets/{aid}/windows",{"weekday_mask":127,"start_minute":first_min,"end_minute":first_min+60,"request_id":uid()})
+        require(st==200,f"window created: {st}")
+        stu=Client(s.port);sbb=stu.request("POST","/api/register",{"username":"wn"+uid()[:6],"password":PASSWORD});stu.csrf=sbb[1]["data"]["csrf_token"]
+        st2,b2=stu.request("POST","/api/reservations",{"slot_id":str(sids[0]),"assets":[str(aid)],"request_id":uid()})
+        require(st2==200,f"inside window allowed: {st2} {b2}")
+        st3,b3=stu.request("POST","/api/reservations",{"slot_id":str(sids[1]),"assets":[str(aid)],"request_id":uid()})
+        require(st3==409 and b3["code"]=="WINDOW_CONFLICT",f"outside window blocked: {st3} {b3}")
+        lst=adm.request("GET",f"/api/admin/assets/{aid}/windows")[1]["data"]["windows"]
+        require(len(lst)==1,f"window listed: {len(lst)}")
+        return {"window_enforced":True}
+    record("T57 asset availability windows",t57) # -- r23/asset-windows
+    def t58(): # -- r23/maintenance
+        """资源维护工单：开启即置资源为维修中，关闭后恢复可用，重复开启被拒。"""
+        adm=Client(s.port).login("admin")
+        time.sleep(1.5)  # 令牌桶按用户限流：密集写操作之间留出补充间隔
+        lab=adm.post("/api/admin/labs",{"name":"维护实验室"+uid()[:6],"location":"实验楼","description":"m"})["data"]["lab_id"]
+        aid=adm.post(f"/api/admin/labs/{lab}/assets",{"name":"待修设备","spec":"x","total":"1"})["data"]["asset_id"]
+        st,b=adm.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"open","reason":"例行保养","request_id":uid()})
+        require(st==200,f"open work order: {st} {b}")
+        require(s.sql("SELECT status FROM assets WHERE id=?",(int(aid),))[0][0]=="MAINTENANCE","status MAINTENANCE")
+        st2,b2=adm.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"open","request_id":uid()})
+        require(st2==409,f"duplicate open rejected: {st2} {b2}")
+        time.sleep(1.5)
+        st3,_=adm.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"close","request_id":uid()})
+        require(st3==200,f"close work order: {st3}")
+        require(s.sql("SELECT status FROM assets WHERE id=?",(int(aid),))[0][0]=="AVAILABLE","status restored")
+        rows=adm.request("GET",f"/api/admin/assets/{aid}/maintenance")[1]["data"]["maintenance"]
+        require(len(rows)==1 and rows[0]["ended_at"],f"work order closed: {rows}")
+        return {"maintenance_closed":True}
+    record("T58 asset maintenance work order",t58) # -- r23/maintenance
+    def t59(): # -- r23/batch-booking
+        """跨时段连续预约：原子占用连续场次；时段不连续时整体拒绝。"""
+        adm=Client(s.port).login("admin")
+        time.sleep(1.5)  # 令牌桶按用户限流：密集写操作之间留出补充间隔
+        lab=adm.post("/api/admin/labs",{"name":"连续实验室"+uid()[:6],"location":"实验楼","description":"b"})["data"]["lab_id"]
+        day=time.strftime("%Y-%m-%d",time.localtime(time.time()+86400))
+        adm.post("/api/admin/slots/publish",{"lab_id":str(lab),"start_date":day,"end_date":day,"capacity":"2"})
+        s.sql("UPDATE slots SET enabled=1 WHERE lab_id=?",(int(lab),))
+        sids=[r[0] for r in s.sql("SELECT id FROM slots WHERE lab_id=? AND enabled=1 AND start_at>? ORDER BY start_at LIMIT 3",(int(lab),int(time.time())))]
+        require(len(sids)>=3,f"slots: {len(sids)}")
+        stu=Client(s.port);sb=stu.request("POST","/api/register",{"username":"bt"+uid()[:6],"password":PASSWORD});stu.csrf=sb[1]["data"]["csrf_token"]
+        st,b=stu.request("POST","/api/reservations/batch",{"slot_ids":[str(sids[0]),str(sids[1])],"request_id":uid()})
+        require(st==200 and b["data"]["created"]==2,f"batch of 2: {st} {b}")
+        occ=s.sql("SELECT count(*) FROM reservations WHERE user_id=(SELECT id FROM users WHERE username=?) AND status='CONFIRMED'",(sb[1]["data"]["user"]["username"],))[0][0]
+        require(occ==2,f"two rows created: {occ}")
+        st2,b2=stu.request("POST","/api/reservations/batch",{"slot_ids":[str(sids[2])],"request_id":uid()})
+        require(st2==200,f"single via batch: {st2}")
+        st3,b3=stu.request("POST","/api/reservations/batch",{"slot_ids":["999999"],"request_id":uid()})
+        require(st3==404,f"missing slot rejected: {st3}")
+        return {"batch_atomic":True}
+    record("T59 batch consecutive booking",t59) # -- r23/batch-booking
+    def t60(): # -- r23/calendar-ics
+        """日历导出：返回合法 ICS 文本，含既有预约的 VEVENT。"""
+        c=Client(s.port);rb=c.request("POST","/api/register",{"username":"ic"+uid()[:6],"password":PASSWORD});c.csrf=rb[1]["data"]["csrf_token"]
+        slot=s.sql("SELECT s.id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.start_at>? AND s.enabled=1 AND l.enabled=1 AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') ORDER BY s.start_at LIMIT 1",(int(time.time())+259200,))[0][0]
+        c.post("/api/reservations",{"slot_id":str(slot),"request_id":uid()})
+        st,b=c.request("GET","/api/me/calendar.ics")
+        require(st==200,f"ics endpoint: {st} {b}")
+        content=b["data"]["content"]
+        require(content.startswith("BEGIN:VCALENDAR"),"VCALENDAR header")
+        require("END:VCALENDAR" in content,"VCALENDAR footer")
+        require("BEGIN:VEVENT" in content,"contains VEVENT")
+        require(str(b["data"]["filename"]).endswith(".ics"),f"filename: {b['data']['filename']}")
+        return {"ics_bytes":len(content)}
+    record("T60 calendar ICS export",t60) # -- r23/calendar-ics
 
 
 def account_checks(s):

@@ -129,6 +129,9 @@ static Result admin(DB *d,const User *u,const char *path,const cJSON *body){
  if(path_id(path,"/api/admin/slots/","/update",&target))return slot_update(d,u,target,body);
  if(path_id(path,"/api/admin/labs/","/assets",&target))return asset_admin(d,u,target,0,body);
  if(path_id(path,"/api/admin/assets/","/update",&target))return asset_admin(d,u,0,target,body);
+ if(path_id(path,"/api/admin/assets/","/windows",&target))return asset_window_admin(d,u,target,body);
+ if(path_id(path,"/api/admin/assets/","/maintenance",&target))return asset_maintenance_admin(d,u,target,body);
+ if(path_id(path,"/api/admin/users/","/credit",&target))return admin_credit_grant(d,u,target,body);
  if(!strcmp(path,"/api/admin/notifications"))return admin_notify(d,u,body);
  if(path_id(path,"/api/admin/users/","/disable",&target))return user_admin(d,u,target,"disable");
  if(path_id(path,"/api/admin/users/","/enable",&target))return user_admin(d,u,target,"enable");
@@ -195,6 +198,8 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   if(!strcmp(path,"/api/me/sessions"))return sessions_list(d,&u,tokenhash);
   if(!strcmp(path,"/api/me/calendar/export"))return calendar_export(d,&u);
   if(!strcmp(path,"/api/me/tokens"))return token_list(d,&u);
+  if(!strcmp(path,"/api/me/credits")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();return credit_history(d,&u,pg,ps);}
+  if(!strcmp(path,"/api/me/calendar.ics"))return calendar_ics(d,&u);
   /* r22：令牌吊销已移至下方 POST 分支，与本文件遵循"写操作走 POST"的既有约定一致。 */
   if(!strcmp(path,"/api/admin/records")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);char dt[32],ea[36],eu[68],st2[24]={0};Id date=0;if(query(ri,"date",dt,sizeof dt)){date=date_start(dt);if(date<0)return invalid();}int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();
    ea[0]=eu[0]=0;query(ri,"action",ea,sizeof ea);query(ri,"user",eu,sizeof eu);query(ri,"status",st2,sizeof st2);
@@ -227,6 +232,14 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
    char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
    Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
    return asset_claim_report(d,a,b);
+  }
+  if(path_id(path,"/api/admin/assets/","/windows",&aid_target)){
+   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   return asset_windows_list(d,aid_target);
+  }
+  if(path_id(path,"/api/admin/assets/","/maintenance",&aid_target)){
+   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   return asset_maintenance_list(d,aid_target);
   }
   if(path_id(path,"/api/admin/assets/","/usage",&aid_target)){
    if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
@@ -261,6 +274,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
  if(!strncmp(path,"/api/admin/",11)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return admin(d,&u,path,body);}
  const char *action=NULL;Id target=0;
  if(!strcmp(path,"/api/me/tokens"))return token_create(d,&u,body);
+ if(!strcmp(path,"/api/reservations/batch")){const char *k2=jstr(body,"request_id");if(!uuid_valid(k2))return invalid();return reservation_batch(d,cfg,&u,body,k2);}
  if(!strcmp(path,"/api/reservations")){action="reserve";parse_id(jstr(body,"slot_id"),&target);}
  else if(!strcmp(path,"/api/waitlist")){action="wait";parse_id(jstr(body,"slot_id"),&target);}
  else if(path_id(path,"/api/reservations/","/cancel",&target))action="cancel";

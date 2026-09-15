@@ -77,7 +77,7 @@ static int gen_demo(DB *db,int days,const char *password){
  if(sodium_init()<0){fprintf(stderr,"Crypto initialization failed\n");return 1;}
  _mkdir("data");DB db={0};
  if(!db_open(&db,c.db_path)){fprintf(stderr,"Cannot open database\n");db_close(&db);return 1;}
- if(db_num(&db,"PRAGMA user_version","")>3){fprintf(stderr,"Unsupported schema version\n");db_close(&db);return 1;}
+ if(db_num(&db,"PRAGMA user_version","")>4){fprintf(stderr,"Unsupported schema version\n");db_close(&db);return 1;} /* r23：支持到 v4 */
  if(!db_init(&db)||(seed&&!db_seed(&db,getenv("LAB_SEED_PASSWORD")))||!db_check(&db)){fprintf(stderr,"Database initialization/integrity check failed (code %d).\n",db.error);db_close(&db);return 1;}
  if(demo_days>0){if(!gen_demo(&db,demo_days,getenv("LAB_SEED_PASSWORD"))){fprintf(stderr,"Demo data generation failed\n");db_close(&db);return 1;}printf("Demo history generated for past %d days.\n",demo_days);}
  if(!init&&!check&&!db_run(&db,"DELETE FROM sessions WHERE expires_at<?","i",now_sec())){fprintf(stderr,"Session cleanup failed (code %d).\n",db.error);db_close(&db);return 1;}
