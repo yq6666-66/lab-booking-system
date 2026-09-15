@@ -1,0 +1,19 @@
+【WorkBuddy 任务】实验室预约系统 r22 工程优化轮（资源管理与预约候补一体化）
+
+你在一个 C11 + CivetWeb + SQLite 的实验室预约系统上做一轮工程优化。仓库在当前目录，工作分支 r22/wb（已从 r9/core 拉好），完成后推送该分支，不要直接动 main。
+
+【第一步（必做）】通读 docs/handoff/workbuddy-r22-brief.md——项目自包含交接简报：环境命令、代码地图、14 条硬规则（血泪教训）、已实现能力清单、本轮候选方向、验收标准。违反硬规则会直接破坏正确性或稳定性。
+
+【任务】从简报第 7 节的候选方向中选 2–4 项做深做透（建议优先 1 管理端待审批页签、2 声明占用 CSV 导出、4 X-API-Token 只读访问），保持"资源管理与预约候补一体化"的课题主线。
+
+【硬性验收（缺一不可，ZCode 会逐条复查）】
+1. powershell -File scripts/build.ps1 全绿（含 24 个单元测试）
+2. LAB_TEST_PASSWORD='Test-Lab-2026' python tests/integration.py --quick 全绿，且每个新功能都有新的 T 编号断言组
+3. python tests/contract_test.py 新端点全部纳入 SCHEMAS，36+ 全绿
+4. 既有 52 项集成断言一条都不能挂——只允许新增，不允许修改既有断言
+5. docs/CONTRACT.md、CHANGELOG.md、PROGRESS.md、README.md 同步更新；src/app.h 的 LAB_VERSION 递增到 1.11.0
+6. 遵守简报第 5 节 14 条硬规则，特别是：db_run 绑定参数必须 Id 类型且与占位符一一对应；_id 后缀 JSON 列用 parse_id(jstr(...)) 取值；布尔判定不要用 cJSON_IsTrue 作用于数字列
+
+【交付】push 到 origin/r22/wb，并输出一段交付说明：改动清单、新增端点/表/列、测试增量、已知限制。不要合并到 main，集成由 ZCode 完成。
+
+【红线】不引入第三方库；不动 data/demo.db 与 8080 演示服务；不改 src/db.c 的既有迁移语义（新增迁移一律走 has_column 幂等块）；测试失败时不许改断言凑绿。
