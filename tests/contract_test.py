@@ -11,6 +11,9 @@ from __future__ import annotations
 import argparse, contextlib, http.client, json, os, pathlib, re, shutil, socket, sqlite3, subprocess, tempfile, time, uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 PASSWORD = os.environ.get("LAB_TEST_PASSWORD", "")
 RESULTS = []
 CONTRACT_DRIFT = []  # 实现返回了契约未记录的字段：记为文档漂移提示，不计入失败
