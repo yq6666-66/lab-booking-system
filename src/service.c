@@ -50,26 +50,49 @@ static void fault(const Config *c,const char *stage,const char *key){
  (void)c;(void)stage;(void)key;
 #endif
 }
-static Id promote(DB *d,Id slot,Id actor,const char *key){
+/* r24 候补递补（可执行 FIFO）：按 priority DESC,id 顺序扫描候补，账号停用者统一置 SKIPPED；
+   临时时间冲突者"暂跳并保留原序号"，只递补第一个当前可执行的候选——队首暂时不可执行时不再阻塞整条队列。
+   --waitlist-strategy=strict 时退化为旧语义（队首不可执行则阻塞），供对照实验使用。
+   --hold-window>0 时补位先落 HELD（限时保留），需用户确认才生效；默认 0 保持直接确认的既有行为。 */
+static Id promote(DB *d,const Config *cfg,Id slot,Id actor,const char *key){
  db_run(d,"UPDATE waitlist SET status='SKIPPED' WHERE slot_id=? AND status='WAITING' AND user_id IN(SELECT id FROM users WHERE enabled=0)","i",slot);
- cJSON *w=db_first(d,"SELECT id,user_id FROM waitlist WHERE slot_id=? AND status='WAITING' ORDER BY priority DESC,id LIMIT 1","i",slot);
- if(!w)return 0;
- Id wid=0,uid=0;parse_id(jstr(w,"id"),&wid);parse_id(jstr(w,"user_id"),&uid);cJSON_Delete(w);
- if(!db_run(d,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?,'CONFIRMED','WAITLIST',?)","iii",uid,slot,now_sec()))return 0;
+ cJSON *cands=db_rows(d,"SELECT id,user_id FROM waitlist WHERE slot_id=? AND status='WAITING' ORDER BY priority DESC,id","i",slot);
+ if(!cands)return 0;
+ int strict=cfg&&cfg->waitlist_strict;
+ Id wid=0,uid=0;cJSON *it;
+ cJSON_ArrayForEach(it,cands){
+  Id w=0,u=0;parse_id(jstr(it,"id"),&w);parse_id(jstr(it,"user_id"),&u);
+  if(!db_num(d,"SELECT count(*) FROM users WHERE id=? AND enabled=1","i",u)){if(d->error)break;continue;}
+  Id clash=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id JOIN slots s ON s.id=? WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD') AND s.start_at<s2.end_at AND s2.start_at<s.end_at","ii",slot,u);
+  if(d->error)break;
+  if(clash){if(strict)break;continue;}
+  wid=w;uid=u;break;
+ }
+ cJSON_Delete(cands);
+ if(d->error||!wid)return 0;
+ Id start=db_num(d,"SELECT start_at FROM slots WHERE id=?","i",slot);
+ if(d->error)return 0;
+ int hold=cfg&&cfg->hold_window>0;
+ Id now=clock_now(),deadline=0;
+ if(hold){deadline=now+(Id)cfg->hold_window;if(deadline>start)deadline=start;}
+ if(!db_run(d,"INSERT INTO reservations(user_id,slot_id,status,source,created_at,hold_deadline) VALUES(?,?,?,'WAITLIST',?,?)","iisii",uid,slot,hold?"HELD":"CONFIRMED",now,hold?deadline:0))return 0;
  Id rid=sqlite3_last_insert_rowid(d->sql);
- db_run(d,"UPDATE waitlist SET status='PROMOTED',promoted_reservation_id=? WHERE id=?","ii",rid,wid);event(d,actor,"PROMOTE",rid,key);
- char when[40],body[192];slot_when(d,slot,when);snprintf(body,sizeof body,"你候补的场次 %s 已补位成功，预约编号 %lld，请按时到场并在签到时间内签到。",when,(long long)rid);
- notify(d,uid,"PROMOTED","候补补位成功",body,slot,rid);
+ db_run(d,"UPDATE waitlist SET status='PROMOTED',promoted_reservation_id=? WHERE id=?","ii",rid,wid);
+ event(d,actor,"PROMOTE",rid,key);
+ char when[40],body[240];slot_when(d,slot,when);
+ if(hold)snprintf(body,sizeof body,"你候补的场次 %s 已为你保留名额（预约编号 %lld），请在保留截止前确认，超时将自动释放给下一位。",when,(long long)rid);
+ else snprintf(body,sizeof body,"你候补的场次 %s 已补位成功，预约编号 %lld，请按时到场并在签到时间内签到。",when,(long long)rid);
+ notify(d,uid,"PROMOTED",hold?"候补名额待确认":"候补补位成功",body,slot,rid);
  return rid;
 }
 /* 按容量反复补位直至满员或队列空；返回首个新增预约编号（无则 0）。 */
-static Id promote_fill(DB *d,Id slot,Id actor,const char *key){
+static Id promote_fill(DB *d,const Config *cfg,Id slot,Id actor,const char *key){
  Id first=0;
  for(;;){
   Id capacity=db_num(d,"SELECT capacity FROM slots WHERE id=?","i",slot);
   if(d->error)return first;
-  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",slot)>=capacity)break;
-  Id rid=promote(d,slot,actor,key);
+  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD')","i",slot)>=capacity)break;
+  Id rid=promote(d,cfg,slot,actor,key);
   if(d->error)return first;
   if(!rid)break;
   if(!first)first=rid;
@@ -78,7 +101,7 @@ static Id promote_fill(DB *d,Id slot,Id actor,const char *key){
 }
 static Result ok_id(const char *field,Id value){cJSON *j=cJSON_CreateObject();jid(j,field,value);return result(200,"OK","操作成功",j);}
 static Result slot_full(DB *d,Id slot,const char *message){
- cJSON *list=db_rows(d,"SELECT s.id,s.start_at,s.end_at FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.lab_id=(SELECT lab_id FROM slots WHERE id=?) AND s.start_at>(SELECT start_at FROM slots WHERE id=?) AND s.start_at<=(SELECT start_at FROM slots WHERE id=?)+604800 AND s.enabled=1 AND l.enabled=1 AND (SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED')<s.capacity ORDER BY s.start_at LIMIT 3","iii",slot,slot,slot);
+ cJSON *list=db_rows(d,"SELECT s.id,s.start_at,s.end_at FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.lab_id=(SELECT lab_id FROM slots WHERE id=?) AND s.start_at>(SELECT start_at FROM slots WHERE id=?) AND s.start_at<=(SELECT start_at FROM slots WHERE id=?)+604800 AND s.enabled=1 AND l.enabled=1 AND (SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status IN('CONFIRMED','HELD'))<s.capacity ORDER BY s.start_at LIMIT 3","iii",slot,slot,slot);
  if(d->error)return db_failure(d);
  cJSON *data=cJSON_CreateObject();if(!data){cJSON_Delete(list);d->error=SQLITE_NOMEM;return db_failure(d);}
  cJSON_AddItemToObject(data,"alternatives",list);return result(409,"SLOT_FULL",message,data);
@@ -143,9 +166,9 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
  }
  if(!strcmp(action,"reserve")){
   Id capacity=(Id)cJSON_GetObjectItemCaseSensitive(slot,"capacity")->valuedouble;
-  Id taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid);
+  Id taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD')","i",sid);
   if(d->error)goto failed;
-  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",sid,u->id)){r=result(409,"ALREADY_RESERVED","你已预约该场次",NULL);goto save;}
+  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status IN('CONFIRMED','HELD')","ii",sid,u->id)){r=result(409,"ALREADY_RESERVED","你已预约该场次",NULL);goto save;}
   if(d->error)goto failed;
   /* r23 信用账户：先做每周回补，再校验余额——余额为 0 时禁止新预约（取代原先独立的每周配额计数） */
   credit_weekly_topup(d,u->id);if(d->error)goto failed;
@@ -164,7 +187,7 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
   }
   /* 时段重叠：同一用户不能预约/候补时间重叠的两个场次 */
   {
-   Id overlap=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id JOIN slots s ON s.id=? WHERE r.user_id=? AND r.status='CONFIRMED' AND s.start_at<s2.end_at AND s2.start_at<s.end_at","ii",sid,u->id);
+   Id overlap=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id JOIN slots s ON s.id=? WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD') AND s.start_at<s2.end_at AND s2.start_at<s.end_at","ii",sid,u->id);
    if(d->error)goto failed;
    if(overlap){r=result(409,"TIME_CONFLICT","与您已预约的场次时间重叠，请先取消原场次",NULL);goto save;}
   }
@@ -173,7 +196,7 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
    Id day0=(now_sec()+28800)/86400*86400-28800;
    int wd=(int)(((day0+28800)/86400+3)%7); /* 0=周一 */
    Id week_start=day0-(Id)wd*86400;
-   Id used=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=? AND r.status='CONFIRMED' AND s2.start_at>=?","ii",u->id,week_start);
+   Id used=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD') AND s2.start_at>=?","ii",u->id,week_start);
    if(d->error)goto failed;
    if(used>=(Id)cfg->quota_weekly){
     char msg[96];snprintf(msg,sizeof msg,"本周预约已达上限 %d 场，下周一 0 点后重试",(int)cfg->quota_weekly);
@@ -185,7 +208,7 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
       被抢占者记 cancel_reason='PREEMPTED'（不计爽约）、获 1 点信用补偿并收到通知。 */
    Id victim=0;
    if(role_priority(u)>0){
-    victim=db_num(d,"SELECT id FROM reservations WHERE slot_id=? AND status='CONFIRMED' AND checked_in_at IS NULL AND priority<? ORDER BY priority ASC,id ASC LIMIT 1","ii",sid,role_priority(u));
+    victim=db_num(d,"SELECT id FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD') AND checked_in_at IS NULL AND priority<? ORDER BY priority ASC,id ASC LIMIT 1","ii",sid,role_priority(u));
     if(d->error)goto failed;
    }
    if(victim){
@@ -197,15 +220,15 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
     char pmsg[192];snprintf(pmsg,sizeof pmsg,"%s 的预约因更高优先级需求被占用，已补偿 1 点信用，请另选时段。",when[0]?when:"您");
     notify(d,vuser,"NOTICE","预约被优先占用",pmsg,sid,victim);
     event(d,u->id,"PREEMPT",victim,key);
-    taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid);
+    taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD')","i",sid);
     if(d->error)goto failed;
    }
   }
   if(taken>=capacity){r=slot_full(d,sid,"该场次已约满，可加入候补或选择替代时段");goto save;}
-  promote_fill(d,sid,u->id,key);if(d->error)goto failed;
-  taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid);
+  promote_fill(d,cfg,sid,u->id,key);if(d->error)goto failed;
+  taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD')","i",sid);
   if(d->error)goto failed;
-  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",sid,u->id)){r=slot_full(d,sid,"你已通过候补补位获得该场次，可在我的记录查看");goto save;}
+  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status IN('CONFIRMED','HELD')","ii",sid,u->id)){r=slot_full(d,sid,"你已通过候补补位获得该场次，可在我的记录查看");goto save;}
   if(taken>=capacity){r=slot_full(d,sid,"名额已按顺序分配给候补用户，可选择替代时段");goto save;}
   /* r14 资源声明：先在事务内校验归属/可用性与时段配额（BR12），通过后再创建预约并落 claims */
   if(claim_arr){
@@ -223,7 +246,7 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
      if(d->error)goto failed;
      r=result(409,"WINDOW_CONFLICT","所声明的资源在该场次时段不可用（不在其开放时段内）",NULL);goto save;}
     Id total=db_num(d,"SELECT total FROM assets WHERE id=?","i",aid);
-    Id used=db_num(d,"SELECT count(*) FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id JOIN slots s2 ON s2.id=r.slot_id WHERE c.asset_id=? AND r.status='CONFIRMED' AND s2.start_at<? AND s2.end_at>?",
+    Id used=db_num(d,"SELECT count(*) FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id JOIN slots s2 ON s2.id=r.slot_id WHERE c.asset_id=? AND r.status IN('CONFIRMED','HELD') AND s2.start_at<? AND s2.end_at>?",
                       "iii",aid,slot_end,start_at);
     if(d->error)goto failed;
     if(used>=total){r=result(409,"ASSET_QUOTA","该时段所声明的资源已被约满，可减少资源或改约其他时段",NULL);goto save;}
@@ -248,8 +271,8 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
   event(d,u->id,"RESERVE",rid,key);r=ok_id("reservation_id",rid);
  }else if(!strcmp(action,"wait")){
   Id capacity=(Id)cJSON_GetObjectItemCaseSensitive(slot,"capacity")->valuedouble;
-  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",sid,u->id)){r=result(409,"ALREADY_RESERVED","你已预约该场次",NULL);goto save;}
-  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid)<capacity){r=result(409,"SLOT_AVAILABLE","场次尚有余位，请直接预约",NULL);goto save;}
+  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status IN('CONFIRMED','HELD')","ii",sid,u->id)){r=result(409,"ALREADY_RESERVED","你已预约该场次",NULL);goto save;}
+  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD')","i",sid)<capacity){r=result(409,"SLOT_AVAILABLE","场次尚有余位，请直接预约",NULL);goto save;}
   if(d->error)goto failed;
   /* 候补同样受爽约信用与时间重叠约束（补位成功即占用该时段） */
   {
@@ -257,7 +280,7 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
    Id strikes=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=? AND r.cancel_reason='NO_SHOW' AND s2.start_at>=?","ii",u->id,window_start);
    if(d->error)goto failed;
    if(strikes>=NO_SHOW_GRACE){r=result(409,"PENALTY_ACTIVE","爽约次数过多，预约受限，如有疑问请联系管理员",NULL);goto save;}
-   Id overlap=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id JOIN slots s ON s.id=? WHERE r.user_id=? AND r.status='CONFIRMED' AND s.start_at<s2.end_at AND s2.start_at<s.end_at","ii",sid,u->id);
+   Id overlap=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id JOIN slots s ON s.id=? WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD') AND s.start_at<s2.end_at AND s2.start_at<s.end_at","ii",sid,u->id);
    if(d->error)goto failed;
    if(overlap){r=result(409,"TIME_CONFLICT","与您已预约的场次时间重叠，不能加入候补",NULL);goto save;}
   }
@@ -269,9 +292,10 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
   r=ok_id("waitlist_id",wid);
  }else if(!strcmp(action,"cancel")){
   Id promoted=0;
-  if(!strcmp(jstr(row,"status"),"CONFIRMED")){
-   if(!db_run(d,"UPDATE reservations SET status='CANCELLED',cancelled_at=?,cancel_reason='USER' WHERE id=?","ii",now_sec(),target))goto failed;
-   fault(cfg,"cancel-before-promote",key);event(d,u->id,"CANCEL",target,key);promoted=promote_fill(d,sid,u->id,key);
+  /* r24：HELD（待确认保留）与 CONFIRMED 一样可被本人取消 */
+  if(!strcmp(jstr(row,"status"),"CONFIRMED")||!strcmp(jstr(row,"status"),"HELD")){
+   if(!db_run(d,"UPDATE reservations SET status='CANCELLED',cancelled_at=?,cancel_reason='USER',hold_deadline=NULL WHERE id=?","ii",clock_now(),target))goto failed;
+   fault(cfg,"cancel-before-promote",key);event(d,u->id,"CANCEL",target,key);promoted=promote_fill(d,cfg,sid,u->id,key);
   }else if(!strcmp(jstr(row,"status"),"PENDING")){ /* r19 待审批取消：不占容量、无补位 */
    if(!db_run(d,"UPDATE reservations SET status='CANCELLED',cancelled_at=?,cancel_reason='USER' WHERE id=?","ii",now_sec(),target))goto failed;
    event(d,u->id,"CANCEL",target,key);
@@ -339,7 +363,7 @@ Result records(DB *d,const User *u,int all,Id date,int page,int size,const char 
  return result(200,"OK","查询成功",j);
 }
 Result stats(DB *d,Id start,Id end){
- cJSON *days=db_rows(d,"SELECT (s.start_at+28800)/86400 AS day,count(DISTINCT s.id) AS slots,count(DISTINCT CASE WHEN r.status='CONFIRMED' THEN r.id END) AS confirmed,count(DISTINCT CASE WHEN r.status='CANCELLED' AND (r.cancel_reason IS NULL OR r.cancel_reason='USER') THEN r.id END) AS cancelled,count(DISTINCT CASE WHEN r.cancel_reason='NO_SHOW' THEN r.id END) AS no_show,count(DISTINCT CASE WHEN r.checked_in_at IS NOT NULL THEN r.id END) AS checked_in FROM slots s LEFT JOIN reservations r ON r.slot_id=s.id WHERE s.start_at>=? AND s.start_at<? GROUP BY day ORDER BY day","ii",start,end+86400);
+ cJSON *days=db_rows(d,"SELECT (s.start_at+28800)/86400 AS day,count(DISTINCT s.id) AS slots,count(DISTINCT CASE WHEN r.status IN('CONFIRMED','HELD') THEN r.id END) AS confirmed,count(DISTINCT CASE WHEN r.status='CANCELLED' AND (r.cancel_reason IS NULL OR r.cancel_reason='USER') THEN r.id END) AS cancelled,count(DISTINCT CASE WHEN r.cancel_reason='NO_SHOW' THEN r.id END) AS no_show,count(DISTINCT CASE WHEN r.checked_in_at IS NOT NULL THEN r.id END) AS checked_in FROM slots s LEFT JOIN reservations r ON r.slot_id=s.id WHERE s.start_at>=? AND s.start_at<? GROUP BY day ORDER BY day","ii",start,end+86400);
  if(d->error)return db_failure(d);
  cJSON *waiting=db_rows(d,"SELECT (s.start_at+28800)/86400 AS day,count(*) AS waiting FROM waitlist w JOIN slots s ON s.id=w.slot_id JOIN users u ON u.id=w.user_id WHERE s.start_at>=? AND s.start_at<? AND w.status='WAITING' AND u.enabled=1 GROUP BY day ORDER BY day","ii",start,end+86400);
  if(d->error){cJSON_Delete(days);return db_failure(d);}
@@ -434,7 +458,7 @@ Result slot_update(DB *d,const User *u,Id target,const cJSON *body){
  if(!db_num(d,"SELECT count(*) FROM slots WHERE id=?","i",target)){
   if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
   db_run(d,"ROLLBACK","");return result(404,"NOT_FOUND","场次不存在",NULL);}
- if(has_cap){Id taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",target);
+ if(has_cap){Id taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD')","i",target);
   if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
   if(capacity<taken){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return result(409,"STATE_CONFLICT","容量不能小于已确认预约数",NULL);}}
  int ok=has_cap&&has_en?db_run(d,"UPDATE slots SET capacity=?,enabled=? WHERE id=?","iii",capacity,(Id)enabled,target):
@@ -544,6 +568,22 @@ int sweep_once(const Config *config){
  DB d={0};int count=0;
  if(!db_open(&d,config->db_path)){db_close(&d);return 0;}
  Id now=now_sec();
+ /* r24 HELD 超时回收：保留截止已过（或时段已开始）的待确认预约转 EXPIRED，
+    释放后立即对同一场次重新递补，形成"超时即让位"的自然重试环。默认 hold_window=0 时无 HELD，此块空转。 */
+ {cJSON *held=db_rows(&d,"SELECT r.id,r.user_id,r.slot_id FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE r.status='HELD' AND ((r.hold_deadline IS NOT NULL AND r.hold_deadline<=?) OR s.start_at<=?)","ii",now,now);
+  if(held){cJSON *hit;cJSON_ArrayForEach(hit,held){
+   Id hrid=0,huid=0,hsid=0;
+   parse_id(jstr(hit,"id"),&hrid);parse_id(jstr(hit,"user_id"),&huid);parse_id(jstr(hit,"slot_id"),&hsid);
+   if(!db_run(&d,"UPDATE reservations SET status='EXPIRED',cancelled_at=?,hold_deadline=NULL WHERE id=? AND status='HELD'","ii",now,hrid))break;
+   if(!sqlite3_changes(d.sql))continue;
+   event(&d,huid,"HOLD_EXPIRE",hrid,NULL);
+   notify(&d,huid,"NOTICE","名额保留已超时","你保留的候补名额已超时释放，可重新申请或再次加入候补。",hsid,hrid);
+   promote_fill(&d,config,hsid,huid,NULL);
+   if(d.error)break;
+   count++;
+  }
+  cJSON_Delete(held);}
+ }
  cJSON *due=db_rows(&d,"SELECT r.id,r.user_id,r.slot_id,s.end_at>? AS live FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE r.status='CONFIRMED' AND r.checked_in_at IS NULL AND (CASE WHEN r.source='WAITLIST' THEN r.created_at ELSE s.start_at END)+?<=?","iii",now,(Id)config->checkin_window,now);
  if(!due){db_close(&d);return 0;}
  if(!db_run(&d,"BEGIN IMMEDIATE","")){cJSON_Delete(due);db_close(&d);return 0;}
@@ -558,7 +598,7 @@ int sweep_once(const Config *config){
   notify(&d,uid,"NO_SHOW","预约已爽约释放",body,sid,rid);
   event(&d,uid,"NO_SHOW",rid,NULL);
   credit_apply(&d,uid,-1,"NO_SHOW",rid); /* r23 爽约额外扣 1 点（预约时已扣 1 点且不返还，合计净 -2） */
-  if(live)promote_fill(&d,sid,uid,NULL);
+  if(live)promote_fill(&d,config,sid,uid,NULL);
   count++;
  }
  cJSON_Delete(due);
@@ -588,7 +628,7 @@ Result users_list(DB *d,int page,int size,const char *q){
  cJSON *j=cJSON_CreateObject();
  char sql[640];Id limit=(Id)size+1,offset=(Id)(page-1)*size;
  Id window_start=now_sec()-(Id)PENALTY_DAYS*86400;
- snprintf(sql,sizeof sql,"SELECT u.id,u.username,u.role,u.enabled,(SELECT count(*) FROM reservations r WHERE r.user_id=u.id AND r.status='CONFIRMED') AS reservations,(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.status='WAITING') AS waitlisted,(SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=u.id AND r.cancel_reason='NO_SHOW' AND s2.start_at>=?) AS no_show_count FROM users u %sORDER BY u.id LIMIT ? OFFSET ?",
+ snprintf(sql,sizeof sql,"SELECT u.id,u.username,u.role,u.enabled,(SELECT count(*) FROM reservations r WHERE r.user_id=u.id AND r.status IN('CONFIRMED','HELD')) AS reservations,(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.status='WAITING') AS waitlisted,(SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=u.id AND r.cancel_reason='NO_SHOW' AND s2.start_at>=?) AS no_show_count FROM users u %sORDER BY u.id LIMIT ? OFFSET ?",
   q?"WHERE substr(u.username,1,length(?))=? ":"");
  cJSON *rows=q?db_rows(d,sql,"issii",window_start,q,q,limit,offset):db_rows(d,sql,"iii",window_start,limit,offset);
  if(!rows)return db_failure(d);
@@ -695,7 +735,7 @@ Result asset_admin(DB *d,const User *u,Id lab,Id asset,const cJSON *body){
 Result lab_utilization(DB *d,Id start,Id end){
  cJSON *rows=db_rows(d,
   "SELECT l.id AS lab_id,l.name AS lab_name,count(s.id) AS slots,CAST(total(s.capacity) AS INTEGER) AS seats,"
-  "(SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE s2.lab_id=l.id AND r.status='CONFIRMED' AND s2.start_at>=? AND s2.start_at<?) AS confirmed,"
+  "(SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE s2.lab_id=l.id AND r.status IN('CONFIRMED','HELD') AND s2.start_at>=? AND s2.start_at<?) AS confirmed,"
   "(SELECT count(*) FROM reservations r JOIN slots s3 ON s3.id=r.slot_id WHERE s3.lab_id=l.id AND r.checked_in_at IS NOT NULL AND s3.start_at>=? AND s3.start_at<?) AS checked_in,"
   "(SELECT count(*) FROM reservations r JOIN slots s4 ON s4.id=r.slot_id WHERE s4.lab_id=l.id AND r.cancel_reason='NO_SHOW' AND s4.start_at>=? AND s4.start_at<?) AS no_show,"
   "(SELECT CAST(total(r.checked_out_at-r.checked_in_at)/60 AS INTEGER) FROM reservations r JOIN slots s5 ON s5.id=r.slot_id WHERE s5.lab_id=l.id AND r.checked_out_at IS NOT NULL AND r.checked_in_at IS NOT NULL AND s5.start_at>=? AND s5.start_at<?) AS actual_minutes "
@@ -794,10 +834,10 @@ Result reservation_reschedule(DB *d,const Config *cfg,const User *u,Id target,Id
   if(cfg&&cfg->lead_time>0&&ns_start-now_sec()<(Id)cfg->lead_time){
    cJSON_Delete(ns);r=result(409,"LEAD_TIME","距目标场次开始不足提前量",NULL);goto save;}
   Id ns_cap=(Id)cJSON_GetObjectItemCaseSensitive(ns,"capacity")->valuedouble;
-  Id ns_taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED' AND id<>?","ii",new_slot,target);
+  Id ns_taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD') AND id<>?","ii",new_slot,target);
   if(d->error){cJSON_Delete(ns);goto failed;}
   if(ns_taken>=ns_cap){cJSON_Delete(ns);r=slot_full(d,new_slot,"目标场次已约满，可先取消原预约再排队");goto save;}
-  {Id overlap=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id JOIN slots s ON s.id=? WHERE r.user_id=? AND r.status='CONFIRMED' AND r.id<>? AND s.start_at<s2.end_at AND s2.start_at<s.end_at","iii",new_slot,u->id,target);
+  {Id overlap=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id JOIN slots s ON s.id=? WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD') AND r.id<>? AND s.start_at<s2.end_at AND s2.start_at<s.end_at","iii",new_slot,u->id,target);
    if(d->error){cJSON_Delete(ns);goto failed;}
    if(overlap){cJSON_Delete(ns);r=result(409,"TIME_CONFLICT","与您已预约的场次时间重叠",NULL);goto save;}}
   /* 资源声明按新时段重校配额（声明保留，同实验室已保证资源归属成立） */
@@ -805,14 +845,14 @@ Result reservation_reschedule(DB *d,const Config *cfg,const User *u,Id target,Id
    if(!cl){cJSON_Delete(ns);goto failed;}
    cJSON *cit;cJSON_ArrayForEach(cit,cl){
     Id ca=0,total=0;parse_id(jstr(cit,"asset_id"),&ca);total=(Id)cJSON_GetObjectItemCaseSensitive(cit,"total")->valuedouble;
-    Id used=db_num(d,"SELECT count(*) FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id JOIN slots s2 ON s2.id=r.slot_id WHERE c.asset_id=? AND r.status='CONFIRMED' AND r.id<>? AND s2.start_at<? AND s2.end_at>?","iii",ca,target,ns_start+3600,ns_start);
+    Id used=db_num(d,"SELECT count(*) FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id JOIN slots s2 ON s2.id=r.slot_id WHERE c.asset_id=? AND r.status IN('CONFIRMED','HELD') AND r.id<>? AND s2.start_at<? AND s2.end_at>?","iii",ca,target,ns_start+3600,ns_start);
     if(d->error){cJSON_Delete(cl);cJSON_Delete(ns);goto failed;}
     if(used>=total){cJSON_Delete(cl);cJSON_Delete(ns);r=result(409,"ASSET_QUOTA","目标时段所声明的资源已被约满",NULL);goto save;}}
    cJSON_Delete(cl);}
   cJSON_Delete(ns);
   if(!db_run(d,"UPDATE reservations SET slot_id=? WHERE id=?","ii",new_slot,target))goto failed;
   event(d,u->id,"RESCHEDULE",target,key);
-  Id promoted=promote_fill(d,old_slot,u->id,key); /* 旧槽释放 → FIFO 补位 */
+  Id promoted=promote_fill(d,cfg,old_slot,u->id,key); /* 旧槽释放 → FIFO 补位 */
   cJSON *j=cJSON_CreateObject();jid(j,"reservation_id",target);jid(j,"new_slot_id",new_slot);
   jid(j,"old_slot_id",old_slot);if(promoted)jid(j,"promoted_reservation_id",promoted);else cJSON_AddNullToObject(j,"promoted_reservation_id");
   r=result(200,"OK","改期成功",j);goto save;
@@ -835,7 +875,7 @@ Result asset_claim_report(DB *d,Id start,Id end){
   "SELECT a.id AS asset_id,a.name AS asset_name,a.total,count(c.reservation_id) AS claims,"
   "MAX(s.start_at) AS last_start "
   "FROM assets a LEFT JOIN asset_claims c ON c.asset_id=a.id "
-  "LEFT JOIN reservations r ON r.id=c.reservation_id AND r.status='CONFIRMED' "
+  "LEFT JOIN reservations r ON r.id=c.reservation_id AND r.status IN('CONFIRMED','HELD') "
   "LEFT JOIN slots s ON s.id=r.slot_id AND s.start_at>=? AND s.start_at<? "
   "GROUP BY a.id ORDER BY a.id","ii",start,end+86400);
  if(!rows)return db_failure(d);
@@ -936,14 +976,14 @@ Result reservation_approval(DB *d,const User *u,Id target,int approve,const char
  if(approve){
   Id cap=(Id)cJSON_GetObjectItemCaseSensitive(row,"capacity")->valuedouble;
   Id sid=0;parse_id(jstr(row,"slot_id"),&sid);
-  Id taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid);
+  Id taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD')","i",sid);
   if(d->error)goto failed;
   if(taken>=cap){r=result(409,"APPROVAL_CAPACITY","批准时容量已满，请拒绝该预约或调整容量",NULL);goto save;}
   {cJSON *cl=db_rows(d,"SELECT c.asset_id,a.total FROM asset_claims c JOIN assets a ON a.id=c.asset_id WHERE c.reservation_id=?","i",target);
    if(!cl)goto failed;
    cJSON *cit;cJSON_ArrayForEach(cit,cl){
     Id ca=0,total=0;parse_id(jstr(cit,"asset_id"),&ca);total=(Id)cJSON_GetObjectItemCaseSensitive(cit,"total")->valuedouble;
-    Id used=db_num(d,"SELECT count(*) FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id JOIN slots s2 ON s2.id=r.slot_id WHERE c.asset_id=? AND r.status='CONFIRMED' AND r.id<>? AND s2.start_at<(SELECT end_at FROM slots WHERE id=?) AND s2.end_at>(SELECT start_at FROM slots WHERE id=?)","iiii",ca,target,sid,sid);
+    Id used=db_num(d,"SELECT count(*) FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id JOIN slots s2 ON s2.id=r.slot_id WHERE c.asset_id=? AND r.status IN('CONFIRMED','HELD') AND r.id<>? AND s2.start_at<(SELECT end_at FROM slots WHERE id=?) AND s2.end_at>(SELECT start_at FROM slots WHERE id=?)","iiii",ca,target,sid,sid);
     if(d->error){cJSON_Delete(cl);goto failed;}
     if(used>=total){cJSON_Delete(cl);r=result(409,"ASSET_QUOTA","批准时资源声明已超配额，请拒绝或协调改期",NULL);goto save;}}
    cJSON_Delete(cl);}
@@ -973,7 +1013,7 @@ failed:
 }
 /* r16 日历导出：全部有效预约导出 iCalendar VEVENT（UTC 时间，含实验室与签到状态）。 */
 Result calendar_export(DB *d,const User *u){
- cJSON *rows=db_rows(d,"SELECT r.id,r.checked_in_at,s.start_at,s.end_at,l.name AS lab FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id WHERE r.user_id=? AND r.status='CONFIRMED' ORDER BY s.start_at","i",u->id);
+ cJSON *rows=db_rows(d,"SELECT r.id,r.checked_in_at,s.start_at,s.end_at,l.name AS lab FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD') ORDER BY s.start_at","i",u->id);
  if(!rows)return db_failure(d);
  size_t cap=1024+(size_t)(rows?cJSON_GetArraySize(rows):0)*400;char *cal=malloc(cap);
  if(!cal){cJSON_Delete(rows);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
@@ -1003,7 +1043,7 @@ Result asset_usage(DB *d,Id aid,Id start,Id end){
  cJSON *a=db_first(d,"SELECT id,name,spec,total,status FROM assets WHERE id=?","i",aid);
  if(d->error)return db_failure(d);
  if(!a)return result(404,"NOT_FOUND","资源不存在",NULL);
- cJSON *days=db_rows(d,"SELECT (s.start_at+28800)/86400 AS day,count(*) AS claims FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id AND r.status='CONFIRMED' JOIN slots s ON s.id=r.slot_id WHERE c.asset_id=? AND s.start_at>=? AND s.start_at<? GROUP BY day ORDER BY day","iii",aid,start,end+86400);
+ cJSON *days=db_rows(d,"SELECT (s.start_at+28800)/86400 AS day,count(*) AS claims FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id AND r.status IN('CONFIRMED','HELD') JOIN slots s ON s.id=r.slot_id WHERE c.asset_id=? AND s.start_at>=? AND s.start_at<? GROUP BY day ORDER BY day","iii",aid,start,end+86400);
  if(!days){cJSON_Delete(a);return db_failure(d);}
  cJSON *out=cJSON_CreateArray();cJSON *it;
  cJSON_ArrayForEach(it,days){
@@ -1071,12 +1111,12 @@ int remind_once(const Config *config){
  DB d={0};int count=0;
  if(!db_open(&d,config->db_path)){db_close(&d);return 0;}
  Id now=now_sec();
- cJSON *due=db_rows(&d,"SELECT DISTINCT s.id FROM slots s JOIN reservations r ON r.slot_id=s.id AND r.status='CONFIRMED' WHERE s.reminded_at IS NULL AND s.start_at>? AND s.start_at<=?","ii",now,now+(Id)config->remind_sec);
+ cJSON *due=db_rows(&d,"SELECT DISTINCT s.id FROM slots s JOIN reservations r ON r.slot_id=s.id AND r.status IN('CONFIRMED','HELD') WHERE s.reminded_at IS NULL AND s.start_at>? AND s.start_at<=?","ii",now,now+(Id)config->remind_sec);
  if(!due||!cJSON_GetArraySize(due)){cJSON_Delete(due);db_close(&d);return 0;}
  if(!db_run(&d,"BEGIN IMMEDIATE","")){cJSON_Delete(due);db_close(&d);return 0;}
  cJSON *it;cJSON_ArrayForEach(it,due){
   Id sid=0;if(!parse_id(jstr(it,"id"),&sid))continue;
-  cJSON *rs=db_rows(&d,"SELECT id,user_id FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid);
+  cJSON *rs=db_rows(&d,"SELECT id,user_id FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD')","i",sid);
   if(!rs)break;
   char when[40];slot_when(&d,sid,when);
   cJSON *rit;cJSON_ArrayForEach(rit,rs){
@@ -1199,14 +1239,14 @@ Result reservation_batch(DB *d,const Config *cfg,const User *u,const cJSON *body
   if(i==0){lab=sl;first=t0;}
   else if(sl!=lab||t0!=last_end){r=result(409,"TIME_CONFLICT","所选场次须属于同一实验室且时间连续",NULL);goto save;}
   last_end=t1;i++;
-  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid)>=cap){r=result(409,"SLOT_FULL","所选场次中有已约满的时段",NULL);goto save;}
+  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD')","i",sid)>=cap){r=result(409,"SLOT_FULL","所选场次中有已约满的时段",NULL);goto save;}
   if(d->error)goto failed;
-  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status='CONFIRMED'","ii",sid,u->id)){r=result(409,"ALREADY_RESERVED","你已预约所选场次中的时段",NULL);goto save;}
+  if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status IN('CONFIRMED','HELD')","ii",sid,u->id)){r=result(409,"ALREADY_RESERVED","你已预约所选场次中的时段",NULL);goto save;}
   if(d->error)goto failed;
   if(!db_run(d,"INSERT INTO reservations(user_id,slot_id,status,source,created_at,priority) VALUES(?,?,'CONFIRMED','DIRECT',?,?)","iiii",u->id,sid,now_sec(),role_priority(u)))goto failed;
  }
  /* 与既有确认预约的时间重叠（连续时段以首尾代表） */
- if(db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=? AND r.status='CONFIRMED' AND NOT (s2.start_at>=? AND s2.end_at<=?) AND s2.start_at<? AND s2.end_at>?","iiiii",u->id,first,last_end,last_end,first)){
+ if(db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD') AND NOT (s2.start_at>=? AND s2.end_at<=?) AND s2.start_at<? AND s2.end_at>?","iiiii",u->id,first,last_end,last_end,first)){
   r=result(409,"TIME_CONFLICT","与您已预约的其他场次时间重叠",NULL);goto save;
  }
  if(d->error)goto failed;
@@ -1220,6 +1260,39 @@ save:
  sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);
  return r;
 failed:
+ sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);
+ cJSON_Delete(r.body);
+ return db_failure(d);
+}
+/* r24 HELD 限时保留的确认：仅本人、仅 HELD 态、且当前时刻严格早于 hold_deadline 与时段开始时刻。
+   截止判断在写事务内用统一时间源进行——恰好等于截止时刻视为超时（与设计文档 5.2 节一致）。 */
+Result reservation_confirm(DB *d,const User *u,Id target,const char *key){
+ (void)key;
+ if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
+ cJSON *row=db_first(d,"SELECT user_id,slot_id,status,hold_deadline FROM reservations WHERE id=?","i",target);
+ Result r={500,NULL};
+ if(d->error)goto failed;
+ if(!row){r=result(404,"NOT_FOUND","记录不存在",NULL);goto out;}
+ if(strcmp(jstr(row,"status"),"HELD")){r=result(409,"STATE_CONFLICT","该预约不在待确认状态",NULL);goto out;}
+ {Id owner=0;parse_id(jstr(row,"user_id"),&owner);
+  if(owner!=u->id){r=result(403,"FORBIDDEN","只能确认本人的预约",NULL);goto out;}}
+ {Id sid=0;parse_id(jstr(row,"slot_id"),&sid);
+  Id start=db_num(d,"SELECT start_at FROM slots WHERE id=?","i",sid);
+  if(d->error)goto failed;
+  cJSON *hd=cJSON_GetObjectItemCaseSensitive(row,"hold_deadline");
+  Id dl=(hd&&cJSON_IsNumber(hd))?(Id)hd->valuedouble:0;
+  Id now=clock_now();
+  if((dl&&now>=dl)||now>=start){r=result(409,"HOLD_EXPIRED","保留时限已过，名额已释放给下一位",NULL);goto out;}}
+ if(!db_run(d,"UPDATE reservations SET status='CONFIRMED',hold_deadline=NULL WHERE id=? AND status='HELD'","i",target))goto failed;
+ event(d,u->id,"CONFIRM",target,NULL);
+ {cJSON *j=cJSON_CreateObject();jid(j,"reservation_id",target);r=result(200,"OK","已确认预约",j);}
+out:
+ cJSON_Delete(row);
+ if(r.status==200){if(!db_run(d,"COMMIT","")){cJSON_Delete(r.body);return db_failure(d);}return r;}
+ sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);
+ return r;
+failed:
+ cJSON_Delete(row);
  sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);
  cJSON_Delete(r.body);
  return db_failure(d);

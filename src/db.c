@@ -179,11 +179,13 @@ static int db_migrate(DB *d){
  {cJSON *rz=db_first(d,"SELECT sql FROM sqlite_master WHERE type='table' AND name='reservations'","");
   if(!rz)return d->error?0:1;
   const char *rdl=jstr(rz,"sql");
-  if(rdl&&(!strstr(rdl,"'PENDING'")||!strstr(rdl,"'PREEMPTED'"))){
+  if(rdl&&(!strstr(rdl,"'PENDING'")||!strstr(rdl,"'PREEMPTED'")||!strstr(rdl,"'HELD'"))){
    cJSON_Delete(rz);
    db_run(d,"PRAGMA foreign_keys=OFF","");
    if(!db_run(d,"BEGIN IMMEDIATE","")){return 0;}
-   db_run(d,"CREATE TABLE reservations_new(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','PENDING','CANCELLED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,checked_out_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW','REJECTED','PREEMPTED')),note TEXT);","");
+   /* r24：status 扩展 HELD（限时保留）与 EXPIRED（确认超时）；新列 priority/hold_deadline 由本表 DDL 提供，
+      旧库的既有行取默认值（DEFAULT 0 / NULL）。INSERT SELECT 只搬既有列，避免在旧库上引用不存在的列。 */
+   db_run(d,"CREATE TABLE reservations_new(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','PENDING','CANCELLED','HELD','EXPIRED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,checked_out_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW','REJECTED','PREEMPTED')),note TEXT,priority INTEGER NOT NULL DEFAULT 0,hold_deadline INTEGER);","");
    db_run(d,"INSERT INTO reservations_new(id,user_id,slot_id,status,source,created_at,cancelled_at,checked_in_at,checked_out_at,cancel_reason,note) SELECT id,user_id,slot_id,status,source,created_at,cancelled_at,checked_in_at,checked_out_at,cancel_reason,note FROM reservations","");
    db_run(d,"DROP TABLE reservations","");
    db_run(d,"ALTER TABLE reservations_new RENAME TO reservations","");
@@ -241,6 +243,13 @@ static int db_migrate(DB *d){
   }
   cJSON_Delete(wi);
  }
+ /* r24 资源资格开关列：幂等追加（只有显式开启的资源才校验使用资格）。 */
+ if(!has_column(d,"assets","requires_qualification")){
+  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+  db_run(d,"ALTER TABLE assets ADD COLUMN requires_qualification INTEGER NOT NULL DEFAULT 0 CHECK(requires_qualification IN(0,1))","");
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(!db_run(d,"COMMIT",""))return 0;
+ }
  return 1;
 }
 int db_init(DB *d){
@@ -250,7 +259,7 @@ int db_init(DB *d){
  "CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),csrf_token TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER);"
  "CREATE TABLE IF NOT EXISTS labs(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,location TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)),require_approval INTEGER NOT NULL DEFAULT 0 CHECK(require_approval IN(0,1)));"
  "CREATE TABLE IF NOT EXISTS slots(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL REFERENCES labs(id),start_at INTEGER NOT NULL,end_at INTEGER NOT NULL,enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)),capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 200),reminded_at INTEGER,UNIQUE(lab_id,start_at),CHECK(end_at=start_at+3600));"
- "CREATE TABLE IF NOT EXISTS reservations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','PENDING','CANCELLED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW','REJECTED','PREEMPTED')),note TEXT,priority INTEGER NOT NULL DEFAULT 0);"
+ "CREATE TABLE IF NOT EXISTS reservations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','PENDING','CANCELLED','HELD','EXPIRED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW','REJECTED','PREEMPTED')),note TEXT,priority INTEGER NOT NULL DEFAULT 0,hold_deadline INTEGER);"
  "CREATE INDEX IF NOT EXISTS bookings_slot ON reservations(slot_id,status);"
  "CREATE INDEX IF NOT EXISTS bookings_user ON reservations(user_id,created_at);"
  "CREATE TABLE IF NOT EXISTS waitlist(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('WAITING','WITHDRAWN','PROMOTED','SKIPPED')),created_at INTEGER NOT NULL,promoted_reservation_id INTEGER REFERENCES reservations(id),priority INTEGER NOT NULL DEFAULT 0);"
@@ -260,7 +269,7 @@ int db_init(DB *d){
  "CREATE TABLE IF NOT EXISTS operation_events(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL REFERENCES users(id),action TEXT NOT NULL,entity_id INTEGER NOT NULL,request_id TEXT,created_at INTEGER NOT NULL);"
  "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN('PROMOTED','NO_SHOW','NOTICE','REMIND')),title TEXT NOT NULL,body TEXT NOT NULL,slot_id INTEGER REFERENCES slots(id),reservation_id INTEGER REFERENCES reservations(id),read_at INTEGER,created_at INTEGER NOT NULL);"
  "CREATE INDEX IF NOT EXISTS notify_user ON notifications(user_id,id);"
- "CREATE TABLE IF NOT EXISTS assets(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL REFERENCES labs(id),name TEXT NOT NULL,spec TEXT NOT NULL DEFAULT '',total INTEGER NOT NULL DEFAULT 1 CHECK(total BETWEEN 1 AND 999),status TEXT NOT NULL DEFAULT 'AVAILABLE' CHECK(status IN('AVAILABLE','MAINTENANCE','DISABLED')),created_at INTEGER NOT NULL);"
+ "CREATE TABLE IF NOT EXISTS assets(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL REFERENCES labs(id),name TEXT NOT NULL,spec TEXT NOT NULL DEFAULT '',total INTEGER NOT NULL DEFAULT 1 CHECK(total BETWEEN 1 AND 999),status TEXT NOT NULL DEFAULT 'AVAILABLE' CHECK(status IN('AVAILABLE','MAINTENANCE','DISABLED')),created_at INTEGER NOT NULL,requires_qualification INTEGER NOT NULL DEFAULT 0 CHECK(requires_qualification IN(0,1)));"
  "CREATE INDEX IF NOT EXISTS assets_lab ON assets(lab_id,id);"
  "CREATE UNIQUE INDEX IF NOT EXISTS assets_uniq ON assets(lab_id,name);"
  "CREATE TABLE IF NOT EXISTS asset_claims(reservation_id INTEGER NOT NULL REFERENCES reservations(id),asset_id INTEGER NOT NULL REFERENCES assets(id),created_at INTEGER NOT NULL,PRIMARY KEY(reservation_id,asset_id));"
@@ -275,7 +284,13 @@ int db_init(DB *d){
  /* r23 资源维护工单：设备生命周期可追溯，与 assets.status 联动。 */
  "CREATE TABLE IF NOT EXISTS asset_maintenance(id INTEGER PRIMARY KEY AUTOINCREMENT,asset_id INTEGER NOT NULL REFERENCES assets(id),started_at INTEGER NOT NULL,ended_at INTEGER,reason TEXT NOT NULL DEFAULT '',operator_id INTEGER REFERENCES users(id));"
  "CREATE INDEX IF NOT EXISTS maint_asset ON asset_maintenance(asset_id,ended_at);"
- "PRAGMA user_version=4;COMMIT;";
+ /* r24 资格授权：贵重设备需培训授权后方可声明（默认不启用，资源须显式开启 requires_qualification）。 */
+ "CREATE TABLE IF NOT EXISTS qualifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),asset_id INTEGER NOT NULL REFERENCES assets(id),granted_at INTEGER NOT NULL,expires_at INTEGER,note TEXT NOT NULL DEFAULT '',UNIQUE(user_id,asset_id));"
+ "CREATE INDEX IF NOT EXISTS qual_asset ON qualifications(asset_id,user_id);"
+ /* r24 通知出站队列：同事务写入，提交后派发；失败可重试（至少一次语义）。 */
+ "CREATE TABLE IF NOT EXISTS outbox(id INTEGER PRIMARY KEY AUTOINCREMENT,notification_id INTEGER REFERENCES notifications(id),channel TEXT NOT NULL,payload TEXT NOT NULL,sent_at INTEGER,attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT,created_at INTEGER NOT NULL);"
+ "CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(sent_at,id);"
+ "PRAGMA user_version=5;COMMIT;";
  cJSON *wal=db_first(d,"PRAGMA journal_mode=WAL","");int ok=wal&&jstr(wal,"journal_mode")&&!strcmp(jstr(wal,"journal_mode"),"wal");cJSON_Delete(wal);if(!ok)return 0;
  int rc=sqlite3_exec(d->sql,schema,NULL,NULL,NULL);if(rc!=SQLITE_OK){d->error=rc;}
  if(d->error)return 0;

@@ -278,6 +278,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
  if(!strcmp(path,"/api/reservations")){action="reserve";parse_id(jstr(body,"slot_id"),&target);}
  else if(!strcmp(path,"/api/waitlist")){action="wait";parse_id(jstr(body,"slot_id"),&target);}
  else if(path_id(path,"/api/reservations/","/cancel",&target))action="cancel";
+ else if(path_id(path,"/api/reservations/","/confirm",&target)){const char *kc=jstr(body,"request_id");if(!uuid_valid(kc))return invalid();return reservation_confirm(d,&u,target,kc);}
  else if(path_id(path,"/api/reservations/","/checkin",&target))action="checkin";
  else if(path_id(path,"/api/reservations/","/checkout",&target)){const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_checkout(d,cfg,&u,target,key2);}
  else if(path_id(path,"/api/reservations/","/reschedule",&target)){Id ns=0;if(!parse_id(jstr(body,"slot_id"),&ns)||ns<1)return invalid();const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_reschedule(d,cfg,&u,target,ns,key2);}

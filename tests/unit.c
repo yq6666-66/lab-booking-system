@@ -276,7 +276,7 @@ static void test_checkin_business(void){
  new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,NULL,k);TEST_ASSERT_EQUAL_INT(200,r.status); /* 重复签到幂等 */
  cJSON *ci2=cJSON_GetObjectItemCaseSensitive(rdata(r),"checked_in_at");TEST_ASSERT_TRUE(cJSON_IsNumber(ci2));TEST_ASSERT_EQUAL_INT64(when,(Id)ci2->valuedouble);drop(r);
  new_key(k);r=booking(&db,NULL,&u2,"checkin",rid,NULL,k);TEST_ASSERT_EQUAL_INT(403,r.status);drop(r); /* 非本人 */
- Config cfg={"build/unit-test.db",NULL,0,900,30,30,1,5,900,500,NULL,NULL,NULL,NULL,0,0,0,0};
+ Config cfg={"build/unit-test.db",NULL,0,900,30,30,1,5,900,500,NULL,NULL,NULL,NULL,0,0,0,0,0,0,0};
  TEST_ASSERT_EQUAL_INT(0,sweep_once(&cfg)); /* 已签到不被判爽约 */
  TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE id=? AND status='CONFIRMED' AND checked_in_at IS NOT NULL","i",rid));
 }
@@ -483,7 +483,7 @@ static void test_v2_to_v3_migration(void){
  db_close(&db); /* 先释放主测试库，避免句柄泄漏与文件占用 */
  TEST_ASSERT_TRUE(db_open(&db,path));
  TEST_ASSERT_TRUE(db_init(&db));
- TEST_ASSERT_EQUAL_INT64(4,db_num(&db,"PRAGMA user_version","")); /* r23：信用账户/优先级/资源时段/维护工单使 schema 升至 v4 */
+ TEST_ASSERT_EQUAL_INT64(5,db_num(&db,"PRAGMA user_version","")); /* r24：HELD 态/资格表/outbox 使 schema 升至 v5 */
  cJSON *cap=db_first(&db,"SELECT capacity FROM slots WHERE id=1",""); /* 旧行以默认容量 1 迁移 */
  TEST_ASSERT_NOT_NULL(cap);TEST_ASSERT_EQUAL_INT(1,(int)cJSON_GetObjectItemCaseSensitive(cap,"capacity")->valuedouble);cJSON_Delete(cap);
  TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM sqlite_master WHERE type='index' AND name='one_booking'","")); /* 单占用索引退役 */
