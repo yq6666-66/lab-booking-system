@@ -16,6 +16,10 @@
 - `reservations.status` 扩展 `HELD`、`EXPIRED`；新增 `hold_deadline` 列。**占容量口径统一为 `CONFIRMED + HELD`**（否则启用保留后会超售），时间冲突判定同步纳入 HELD。
 - schema `user_version` 4 → 5；集成断言 61 → 63；`LAB_VERSION` 1.12.0 → 1.13.0。
 
+### 第二批（资格授权与对照实验）
+- **资格授权（BR21）**：`qualifications` 表与 `assets.requires_qualification` 开关；开启后声明该资源须持有有效资格，否则 409 QUALIFICATION_REQUIRED。新增 `GET/POST /api/admin/assets/{id}/qualifications`（grant/revoke）与 `op:"require"` 开关。**默认不要求**，完全向后兼容。
+- **对照实验脚本** `tests/experiment.py`：以同一申请序列分别驱动 `--waitlist-strategy=strict|executable` 两臂，统计名额利用率、候补成功率、等待时间与队首阻塞次数。实测（3 轮/臂）：**利用率 0.0 → 1.0**，候补成功率 0.0 → 1.0，队首阻塞 3 次；证据见 `docs/evidence/experiment/fifo_comparison.json`。
+
 ### 兼容性
 - 默认配置下不产生 HELD，既有 61 项断言语义不变（已实测全绿）；可执行 FIFO 仅在"队首临时冲突"这一既有缺陷场景下改变结果。
 

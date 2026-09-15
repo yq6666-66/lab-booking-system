@@ -1,0 +1,41 @@
+{
+  "question": "跨资源冲突下，可执行 FIFO 相比严格 FIFO 能否提高名额分配利用率？代价是什么？",
+  "metric_definitions": {
+    "utilization": "最终被有效占用（获得者自身无时间冲突）的释放名额数 / 实际释放名额数",
+    "waitlist_success_rate": "由 WAITING 达到 PROMOTED 的申请数 / 释放名额数",
+    "wait_median_s": "入队至获得名额的秒数中位数",
+    "wait_p95_s": "同上 P95",
+    "head_blocked_count": "因队首暂时不可执行而由后位获得名额的次数"
+  },
+  "rounds_per_arm": 3,
+  "arms": [
+    {
+      "strategy": "strict",
+      "rounds": 3,
+      "released_slots": 3,
+      "utilization": 0.0,
+      "waitlist_success_rate": 0.0,
+      "wait_median_s": 0.0,
+      "wait_p95_s": 0.0,
+      "head_blocked_count": 0
+    },
+    {
+      "strategy": "executable",
+      "rounds": 3,
+      "released_slots": 3,
+      "utilization": 1.0,
+      "waitlist_success_rate": 1.0,
+      "wait_median_s": 0.06,
+      "wait_p95_s": 0.063,
+      "head_blocked_count": 3
+    }
+  ],
+  "utilization_delta": 1.0,
+  "conclusion": "可执行 FIFO 的名额利用率 1.0，严格 FIFO 为 0.0，提升 1.0；严格 FIFO 下名额交由暂不可执行的队首而空置，可执行 FIFO 通过暂跳（3 次）把名额给了下一位可执行者。",
+  "fairness_cost": "代价是队首的原序不再绝对优先：3 次递补由后位获得；但暂跳者保留原序号，后续扫描仍优先于更晚入队者，因此是「可执行申请间的 FIFO」而非无约束插队。",
+  "limitations": [
+    "未使用虚拟时钟与确定性事件回放，等待时间含真实排队与锁等待，波动较大",
+    "样本量小（每臂 3 轮），结论为方向性而非统计显著",
+    "仅在单机 SQLite、容量为 1 的场次上验证"
+  ]
+}
