@@ -120,8 +120,8 @@ para("系统以单写者事务（BEGIN IMMEDIATE）配合容量不变量保证�
      "运行日志与资源清单）、限时签到、场次开始提醒、自动备份轮转、爽约信用约束与时间重叠检测等运营能力，并延伸出预约审批流、可执行 FIFO"
      " 候补策略与限时保留（HELD）、高优先级抢占与信用账户、资源维护工单与可用时段窗、资源使用资格授权、API 访问令牌等深化机制，"
      "以全局安全响应头（CSP 等）收紧浏览器攻击面。")
-para("系统通过五层自动化验证：24 个单元测试、68 项集成断言组（含 720 次并发争抢实验——实验样本内未出现超卖、30 次进程中断恢复全部正确、"
-     "以及五组跨规则组合验证）、47 个端点的契约测试与灰盒/文档测试、模糊稳健性与浸泡稳定性实验，以及持续集成三通道门禁（构建与测试、"
+para("系统通过五层自动化验证：24 个单元测试、70 项集成断言组（含 720 次并发争抢实验——实验样本内未出现超卖、30 次进程中断恢复全部正确、"
+     "五组跨规则组合验证、凭据生命周期与约束感知建议评估）、48 个端点的契约测试与灰盒/文档测试、模糊稳健性与浸泡稳定性实验，以及持续集成三通道门禁（构建与测试、"
      "静态分析、AddressSanitizer 内存安全）。计时旁路实验表明登录路径对有效与无效账号的响应时间比仅为 1.07，账号枚举的可观测时间差被"
      "显著压平。连接复用与语句缓存优化使读路径吞吐提升最高 600%，p50 延迟下降 86%。")
 para("结果表明，在不引入重型运行时的前提下，以规范的事务设计、持久化去重与自动化实验体系，C 语言同样能够构建出具备工业级可靠性论证的"
@@ -140,9 +140,9 @@ para("The system guarantees concurrent correctness with single-writer transactio
      "asset maintenance work orders with availability windows and qualification grants, self-managed API access tokens, a standalone admin "
      "console (slot adjustment, user management, announcements and runtime logs), time-windowed check-in, session start reminders, automatic "
      "backup rotation, a no-show credit constraint, time-overlap detection, and hardened browser attack surface via global security headers.", font="Times New Roman")
-para("The system passes five layers of automated verification: 24 unit tests, 68 integration assertion groups (including a 720-request "
+para("The system passes five layers of automated verification: 24 unit tests, 70 integration assertion groups (including a 720-request "
      "concurrent-contention experiment with no overbooking observed across all trials, 30 crash-recovery trials all correct, and five "
-     "cross-rule combination checks), contract tests over 47 endpoints, gray-box/documentation tests, fuzz and soak stability experiments, "
+     "cross-rule combination checks), contract tests over 48 endpoints, gray-box/documentation tests, fuzz and soak stability experiments, "
      "and a three-channel continuous integration gate (build and test, static analysis, AddressSanitizer memory safety). A timing "
      "side-channel experiment shows the login path responds to valid and invalid accounts within a 1.07x ratio, substantially flattening the "
      "observable timing difference available for account enumeration. Connection reuse and statement caching raise read throughput by up to "
@@ -180,7 +180,7 @@ li("（2）设计并实现了两项关键机制：基于持久化请求回执的
 li("（3）设计并实现了面向真实运营的管理能力：独立管理员控制台（实验室与场次维护、场次开始前调整、用户停用/重置密码、全员通知发布、运行日志查看）、实验室资源（设备）清单与资源利用率统计、"
    "资源维护工单与可用时段窗、资源使用资格授权、场次开始提醒、自动备份轮转、爽约信用约束（近 7 天两次爽约暂停预约）、跨场次时间重叠检测、"
    "信用账户（补偿、发放与每周回补）、高优先级抢占与 API 访问令牌；")
-li("（4）构建了五层自动化验证体系：单元测试 24 个、集成断言组 68 项（T01–T67 与 CLI 检查，含 720 次并发争抢、30 次故障注入恢复与五组跨规则组合验证）、47 个端点的契约测试与灰盒/文档测试、模糊与浸泡实验，"
+li("（4）构建了五层自动化验证体系：单元测试 24 个、集成断言组 70 项（T01–T69 与 CLI 检查，含 720 次并发争抢、30 次故障注入恢复、五组跨规则组合验证、凭据生命周期与约束感知建议评估）、48 个端点的契约测试与灰盒/文档测试、模糊与浸泡实验，"
    "并以持续集成三通道门禁（构建与测试、静态分析、AddressSanitizer 内存安全）保障每一次提交；")
 li("（5）完成性能与安全实验：每线程连接复用与语句缓存使读路径吞吐最高提升 600%；计时旁路实验将登录路径有效与无效账号的响应时间比压至 1.07，显著降低了账号枚举的可观测差异。")
 h2("1.4 论文组织结构")
@@ -328,6 +328,7 @@ para("抢占与信用账户：满员时高优先级角色（管理员）可直�
      "priority 最低者）置 CANCELLED/PREEMPTED，补偿 1 点信用并通知；已签到者永不被抢占。信用账户以 credit_ledger 记录全部变动"
      "（签到/补偿 +1、爽约额外 −1、管理员发放、每周回补至基准 5），余额钳制在 0..5，余额为零拒绝新的预约与候补。资源域配套提供维护工单"
      "（开启即维修中、关闭恢复）、按星期与时刻的可用时段窗、以及按资源粒度的使用资格授权，三项校验均与资源声明同事务完成。")
+para("在以上规则之上，系统提供只读的约束感知建议端点：对每一场次按当前账号的配额、信用、时间冲突、提前量与余位状态评估“可预约/可候补”并给出原因解释（满员引导候补、周配额不阻塞候补等）；评估与提交之间允许竞态，提交仍由事务内全量校验兜底。", indent=True)
 
 # ---------- 第5章 ----------
 h1("5 系统实现")
@@ -339,8 +340,8 @@ para("开发环境为 Windows x64 + MinGW-w64 GCC 15.2，核心代码约 1,600 �
 h2("5.2 HTTP 接入与会话安全")
 para("api() 处理器依次执行 Host 白名单、方法检查、健康探测、Origin 校验、请求体上限与 JSON 合法性检查（含重复键拒绝）、数据库连接获取、"
      "会话认证与 CSRF 校验后才进入业务分发。登录接口前置防爆破闸门：同一用户名连续失败达到阈值（默认 5 次）后锁定 900 秒，期间正确口令"
-     "同样返回 429；已登录用户的全部写操作经过每用户令牌桶（默认突发 30、每秒补充 1）限速。路由计数口径：分派器共 58 个路由分支"
-     "（其中 24 个带路径参数），另有 Prometheus 抓取端点 /metrics 为独立处理器；契约测试覆盖其中 47 个端点的响应封套与字段类型"
+     "同样返回 429；已登录用户的全部写操作经过每用户令牌桶（默认突发 30、每秒补充 1）限速。路由计数口径：分派器共 59 个路由分支"
+     "（其中 24 个带路径参数），另有 Prometheus 抓取端点 /metrics 为独立处理器；契约测试覆盖其中 48 个端点的响应封套与字段类型"
      "（计数以仓库 tests/contract_test.py 的 SCHEMAS 键数为准）。管理端点集中做角色断言，静态资源与 API 共享全局安全响应头。")
 h2("5.3 事务与去重核心")
 para("booking() 是全部写操作的汇聚点，其主干为：BEGIN IMMEDIATE → 用户可用性检查（含爽约信用受限与时间重叠检测）→ 回执查询（命中即重放/"
@@ -378,9 +379,9 @@ para("个人与全体记录支持 page/page_size/has_more 分页与状态筛选�
 # ---------- 第6章 ----------
 h1("6 系统测试")
 h2("6.1 测试策略与环境")
-para("测试体系分五层：（1）Unity 单元测试 24 个，不经 HTTP 直接链接业务层与数据层；（2）集成实验 68 项断言组（编号 T01–T67 另加 CLI 数据库"
+para("测试体系分五层：（1）Unity 单元测试 24 个，不经 HTTP 直接链接业务层与数据层；（2）集成实验 70 项断言组（编号 T01–T69 另加 CLI 数据库"
      "检查，以测试运行器 record() 调用数为准），以独立 Python 客户端"
-     "驱动真实服务进程，覆盖功能、安全、并发、故障恢复、运营能力与跨规则组合语义；（3）契约测试（47 个端点逐项校验响应封套与字段类型）与灰盒/文档一致性测试；"
+     "驱动真实服务进程，覆盖功能、安全、并发、故障恢复、运营能力与跨规则组合语义；（3）契约测试（48 个端点逐项校验响应封套与字段类型）与灰盒/文档一致性测试；"
      "（4）模糊稳健性实验与浸泡稳定性实验；（5）真实浏览器端到端验收。所有实验使用独立临时端口与全新数据库副本，原始证据（数据库、日志、"
      "结果 JSON）完整归档，失败样本不销毁。")
 para("持续集成设有三条并行门禁通道：构建与单元/集成测试、静态分析门禁（-fanalyzer 与绑定参数静态核查）、以及 AddressSanitizer + "
@@ -395,7 +396,7 @@ cap("表 6-1 源文件行覆盖率（单元 + 接口与 CLI 走查，gcov 实测
 tbl(["源文件", "db.c", "http.c", "log.c", "main.c", "metrics.c", "ratelimit.c", "service.c", "util.c"],
     [["行覆盖率 %", 86.57, 90.95, 84.62, 98.57, 93.10, 86.76, 83.84, 98.00]])
 h2("6.3 功能、安全与运营回归")
-para("集成实验共 68 项断言组（T01–T67 及 CLI 数据库检查），覆盖登录授权、占用唯一、候补 FIFO 与重入队尾、重放幂等、越权与 CSRF/Origin、"
+para("集成实验共 70 项断言组（T01–T69 及 CLI 数据库检查），覆盖登录授权、占用唯一、候补 FIFO 与重入队尾、重放幂等、越权与 CSRF/Origin、"
      "畸形与超长输入、过期场次、外部写锁退避、禁用候补跳过、替代时段对账、统计对账、会话清理、签到窗口、分页参数、CSV 导出、改密会话失效、"
      "混合负载连接复用，以及运营扩展的角色登录、场次调整、通知发布、用户管理、场次提醒、自动备份、爽约信用、时间重叠、历史归档、日志查看、"
      "资源管理、利用率统计、资源声明配额、周期性发布、每周配额、签退、预约提前量与改期、审批流、API 令牌、维护工单、可用时段窗、信用账户、"
@@ -417,6 +418,7 @@ li("T50 改期流：同实验室原子改期、旧槽 FIFO 补位、资源声明
 li("T51–T52 审批流与待审批列表：require_approval 实验室预约落 PENDING、批准转 CONFIRMED、拒绝 CANCELLED/REJECTED、容量满拒绝批准（409）、非管理员 403；")
 li("T53–T62 运营深化：API 令牌签发/使用/吊销、维护工单开闭与重复拒绝、可用时段窗外拒绝（WINDOW_CONFLICT）、信用流水与发放边界、抢占补偿与通知、批量连场原子性、资格授予/撤销与 QUALIFICATION_REQUIRED、可执行 FIFO 暂跳保留序号、HELD 超时回收重递补；")
 li("T63–T67 跨规则组合验证（对应契约「语义澄清」节）：审批×HELD（PENDING 不占容量、批准重校、递补绕审批落 HELD 后确认）、优先级×可执行 FIFO（高优先级冲突者被暂跳、低优先级递补；strict 对照整体停止）、抢占×信用（确定性余额控制下补偿 +1 未触顶并可再预约）、维护×资源声明（新声明 409、既有保留、恢复后可声明）、改期×周配额（本周有效预约总数守恒、改期不放水）。")
+li("T68–T69 凭据生命周期与约束感知建议：停用/改密/重置密码同事务吊销 API 令牌且旧令牌 401；建议端点逐场次给出可预约/可候补与原因——满员可候补（SLOT_FULL）、周配额满不阻塞候补（BR13）、信用为零全部阻塞。")
 h2("6.4 并发争抢实验")
 para("并发实验以 1、5、10、20 个独立客户端在线程屏障对齐后同时申请同一空闲场次，每档 20 轮共 720 次请求，结果见表 6-2：每轮成功预约数"
      "与数据库占用数恒为 1，其余请求全部收到明确的 409，未出现重复占用或忙碌失败。")
@@ -469,7 +471,7 @@ para("以真实 Chromium 浏览器完成多轮端到端验收：走通登录（�
 h1("7 总结与展望")
 h2("7.1 工作总结")
 para("本课题面向高校开放实验室管理场景，完整经历了需求分析、架构设计、编码实现、自动化验证与性能优化五个阶段，交付了一个功能完备、"
-     "可靠性经过实测论证的 C 语言 Web 系统（v1.13.0，schema v5、17 张数据表、47 个契约端点、68 项集成断言组）。主要成果包括：容量制预约与"
+     "可靠性经过实测论证的 C 语言 Web 系统（v1.14.0，schema v5、17 张数据表、48 个契约端点、70 项集成断言组）。主要成果包括：容量制预约与"
      "候补补位的业务闭环，延伸至限时签到、场次提醒、爽约信用、时间重叠检测的完整运营规则，并深化出预约审批流、可执行 FIFO 与限时保留（HELD）"
      "的候补策略、优先级抢占与信用账户、资源维护工单/时段窗/资格授权等一体化机制；以单写者事务与持久化回执为核心的并发一致性与幂等设计；"
      "面向真实管理的独立控制台与自动备份、历史归档等运营能力；覆盖单元、集成、契约、并发、故障注入、模糊与浸泡的五层自动化验证体系，"
@@ -505,7 +507,7 @@ para("感谢指导教师在选题、系统设计与论文撰写过程中的悉�
 
 # ---------- 附录 ----------
 h1("附录 A  接口契约摘要")
-para("系统共 58 个路由分支，契约测试覆盖 47 个 REST 端点的响应封套与字段类型，统一封套 {code, message, data}，错误码包括 400/401/403/404/409/413/429/500/503。"
+para("系统共 59 个路由分支，契约测试覆盖 48 个 REST 端点的响应封套与字段类型，统一封套 {code, message, data}，错误码包括 400/401/403/404/409/413/429/500/503。"
      "完整契约见仓库 docs/CONTRACT.md，主要内容如下：")
 tbl(["类别", "端点示例", "说明"],
     [["查询", "GET /api/labs, /api/slots, /api/me/records", "场次/记录查询，支持分页与状态筛选"],

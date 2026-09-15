@@ -344,7 +344,7 @@ Result records(DB *d,const User *u,int all,Id date,int page,int size,const char 
     原实现写成字面量 '?' 使条件恒不成立（r22 修正）。 */
  if(status)snprintf(sfilter,sizeof sfilter," AND r.status='%s'",status);
  Id limit=(Id)size+1,offset=(Id)(page-1)*size;int more=0;
- snprintf(sql,sizeof sql,"SELECT r.id,r.slot_id,l.id AS lab_id,l.name AS lab_name,u.username,s.start_at,s.end_at,r.status,r.source,r.cancel_reason,r.checked_in_at,r.note FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id JOIN users u ON u.id=r.user_id WHERE %s%s ORDER BY r.id DESC LIMIT ? OFFSET ?",
+ snprintf(sql,sizeof sql,"SELECT r.id,r.slot_id,l.id AS lab_id,l.name AS lab_name,u.username,s.start_at,s.end_at,r.status,r.source,r.cancel_reason,r.checked_in_at,r.hold_deadline,r.note FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id JOIN users u ON u.id=r.user_id WHERE %s%s ORDER BY r.id DESC LIMIT ? OFFSET ?",
   where,sfilter);
  cJSON *a=all?db_rows(d,sql,"iiiii",date,date,date+86400,limit,offset):db_rows(d,sql,"iii",u->id,limit,offset);
  if(a&&cJSON_GetArraySize(a)>size){cJSON_DeleteItemFromArray(a,(int)size);more=1;}
@@ -563,12 +563,14 @@ Result password_change(DB *d,const User *u,const char *old_pw,const char *new_pw
  db_run(d,"UPDATE users SET password_hash=? WHERE id=?","si",hash,u->id);
  db_run(d,"DELETE FROM sessions WHERE user_id=? AND token_hash<>?","is",u->id,current_hash);
  Id revoked=(Id)sqlite3_changes(d->sql);
+ db_run(d,"DELETE FROM api_tokens WHERE user_id=?","i",u->id); /* 凭据生命周期：改密后 API 令牌一并吊销 */
+ Id revoked_tokens=(Id)sqlite3_changes(d->sql);
  event(d,u->id,"PASSWORD_CHANGE",u->id,key);
  sodium_memzero(hash,sizeof hash);
  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
  if(!db_run(d,"COMMIT",""))return db_failure(d);
- cJSON *j=cJSON_CreateObject();cJSON_AddNumberToObject(j,"revoked_sessions",(double)revoked);
- return result(200,"OK","密码已更新，其他设备的登录已失效",j);
+ cJSON *j=cJSON_CreateObject();cJSON_AddNumberToObject(j,"revoked_sessions",(double)revoked);cJSON_AddNumberToObject(j,"revoked_tokens",(double)revoked_tokens);
+ return result(200,"OK","密码已更新，其他设备的登录与 API 令牌已失效",j);
 }
 /* 签到窗口结束仍未签到的预约：标记爽约并释放名额；场次尚未结束时按 FIFO 补位。 */
 int sweep_once(const Config *config){
@@ -657,12 +659,13 @@ Result user_admin(DB *d,const User *actor,Id target,const char *op){
   if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
   db_run(d,"UPDATE users SET enabled=0 WHERE id=?","i",target);
   db_run(d,"DELETE FROM sessions WHERE user_id=?","i",target);
+  db_run(d,"DELETE FROM api_tokens WHERE user_id=?","i",target); /* 凭据生命周期：停用即吊销 API 令牌（令牌校验虽查 enabled=1，仍应清除） */
   event(d,actor->id,"USER_DISABLE",target,NULL);
   if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
   if(!db_run(d,"COMMIT",""))return db_failure(d);
   log_write(1,"ADMIN user %lld disabled by %lld",(long long)target,(long long)actor->id);
   cJSON *j=cJSON_CreateObject();jid(j,"user_id",target);cJSON_AddBoolToObject(j,"enabled",0);
-  return result(200,"OK","账号已停用，该用户全部会话已下线",j);
+  return result(200,"OK","账号已停用，该用户全部会话与 API 令牌已失效",j);
  }
  if(!strcmp(op,"enable")){
   if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
@@ -681,13 +684,14 @@ Result user_admin(DB *d,const User *actor,Id target,const char *op){
   db_run(d,"UPDATE users SET password_hash=? WHERE id=?","si",hash,target);
   sodium_memzero(hash,sizeof hash);
   db_run(d,"DELETE FROM sessions WHERE user_id=?","i",target);
+  db_run(d,"DELETE FROM api_tokens WHERE user_id=?","i",target); /* 凭据生命周期：重置密码后 API 令牌一并吊销 */
   event(d,actor->id,"RESET_PW",target,NULL);
   if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
   if(!db_run(d,"COMMIT",""))return db_failure(d);
   log_write(1,"ADMIN password reset for user %lld by %lld",(long long)target,(long long)actor->id);
   cJSON *j=cJSON_CreateObject();jid(j,"user_id",target);cJSON_AddStringToObject(j,"password",pw);
   sodium_memzero(pw,sizeof pw);
-  return result(200,"OK","密码已重置，新口令仅显示这一次",j);
+  return result(200,"OK","密码已重置，新口令仅显示这一次，该用户 API 令牌已吊销",j);
  }
  return result(404,"NOT_FOUND","接口不存在",NULL);
 }
@@ -1345,6 +1349,71 @@ failed:
  sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);
  cJSON_Delete(r.body);
  return db_failure(d);
+}
+/* -- r25 创新方向 1（最小版）：约束感知替代建议——只读地逐场次评估当前用户可预约/可候补与否，并给出原因解释。
+   评估与真实预约之间存在竞态，属建议性质；提交时仍由 booking() 事务内全量校验兜底。 -- */
+Result suggestion_list(DB *d,const User *u,const Config *cfg,Id lab,Id start){
+ Id now=now_sec();
+ cJSON *rows=db_rows(d,
+  "SELECT s.id,s.start_at,s.end_at,s.capacity,"
+  "(SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status IN('CONFIRMED','HELD')) AS taken,"
+  "(SELECT count(*) FROM waitlist w JOIN users wu ON wu.id=w.user_id WHERE w.slot_id=s.id AND w.status='WAITING' AND wu.enabled=1) AS waiting_count,"
+  "(SELECT id FROM reservations r WHERE r.slot_id=s.id AND r.status IN('CONFIRMED','HELD','PENDING') AND r.user_id=?) AS my_rid "
+  "FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.lab_id=? AND s.enabled=1 AND l.enabled=1 AND s.start_at>? AND s.start_at<? ORDER BY s.start_at",
+  "iiii",u->id,lab,start,start+7*86400);
+ if(d->error)return db_failure(d);
+ /* 用户侧上下文一次取齐：信用余额、本周已约数、本人有效预约区间（用于时间重叠判定） */
+ Id credit=db_num(d,"SELECT credit FROM users WHERE id=?","i",u->id);
+ if(d->error)return db_failure(d);
+ Id day0=(now+28800)/86400*86400-28800;int wd=(int)(((day0+28800)/86400+3)%7);
+ Id week_start=day0-(Id)wd*86400;
+ Id used=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD') AND s2.start_at>=?","ii",u->id,week_start);
+ if(d->error)return db_failure(d);
+ cJSON *mine=db_rows(d,"SELECT s.start_at,s.end_at FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD')","i",u->id);
+ if(d->error)return db_failure(d);
+ cJSON *out=cJSON_CreateArray();
+ for(cJSON *sl=rows?rows->child:NULL;sl;sl=sl->next){
+  cJSON *jstart=cJSON_GetObjectItemCaseSensitive(sl,"start_at"),*jend=cJSON_GetObjectItemCaseSensitive(sl,"end_at");
+  Id st=(jstart&&cJSON_IsNumber(jstart))?(Id)jstart->valuedouble:0;
+  Id en=(jend&&cJSON_IsNumber(jend))?(Id)jend->valuedouble:0;
+  cJSON *taken_j=cJSON_GetObjectItemCaseSensitive(sl,"taken"),*cap_j=cJSON_GetObjectItemCaseSensitive(sl,"capacity");
+  Id taken=(taken_j&&cJSON_IsNumber(taken_j))?(Id)taken_j->valuedouble:0;
+  Id cap=(cap_j&&cJSON_IsNumber(cap_j))?(Id)cap_j->valuedouble:0;
+  cJSON *myr=cJSON_GetObjectItemCaseSensitive(sl,"my_rid");
+  int bookable=1,joinable=1;
+  cJSON *reasons=cJSON_CreateArray();
+  #define SUG_ADD(code,msg) do{cJSON *rr=cJSON_CreateObject();cJSON_AddStringToObject(rr,"code",code);cJSON_AddStringToObject(rr,"message",msg);cJSON_AddItemToArray(reasons,rr);}while(0)
+  if(st<=now){SUG_ADD("STARTED","场次已开始，不再受理");bookable=0;joinable=0;}
+  else{
+   if(myr&&cJSON_IsNumber(myr)&&(Id)myr->valuedouble>0){SUG_ADD("ALREADY_RESERVED","您已持有该场次的预约或候补");bookable=0;joinable=0;}
+   if(credit<=0){SUG_ADD("CREDIT_EXHAUSTED","信用余额为零，暂不能预约或候补");bookable=0;joinable=0;}
+   if(cfg->quota_weekly>0&&used>=cfg->quota_weekly){SUG_ADD("WEEKLY_QUOTA","本周预约配额已用完");bookable=0;} /* 候补不入配额（BR13），不阻塞 joinable */
+   if(cfg->lead_time>0&&st-now<cfg->lead_time){SUG_ADD("LEAD_TIME","距场次开始不足预约提前量");bookable=0;joinable=0;}
+   for(cJSON *m=mine;m;m=m->next){
+    cJSON *ms=cJSON_GetObjectItemCaseSensitive(m,"start_at"),*me=cJSON_GetObjectItemCaseSensitive(m,"end_at");
+    if(ms&&me&&cJSON_IsNumber(ms)&&cJSON_IsNumber(me)&&st<(Id)me->valuedouble&&(Id)ms->valuedouble<en){
+     SUG_ADD("TIME_CONFLICT","与您已有的有效预约时间重叠");bookable=0;joinable=0;break;}
+   }
+   if(taken>=cap){SUG_ADD("SLOT_FULL","场次已满，可加入候补排队");bookable=0;}
+  }
+  cJSON *item=cJSON_CreateObject();
+  Id sid=0;parse_id(jstr(sl,"id"),&sid);
+  jid(item,"slot_id",sid);
+  cJSON_AddNumberToObject(item,"start_at",(double)st);
+  cJSON_AddNumberToObject(item,"end_at",(double)en);
+  cJSON_AddNumberToObject(item,"capacity",(double)cap);
+  cJSON_AddNumberToObject(item,"taken",(double)taken);
+  cJSON *wc=cJSON_GetObjectItemCaseSensitive(sl,"waiting_count");
+  cJSON_AddNumberToObject(item,"waiting_count",(wc&&cJSON_IsNumber(wc))?wc->valuedouble:0);
+  cJSON_AddBoolToObject(item,"bookable",bookable);
+  cJSON_AddBoolToObject(item,"joinable",joinable);
+  cJSON_AddItemToObject(item,"reasons",reasons);
+  cJSON_AddItemToArray(out,item);
+ }
+ #undef SUG_ADD
+ cJSON_Delete(rows);cJSON_Delete(mine);
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"suggestions",out);
+ return result(200,"OK","查询成功",j);
 }
 /* -- r23 信用流水：用户看自己的账本，每次增减都有原因与关联预约，规则对用户透明。 -- */
 Result credit_history(DB *d,const User *u,int page,int size){
