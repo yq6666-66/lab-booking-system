@@ -1,7 +1,7 @@
 """Independent HTTP/SQLite integration experiments; Python standard library only."""
 from __future__ import annotations
 import argparse, concurrent.futures, contextlib, csv, datetime, http.client, json
-import os, pathlib, shutil, socket, sqlite3, statistics, subprocess, tempfile, threading, time, uuid
+import os, pathlib, shutil, socket, sqlite3, statistics, subprocess, sys, tempfile, threading, time, uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # CI（Windows runner）stdout 默认 cp1252，中文断言消息会导致 UnicodeEncodeError——强制 UTF-8 输出
