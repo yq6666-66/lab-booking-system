@@ -980,6 +980,45 @@ def feature_checks(s):
         require(st5==403,f"non-owner reschedule: {st5}")
         return {"rescheduled":True,"promoted":True,"note_ok":True}
     record("T50 reschedule flow",t50) # -- r18/reschedule
+    def t51(): # -- r19/approval
+        """审批流：require_approval 实验室预约落 PENDING；批准生效/拒绝取消；容量满拒绝批准。"""
+        import sqlite3 as _sq
+        ru=Client(s.port);st,b=ru.request("POST","/api/register",{"username":"ap"+uid()[:6],"password":PASSWORD});ru.csrf=b["data"]["csrf_token"]
+        lab=admin.post("/api/admin/labs",{"name":"审批实验室"+uid()[:6],"location":"实验楼","description":"appr","require_approval":True})["data"]["lab_id"]
+        now=int(time.time())
+        base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,2,NULL)",(int(lab),base,base+3600,1))
+            sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base)).fetchone()[0]
+        st,b=ru.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+        require(st==200,f"pending reserve: {st} {b}")
+        rid=b["data"]["reservation_id"]
+        recs=ru.request("GET","/api/me/records?page=1&page_size=10")[1]["data"]["reservations"]
+        mine=[x for x in recs if str(x["id"])==str(rid)][0]
+        require(mine["status"]=="PENDING",f"pending status: {mine['status']}")
+        st2,b2=admin.request("POST",f"/api/reservations/{rid}/approve",{"request_id":uid()})
+        require(st2==200,f"approve: {st2} {b2}")
+        recs2=ru.request("GET","/api/me/records?page=1&page_size=10")[1]["data"]["reservations"]
+        mine2=[x for x in recs2 if str(x["id"])==str(rid)][0]
+        require(mine2["status"]=="CONFIRMED",f"approved confirmed: {mine2['status']}")
+        # 拒绝流：另一预约（另一用户）→ 拒绝 → REJECTED
+        ru2=Client(s.port);st,bb=ru2.request("POST","/api/register",{"username":"ap2"+uid()[:6],"password":PASSWORD});ru2.csrf=bb["data"]["csrf_token"]
+        st3,b3=ru2.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+        require(st3==200,f"second pending: {st3}")
+        rid3=b3["data"]["reservation_id"]
+        st4,b4=admin.request("POST",f"/api/reservations/{rid3}/reject",{"request_id":uid()})
+        require(st4==200,f"reject: {st4} {b4}")
+        recs4=ru2.request("GET","/api/me/records?page=1&page_size=10")[1]["data"]["reservations"]
+        m4=[x for x in recs4 if str(x["id"])==str(rid3)][0]
+        require(m4["status"]=="CANCELLED",f"rejected cancelled: {m4['status']}")
+        # 拒绝原因 REJECTED 落库
+        reason=_sq.connect(s.db,timeout=5).execute("SELECT cancel_reason FROM reservations WHERE id=?",(int(rid3),)).fetchone()[0]
+        require(reason=="REJECTED",f"reason: {reason}")
+        # 非管理员审批 403
+        st5,_=ru.request("POST",f"/api/reservations/{rid}/approve",{"request_id":uid()})
+        require(st5==403,f"non-admin approve: {st5}")
+        return {"pending_flow":True,"rejected_reason":"REJECTED"}
+    record("T51 approval workflow",t51) # -- r19/approval
     def t39(): # -- r12/archive
         """历史归档：sweep 周期性清理 30 天前的候补与请求回执（预约记录保留）。"""
         import sqlite3 as _sq

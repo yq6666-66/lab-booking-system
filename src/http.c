@@ -134,10 +134,13 @@ static Result admin(DB *d,const User *u,const char *path,const cJSON *body){
  if(path_id(path,"/api/admin/users/","/enable",&target))return user_admin(d,u,target,"enable");
  if(path_id(path,"/api/admin/users/","/reset-password",&target))return user_admin(d,u,target,"reset-password");
  if(!strcmp(path,"/api/admin/labs")||path_id(path,"/api/admin/labs/","/update",&target)){
-  const char *name=jstr(body,"name"),*loc=jstr(body,"location"),*desc=jstr(body,"description");cJSON *enabled=cJSON_GetObjectItemCaseSensitive(body,"enabled");
-  if(!text_ok(name,180,0)||!text_ok(loc,180,0)||!text_ok(desc,1000,1)||(target&&!cJSON_IsBool(enabled)))return invalid();
-  int ok;if(target)ok=db_run(d,"UPDATE labs SET name=?,location=?,description=?,enabled=? WHERE id=?","sssii",name,loc,desc,(Id)cJSON_IsTrue(enabled),target);
-  else ok=db_run(d,"INSERT INTO labs(name,location,description) VALUES(?,?,?)","sss",name,loc,desc);
+  const char *name=jstr(body,"name"),*loc=jstr(body,"location"),*desc=jstr(body,"description");cJSON *enabled=cJSON_GetObjectItemCaseSensitive(body,"enabled");cJSON *appr=cJSON_GetObjectItemCaseSensitive(body,"require_approval");
+  if(!text_ok(name,180,0)||!text_ok(loc,180,0)||!text_ok(desc,1000,1)||(target&&!cJSON_IsBool(enabled))||(appr&&!cJSON_IsBool(appr)))return invalid();
+  int ok;
+  if(target){
+   if(appr)ok=db_run(d,"UPDATE labs SET name=?,location=?,description=?,enabled=?,require_approval=? WHERE id=?","sssiii",name,loc,desc,(Id)cJSON_IsTrue(enabled),(Id)cJSON_IsTrue(appr),target);
+   else ok=db_run(d,"UPDATE labs SET name=?,location=?,description=?,enabled=? WHERE id=?","sssii",name,loc,desc,(Id)cJSON_IsTrue(enabled),target);
+  } else ok=db_run(d,"INSERT INTO labs(name,location,description,require_approval) VALUES(?,?,?,?)","sssi",name,loc,desc,(Id)cJSON_IsTrue(appr));
   if(!ok){if((d->error&255)==SQLITE_CONSTRAINT){d->error=0;return result(409,"STATE_CONFLICT","实验室名称已存在",NULL);}return db_failure(d);}
   if(target&&!sqlite3_changes(d->sql))return result(404,"NOT_FOUND","实验室不存在",NULL);
   cJSON *j=cJSON_CreateObject();jid(j,"lab_id",target?target:sqlite3_last_insert_rowid(d->sql));return result(200,"OK","实验室已保存",j);
@@ -173,11 +176,13 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   }
   if(!strcmp(path,"/api/me/records")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char st[24]={0};query(ri,"status",st,sizeof st);
    const char *status=NULL;
-   if(st[0]){if(strcmp(st,"CONFIRMED")&&strcmp(st,"CANCELLED")&&strcmp(st,"NO_SHOW"))return invalid();status=st;}
+   if(st[0]){if(strcmp(st,"CONFIRMED")&&strcmp(st,"CANCELLED")&&strcmp(st,"NO_SHOW")&&strcmp(st,"PENDING"))return invalid();status=st;}
    return records(d,&u,0,0,pg,ps,status,NULL,NULL);}
   if(!strcmp(path,"/api/me/notifications")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char uf[8]={0};query(ri,"unread",uf,sizeof uf);return notifications(d,&u,!strcmp(uf,"1")||!strcmp(uf,"true"),pg,ps);}
   if(!strcmp(path,"/api/me/sessions"))return sessions_list(d,&u,tokenhash);
   if(!strcmp(path,"/api/me/calendar/export"))return calendar_export(d,&u);
+  if(!strcmp(path,"/api/me/tokens"))return token_list(d,&u);
+  if(path_id(path,"/api/me/tokens/","/revoke",&aid_target)){const char *rk=jstr(body,"request_id");if(!uuid_valid(rk))return invalid();return token_revoke(d,&u,aid_target,rk);}
   if(!strcmp(path,"/api/admin/records")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);char dt[32],ea[36],eu[68];Id date=0;if(query(ri,"date",dt,sizeof dt)){date=date_start(dt);if(date<0)return invalid();}int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();
    ea[0]=eu[0]=0;query(ri,"action",ea,sizeof ea);query(ri,"user",eu,sizeof eu);
    if(ea[0]&&strlen(ea)>32)return invalid();
@@ -196,6 +201,12 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
    return stats(d,a,b);
   }
   if(!strcmp(path,"/api/admin/metrics")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return result(200,"OK","查询成功",metrics_snapshot());}
+  if(!strcmp(path,"/api/admin/asset-claims")){
+   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
+   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+   return asset_claim_report(d,a,b);
+  }
   if(path_id(path,"/api/admin/assets/","/usage",&aid_target)){
    if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
    char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
@@ -225,12 +236,15 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
  }
  if(!strncmp(path,"/api/admin/",11)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return admin(d,&u,path,body);}
  const char *action=NULL;Id target=0;
+ if(!strcmp(path,"/api/me/tokens"))return token_create(d,&u,body);
  if(!strcmp(path,"/api/reservations")){action="reserve";parse_id(jstr(body,"slot_id"),&target);}
  else if(!strcmp(path,"/api/waitlist")){action="wait";parse_id(jstr(body,"slot_id"),&target);}
  else if(path_id(path,"/api/reservations/","/cancel",&target))action="cancel";
  else if(path_id(path,"/api/reservations/","/checkin",&target))action="checkin";
  else if(path_id(path,"/api/reservations/","/checkout",&target)){const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_checkout(d,cfg,&u,target,key2);}
  else if(path_id(path,"/api/reservations/","/reschedule",&target)){Id ns=0;if(!parse_id(jstr(body,"slot_id"),&ns)||ns<1)return invalid();const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_reschedule(d,cfg,&u,target,ns,key2);}
+ else if(path_id(path,"/api/reservations/","/approve",&target)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_approval(d,&u,target,1,key2);}
+ else if(path_id(path,"/api/reservations/","/reject",&target)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_approval(d,&u,target,0,key2);}
  else if(path_id(path,"/api/waitlist/","/withdraw",&target))action="withdraw";
  else return result(404,"NOT_FOUND","接口不存在",NULL);
  const char *key=jstr(body,"request_id");if(!target||!uuid_valid(key))return invalid();
