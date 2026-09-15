@@ -127,6 +127,7 @@ STAT_ROW = {"date": T_STR, "slots": T_INT, "confirmed": T_INT, "cancelled": T_IN
 ASSET_OBJ = {"id": T_ID, "name": T_STR, "spec": T_STR, "total": T_INT, "status": T_STR}
 UTIL_ROW = {"lab_id": T_ID, "lab_name": T_STR, "slots": T_INT, "seats": T_INT, "confirmed": T_INT, "checked_in": T_INT, "no_show": T_INT, "utilization": T_NUM}
 STAT_DAY = {"date": T_STR, "claims": T_INT}
+TOKEN_ROW = {"id": T_ID, "name": T_STR, "created_at": T_INT}
 TOTALS_OBJ = {"slots": T_INT, "confirmed": T_INT, "cancelled": T_INT, "no_show": T_INT,
               "checked_in": T_INT, "waiting": T_INT}
 COUNTERS_OBJ = {"requests_total": T_NUM, "ok_2xx": T_NUM, "err_4xx": T_NUM, "err_5xx": T_NUM,
@@ -161,6 +162,8 @@ SCHEMAS = [
     ("POST", "/api/reservations/{rid2}/checkout", {"reservation_id": T_ID, "checked_out_at": nb(T_INT)}),
     ("POST", "/api/reservations/{rid3}/reschedule", {"reservation_id": T_ID, "new_slot_id": T_ID, "old_slot_id": T_ID, "promoted_reservation_id": nb(T_ID)}),
     ("GET",  "/api/me/calendar/export", {"filename": T_STR, "content": T_STR}),
+    ("POST", "/api/me/tokens",                          {"token": T_STR, "name": T_STR}),
+    ("GET",  "/api/me/tokens",                          {"tokens": arr(TOKEN_ROW)}),
     ("GET",  "/api/admin/records?date={today}&page=1&page_size=5", ADMIN_RECORDS),
     ("GET",  "/api/admin/stats?start_date={today}&end_date={today}", {"stats": arr(STAT_ROW), "totals": TOTALS_OBJ}),
     ("GET",  "/api/admin/stats/export?start_date={today}&end_date={today}", {"filename": T_STR, "content": T_STR}),
@@ -292,6 +295,8 @@ def run_scenarios(server):
                 payload = {"name": f"契约实验室{uid()[:6]}", "location": "实验楼", "description": "contract"}
             elif path_tpl == "/api/admin/labs/{lid}/update":
                 payload = {"name": f"契约实验室{uid()[:6]}", "location": "实验楼", "description": "contract", "enabled": True}
+            elif path_tpl == "/api/me/tokens":
+                payload = {"name": f"契约令牌{uid()[:6]}"}
             elif path_tpl == "/api/reservations/{rid3}/reschedule":
                 payload = {"slot_id": bind["slot_alt"], "request_id": uid()}
             elif path_tpl == "/api/admin/labs/{lid}/assets":

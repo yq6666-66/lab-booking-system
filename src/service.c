@@ -96,7 +96,7 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
   Id owner=0;parse_id(jstr(row,"user_id"),&owner);parse_id(jstr(row,"slot_id"),&sid);
   if(owner!=u->id){r=result(403,"FORBIDDEN","只能操作自己的记录",NULL);goto save;}
  }
- slot=db_first(d,"SELECT s.id,s.start_at,s.enabled,s.capacity,l.enabled AS lab_enabled FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.id=?","i",sid);
+ slot=db_first(d,"SELECT s.id,s.start_at,s.enabled,s.capacity,l.enabled AS lab_enabled,l.require_approval FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.id=?","i",sid);
  if(d->error)goto failed;
  if(!slot){r=result(404,"NOT_FOUND","场次不存在",NULL);goto save;}
  Id start_at=(Id)cJSON_GetObjectItemCaseSensitive(slot,"start_at")->valuedouble;
@@ -175,8 +175,15 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
     if(used>=total){r=result(409,"ASSET_QUOTA","该时段所声明的资源已被约满，可减少资源或改约其他时段",NULL);goto save;}
    }
   }
+  /* r19 审批模式：所在实验室开启 require_approval 时预约先落 PENDING，由管理员批准后生效 */
+  cJSON *ap=cJSON_GetObjectItemCaseSensitive(slot,"require_approval");
+  int need_appr=ap&&((ap->type==cJSON_Number)?(int)ap->valuedouble==1:cJSON_IsTrue(ap));
   if(!db_run(d,"INSERT INTO reservations(user_id,slot_id,status,source,created_at,note) VALUES(?,?,'CONFIRMED','DIRECT',?,?)","iiis",u->id,sid,now_sec(),(bnote&&bnote[0])?bnote:NULL))goto failed;
   Id rid=sqlite3_last_insert_rowid(d->sql);
+  if(need_appr){
+   if(!db_run(d,"UPDATE reservations SET status='PENDING' WHERE id=?","i",rid))goto failed;
+   notify(d,1,"NOTICE","新的待审批预约","有待审批预约，请在管理控制台处理。",sid,rid);
+  }
   if(claim_arr){
    cJSON *it2;cJSON_ArrayForEach(it2,claim_arr){
     const char *sv2=cJSON_IsString(it2)?cJSON_GetStringValue(it2):NULL;Id aid2=0;
@@ -208,6 +215,9 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
   if(!strcmp(jstr(row,"status"),"CONFIRMED")){
    if(!db_run(d,"UPDATE reservations SET status='CANCELLED',cancelled_at=?,cancel_reason='USER' WHERE id=?","ii",now_sec(),target))goto failed;
    fault(cfg,"cancel-before-promote",key);event(d,u->id,"CANCEL",target,key);promoted=promote_fill(d,sid,u->id,key);
+  }else if(!strcmp(jstr(row,"status"),"PENDING")){ /* r19 待审批取消：不占容量、无补位 */
+   if(!db_run(d,"UPDATE reservations SET status='CANCELLED',cancelled_at=?,cancel_reason='USER' WHERE id=?","ii",now_sec(),target))goto failed;
+   event(d,u->id,"CANCEL",target,key);
   }
   cJSON *j=cJSON_CreateObject();jid(j,"reservation_id",target);if(promoted)jid(j,"promoted_reservation_id",promoted);else cJSON_AddNullToObject(j,"promoted_reservation_id");r=result(200,"OK","预约已取消",j);
  }else if(!strcmp(action,"withdraw")){
@@ -751,6 +761,105 @@ save:
  if(!r.body){d->error=SQLITE_NOMEM;goto failed;}
  {char *serialized=cJSON_PrintUnformatted(r.body);if(!serialized){d->error=SQLITE_NOMEM;goto failed;}
   db_run(d,"INSERT INTO request_receipts(user_id,request_id,action,payload_digest,http_status,result_json,created_at) VALUES(?,?,?,?,?,?,?)","isssisi",u->id,key,"reschedule",digest,0,serialized,now_sec());cJSON_free(serialized);}
+ if(d->error)goto failed;
+ if(!db_run(d,"COMMIT",""))goto failed;
+ cJSON_Delete(row);
+ return r;
+failed:
+ sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cJSON_Delete(row);cJSON_Delete(r.body);return db_failure(d);
+}
+/* r21 资源声明占用查询：区间内各资源的声明次数与最近声明记录（管理端资源页签展示）。 */
+Result asset_claim_report(DB *d,Id start,Id end){
+ cJSON *rows=db_rows(d,
+  "SELECT a.id AS asset_id,a.name AS asset_name,a.total,count(c.reservation_id) AS claims,"
+  "MAX(s.start_at) AS last_start "
+  "FROM assets a LEFT JOIN asset_claims c ON c.asset_id=a.id "
+  "LEFT JOIN reservations r ON r.id=c.reservation_id AND r.status='CONFIRMED' "
+  "LEFT JOIN slots s ON s.id=r.slot_id AND s.start_at>=? AND s.start_at<? "
+  "GROUP BY a.id ORDER BY a.id","ii",start,end+86400);
+ if(!rows)return db_failure(d);
+ cJSON *out=cJSON_CreateArray();cJSON *it;
+ cJSON_ArrayForEach(it,rows){
+  cJSON *row=cJSON_CreateObject();if(!row)break;
+  cJSON *aid=cJSON_GetObjectItemCaseSensitive(it,"asset_id");
+  if(aid&&aid->valuestring)cJSON_AddStringToObject(row,"asset_id",aid->valuestring);
+  else cJSON_AddNumberToObject(row,"asset_id",aid?aid->valuedouble:0);
+  cJSON_AddStringToObject(row,"asset_name",jstr(it,"asset_name"));
+  cJSON_AddNumberToObject(row,"claims",cJSON_GetObjectItemCaseSensitive(it,"claims")->valuedouble);
+  cJSON_AddNumberToObject(row,"last_start",cJSON_GetObjectItemCaseSensitive(it,"last_start")?cJSON_GetObjectItemCaseSensitive(it,"last_start")->valuedouble:0);
+  cJSON_AddItemToArray(out,row);
+ }
+ cJSON_Delete(rows);
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"claims",out);
+ return result(200,"OK","查询成功",j);
+}
+/* r20 API 令牌：只读程序化访问（Cal.com API keys 模式）。明文仅创建时返回一次，库中存哈希。 */
+Result token_create(DB *d,const User *u,const cJSON *body){
+ const char *name=jstr(body,"name");
+ fprintf(stderr,"[tc] name=%s\n",name?name:"(null)");
+ if(!name||!strlen(name)||strlen(name)>80)return result(400,"INVALID_INPUT","令牌名称不合法",NULL);
+ char raw[65];random_hex(raw);
+ raw[32]=0;
+ char th[65];hash_text(raw,th);
+ if(!db_run(d,"INSERT INTO api_tokens(token_hash,user_id,name,created_at) VALUES(?,?,?,?)","sisi",th,u->id,name,now_sec())){fprintf(stderr,"[tc] insert failed\n");return db_failure(d);}
+ event(d,u->id,"TOKEN_CREATE",u->id,NULL);
+ cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"token",raw);cJSON_AddStringToObject(j,"name",name);
+ return result(200,"OK","令牌已创建，明文仅此一次显示",j);
+}
+Result token_revoke(DB *d,const User *u,Id target,const char *request_id){
+ (void)request_id;
+ int ok=db_run(d,"DELETE FROM api_tokens WHERE id=? AND user_id=?","ii",target,u->id);
+ if(!ok)return db_failure(d);
+ if(!sqlite3_changes(d->sql))return result(404,"NOT_FOUND","令牌不存在",NULL);
+ event(d,u->id,"TOKEN_REVOKE",u->id,NULL);
+ return ok_id("revoked",1);
+}
+Result token_list(DB *d,const User *u){
+ cJSON *rows=db_rows(d,"SELECT id,name,created_at,last_used_at FROM api_tokens WHERE user_id=? ORDER BY id DESC","i",u->id);
+ if(d->error)return db_failure(d);
+ if(!rows)rows=cJSON_CreateArray();
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"tokens",rows);
+ return result(200,"OK","查询成功",j);
+}
+/* r19 审批：PENDING → CONFIRMED（批准，重校容量与资源配额，通知用户）/ → CANCELLED+REJECTED（拒绝，通知用户）。 */
+Result reservation_approval(DB *d,const User *u,Id target,int approve,const char *key){
+ Result r={500,NULL};cJSON *row=NULL;
+ if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
+ row=db_first(d,"SELECT r.user_id,r.status,r.slot_id,s.capacity,l.name AS lab FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id WHERE r.id=?","i",target);
+ if(d->error)goto failed;
+ if(!row){r=result(404,"NOT_FOUND","记录不存在",NULL);goto save;}
+ if(strcmp(jstr(row,"status"),"PENDING")){r=result(409,"STATE_CONFLICT","该预约不在待审批状态",NULL);goto save;}
+ if(approve){
+  Id cap=(Id)cJSON_GetObjectItemCaseSensitive(row,"capacity")->valuedouble;
+  Id sid=0;parse_id(jstr(row,"slot_id"),&sid);
+  Id taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED'","i",sid);
+  if(d->error)goto failed;
+  if(taken>=cap){r=result(409,"APPROVAL_CAPACITY","批准时容量已满，请拒绝该预约或调整容量",NULL);goto save;}
+  {cJSON *cl=db_rows(d,"SELECT c.asset_id,a.total FROM asset_claims c JOIN assets a ON a.id=c.asset_id WHERE c.reservation_id=?","i",target);
+   if(!cl)goto failed;
+   cJSON *cit;cJSON_ArrayForEach(cit,cl){
+    Id ca=0,total=0;parse_id(jstr(cit,"asset_id"),&ca);total=(Id)cJSON_GetObjectItemCaseSensitive(cit,"total")->valuedouble;
+    Id used=db_num(d,"SELECT count(*) FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id JOIN slots s2 ON s2.id=r.slot_id WHERE c.asset_id=? AND r.status='CONFIRMED' AND r.id<>? AND s2.start_at<(SELECT end_at FROM slots WHERE id=?) AND s2.end_at>(SELECT start_at FROM slots WHERE id=?)","iiii",ca,target,sid,sid);
+    if(d->error){cJSON_Delete(cl);goto failed;}
+    if(used>=total){cJSON_Delete(cl);r=result(409,"ASSET_QUOTA","批准时资源声明已超配额，请拒绝或协调改期",NULL);goto save;}}
+   cJSON_Delete(cl);}
+  if(!db_run(d,"UPDATE reservations SET status='CONFIRMED' WHERE id=?","i",target))goto failed;
+  event(d,u->id,"APPROVE",target,key);
+  {Id uid2=0;parse_id(jstr(row,"user_id"),&uid2);
+   notify(d,uid2,"NOTICE","预约已批准","你的预约已获批准，请按时到场签到。",sid,target);}
+  cJSON *j=cJSON_CreateObject();jid(j,"reservation_id",target);r=result(200,"OK","已批准",j);
+ }else{
+  if(!db_run(d,"UPDATE reservations SET status='CANCELLED',cancelled_at=?,cancel_reason='REJECTED' WHERE id=?","ii",now_sec(),target))goto failed;
+  event(d,u->id,"REJECT",target,key);
+  {Id uid2=0,slot_id2=0;parse_id(jstr(row,"user_id"),&uid2);parse_id(jstr(row,"slot_id"),&slot_id2);
+   notify(d,uid2,"NOTICE","预约被拒绝","很抱歉，你的预约未获批准，可改约其他场次。",slot_id2,target);}
+  cJSON *j=cJSON_CreateObject();jid(j,"reservation_id",target);r=result(200,"OK","已拒绝",j);
+ }
+save:
+ if(d->error)goto failed;
+ if(!r.body){d->error=SQLITE_NOMEM;goto failed;}
+ {char *serialized=cJSON_PrintUnformatted(r.body);if(!serialized){d->error=SQLITE_NOMEM;goto failed;}
+  db_run(d,"INSERT INTO request_receipts(user_id,request_id,action,payload_digest,http_status,result_json,created_at) VALUES(?,?,?,?,?,?,?)","isssisi",u->id,key,approve?"approve":"reject","digest",0,serialized,now_sec());cJSON_free(serialized);}
  if(d->error)goto failed;
  if(!db_run(d,"COMMIT",""))goto failed;
  cJSON_Delete(row);

@@ -2,6 +2,21 @@
 
 本项目遵循语义化版本。所有重要变更记录于此。
 
+## [1.10.0] - 2026-09-15
+
+第十九轮：资源声明数据闭环可视化。
+
+### 新增
+- 声明占用查询：`GET /api/admin/asset-claims?start_date=&end_date=` 按资源聚合声明次数与最近声明时段；管理端「资源管理」页签新增声明占用表。
+
+## [1.9.0] - 2026-09-15
+
+第十八轮：程序化访问能力（对标 Cal.com API keys）。
+
+### 新增
+- API 令牌：POST /api/me/tokens 创建（明文一次性返回，库存哈希）、GET 列表、revoke 吊销（按 id）；令牌可携带于 X-API-Token 头做只读 GET 访问（后续开放写路径）；
+- 修复：api_tokens 表结构（补 id 主键）与令牌 INSERT 绑定顺序（sisi）。
+
 ## [1.8.0] - 2026-09-15
 
 第十七轮：预约生命周期三件套补全（对标 Cal.com create/reschedule/cancel）。
