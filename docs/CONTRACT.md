@@ -69,6 +69,8 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 - GET /api/me/calendar/export -> data `{filename,content}`（r16）。全部有效预约导出 iCalendar VEVENT（UTC）。
 - GET /metrics（r17，非 /api 封套）-> Prometheus 文本格式 0.0.4（`text/plain; version=0.0.4`）：请求/响应计数器、延迟直方图（累积 bucket + sum/count）。仅回环监听，供本机 Prometheus 抓取。
 - CLI（r17）：`--restore FILE` 从备份文件灌回主库并自动执行 integrity_check（退出码 0/1）；`--lead-time SEC` 预约提前量（0..86400，0=关闭）。
+- POST /api/reservations/{id}/reschedule `{slot_id,request_id}` -> data `{reservation_id,new_slot_id,old_slot_id,promoted_reservation_id}`（r18）。仅本人、CONFIRMED、原/新场次均未开始；限**同实验室**（资源声明语义）；事务内重校新槽开放/容量(排除自身)/重叠(排除自身)/提前量/资源声明配额（声明保留按新时段计入）；原子改期后旧槽触发 FIFO 补位；审计 RESCHEDULE；摘要含新槽（同编号不同目标仍 REQUEST_ID_CONFLICT）。
+- POST /api/reservations 请求体可选 `note`（≤200 字符，r18）：预约备注，随记录返回（RES_ROW.note）。
 - 业务规则（r17）BR14 预约提前量：开始前不足 lead_time 秒的场次停止受理预约与候补（409 LEAD_TIME），防止临开始抢占；默认 0 关闭。
 - 业务规则（r16）BR13 每周预约配额：`--quota-weekly N`（0=不限）启用后，本周（北京周一 0 点起）有效预约数达 N 时新的预约返回 409 WEEKLY_QUOTA；候补不入配额（补位为 FIFO 公平结果）。
 - 业务规则（r14）BR12 资源时段配额：POST /api/reservations 请求体可携带 `assets:[资源id]`（≤5 项，仅预约，候补无效）；服务在单写者事务内逐项校验——资源存在、属于该场次实验室且状态 AVAILABLE、同时段（区间相交）内声明该资源的有效预约数 < total，任一不满足返回 409 STATE_CONFLICT / ASSET_QUOTA；校验通过后资源声明（asset_claims）与预约同事务落库；预约取消/爽约后声明自动失效（统计口径仅计 CONFIRMED）；资源列表纳入请求摘要，同编号不同资源仍为 REQUEST_ID_CONFLICT。

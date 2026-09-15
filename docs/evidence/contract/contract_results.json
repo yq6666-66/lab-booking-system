@@ -1,8 +1,8 @@
 {
-  "timestamp_utc": "2026-09-14T15:28:33.735838+00:00",
+  "timestamp_utc": "2026-09-15T03:54:21.474089+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
-  "endpoints_total": 33,
-  "endpoints_passed": 33,
+  "endpoints_total": 34,
+  "endpoints_passed": 34,
   "error_cases_total": 14,
   "error_cases_passed": 14,
   "all_passed": true,
@@ -97,6 +97,11 @@
       "name": "POST /api/reservations/{rid2}/checkout",
       "passed": true,
       "detail": "data 字段 ['checked_out_at', 'reservation_id']"
+    },
+    {
+      "name": "POST /api/reservations/{rid3}/reschedule",
+      "passed": true,
+      "detail": "data 字段 ['new_slot_id', 'old_slot_id', 'promoted_reservation_id', 'reservation_id']"
     },
     {
       "name": "GET /api/me/calendar/export",

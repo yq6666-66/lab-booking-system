@@ -230,6 +230,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
  else if(path_id(path,"/api/reservations/","/cancel",&target))action="cancel";
  else if(path_id(path,"/api/reservations/","/checkin",&target))action="checkin";
  else if(path_id(path,"/api/reservations/","/checkout",&target)){const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_checkout(d,cfg,&u,target,key2);}
+ else if(path_id(path,"/api/reservations/","/reschedule",&target)){Id ns=0;if(!parse_id(jstr(body,"slot_id"),&ns)||ns<1)return invalid();const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_reschedule(d,cfg,&u,target,ns,key2);}
  else if(path_id(path,"/api/waitlist/","/withdraw",&target))action="withdraw";
  else return result(404,"NOT_FOUND","接口不存在",NULL);
  const char *key=jstr(body,"request_id");if(!target||!uuid_valid(key))return invalid();
