@@ -7,6 +7,11 @@
 #include <time.h>
 #include <ctype.h>
 Id now_sec(void){ return (Id)time(NULL); }
+/* r24 统一时间源。默认取系统时间；配置了 --fake-now 后固定返回该时刻。
+   仅用于测试与演示（使 hold_deadline 等边界可确定性验证），生产环境不应使用。 */
+static Id g_fake_now=0;
+void clock_configure(const Config *cfg){ if(cfg) g_fake_now=(Id)cfg->fake_now; }
+Id clock_now(void){ return g_fake_now?g_fake_now:(Id)time(NULL); }
 int parse_id(const char *s,Id *out){
  if(!s||!*s||strlen(s)>18) return 0;
  for(const char *p=s;*p;p++) if(*p<'0'||*p>'9') return 0;

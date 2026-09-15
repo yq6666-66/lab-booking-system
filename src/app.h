@@ -6,8 +6,8 @@
 #include "cJSON.h"
 typedef sqlite3_int64 Id;
 typedef struct { sqlite3 *sql; int error; void *cache; } DB;
-typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *restore_from; const char *fault; const char *fault_request; int remind_sec; int backup_interval; int quota_weekly; int lead_time; } Config;
-#define LAB_VERSION "1.10.0"
+typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *restore_from; const char *fault; const char *fault_request; int remind_sec; int backup_interval; int quota_weekly; int lead_time; int hold_window; int waitlist_strict; long long fake_now; } Config;
+#define LAB_VERSION "1.13.0"
 typedef struct { Id id; int admin; char username[65]; char csrf[65]; } User;
 typedef struct { int status; cJSON *body; } Result;
 int db_open(DB *db,const char *path);
@@ -24,6 +24,9 @@ int db_seed(DB *db,const char *password);
 int publish_slots(DB *db,Id lab,Id start,Id end,Id capacity);
 int publish_slots_week(DB *db,Id lab,Id start,Id end,Id capacity,int mask);
 Id now_sec(void);
+/* r24 统一时间源：默认取系统时间，可通过 --fake-now 固定，使 hold_deadline 等边界可确定性测试 */
+Id clock_now(void);
+void clock_configure(const Config *cfg);
 Id date_start(const char *date);
 void date_text(Id day,char out[11]);
 int parse_id(const char *s,Id *out);
@@ -47,6 +50,21 @@ Result asset_admin(DB *db,const User *actor,Id lab,Id asset,const cJSON *body);
 Result lab_utilization(DB *db,Id start,Id end);
 Result asset_usage(DB *db,Id asset,Id start,Id end);
 Result asset_claim_report(DB *db,Id start,Id end);
+Result asset_claim_export(DB *db,Id start,Id end);
+Result token_auth(DB *db,const char *raw,User *u);
+/* r23：信用账户 / 资源时段 / 维护工单 / 日历订阅 */
+int credit_apply(DB *db,Id user,Id delta,const char *reason,Id reservation_id);
+Result credit_history(DB *db,const User *u,int page,int size);
+Result admin_credit_grant(DB *db,const User *actor,Id target,const cJSON *body);
+Result asset_windows_list(DB *db,Id asset);
+Result asset_window_admin(DB *db,const User *actor,Id asset,const cJSON *body);
+Result asset_maintenance_list(DB *db,Id asset);
+Result asset_maintenance_admin(DB *db,const User *actor,Id asset,const cJSON *body);
+Result calendar_ics(DB *db,const User *u);
+Result reservation_batch(DB *db,const Config *cfg,const User *u,const cJSON *body,const char *request_id);
+Result reservation_confirm(DB *db,const User *u,Id target,const char *request_id);
+Result asset_quals_list(DB *db,Id asset);
+Result asset_qual_admin(DB *db,const User *actor,Id asset,const cJSON *body);
 Result reservation_checkout(DB *db,const Config *cfg,const User *u,Id target,const char *request_id);
 Result calendar_export(DB *db,const User *u);
 Result token_create(DB *db,const User *u,const cJSON *body);

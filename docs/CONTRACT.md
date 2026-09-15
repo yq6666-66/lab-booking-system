@@ -11,8 +11,8 @@
 - GET /api/health -> data `{status:"ok",version,uptime_s}`。
 - GET /api/labs -> data `{labs:[{id,name,location,description,enabled}]}`。
 - GET /api/slots?lab_id=1&date=YYYY-MM-DD -> data `{slots:[{id,lab_id,start_at,end_at,enabled,lab_enabled,occupied,waiting_count,my_reservation_id,my_checked_in_at,my_waitlist_id}],checkin_window}`。my_reservation_id/my_checked_in_at/my_waitlist_id 可为 null；checkin_window 为签到窗口秒数，页面据此判断何时显示签到按钮。
-- GET /api/me/records?page=&page_size= -> data `{reservations:[{id,slot_id,lab_name,start_at,end_at,status,source,cancel_reason,checked_in_at}],waitlist:[{id,slot_id,lab_name,start_at,end_at,status,position}],events:[],page,page_size,has_more}`。page_size 取值 1..200（默认 20），has_more 表示是否还有下一页。
-- GET /api/admin/records?date=YYYY-MM-DD&page=&page_size= -> 同上但所有用户，记录附username，events含actor/action/entity_id/created_at/request_id。
+- GET /api/me/records?page=&page_size= -> data `{reservations:[{id,slot_id,lab_id,lab_name,username,start_at,end_at,status,source,cancel_reason,checked_in_at,note}],waitlist:[{id,slot_id,lab_name,username,start_at,end_at,status,position}],events:[],page,page_size,has_more}`。page_size 取值 1..200（默认 20），has_more 表示是否还有下一页。
+- GET /api/admin/records?date=YYYY-MM-DD&page=&page_size= -> 同上但所有用户；records 与 waitlist 均附 username，events 含 id/actor/action/entity_id/created_at/request_id。支持可选 `status` 参数（CONFIRMED/CANCELLED/NO_SHOW/PENDING，其他值 400）过滤预约列表，不传 `date` 时不按日期过滤（用于跨天场景，如待审批列表）。
 - GET /api/admin/stats?start_date=&end_date=（最多31个日期）-> data `{stats:[{date,slots,confirmed,cancelled,no_show,checked_in,waiting}],totals:{slots,confirmed,cancelled,no_show,checked_in,waiting}}`。按北京日聚合；仅返回有场次的日期。slots为开放场次数；confirmed为该日有效预约数；cancelled为其中用户主动取消数；no_show为签到超时释放数；checked_in为已签到数；waiting为有效候补人数。
 - GET /api/admin/stats/export?start_date=&end_date= -> data `{filename,content}`（最多31天）。content 为带 BOM 的 CSV 文本（日期/开放场次/有效预约/已取消/已爽约/已签到/候补人数，末行为合计），由页面下载为 .csv 文件。
 - POST /api/reservations `{slot_id,request_id}` -> data `{reservation_id}`。
@@ -59,7 +59,9 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 - GET /api/labs/{id}/assets -> data `{assets:[{id,name,spec,total,status}]}`。登录即可调用（用户端预约页展示）；不含 status=DISABLED 的资源。
 - POST /api/admin/labs/{id}/assets `{name,spec?,total?,status?}` -> data `{asset_id}`。仅管理员；total 1..999；status ∈ AVAILABLE/MAINTENANCE/DISABLED（缺省 AVAILABLE）；同一实验室内资源名唯一（409 STATE_CONFLICT「该实验室已有同名资源」）；实验室不存在 404；审计 ASSET_CREATE。
 - POST /api/admin/assets/{id}/update `{name,spec?,total?,status?}` -> data `{asset_id}`。仅管理员；语义同上；资源不存在 404；审计 ASSET_UPDATE。
-- GET /api/admin/labs/utilization?start_date=&end_date= -> data `{utilization:[{lab_id,lab_name,slots,seats,confirmed,checked_in,no_show,utilization}]}`。仅管理员；区间 ≤31 天；utilization=confirmed÷seats×100（保留 1 位小数，seats=0 时为 0）。
+- GET /api/admin/labs/utilization?start_date=&end_date= -> data `{utilization:[{lab_id,lab_name,slots,seats,confirmed,checked_in,no_show,utilization,actual_minutes,seat_minutes,utilization_actual}]}`。仅管理员；区间 ≤31 天；utilization=confirmed÷seats×100（保留 1 位小数，seats=0 时为 0）；actual_minutes 为实机时合计（分钟），seat_minutes 为席位分钟合计，utilization_actual=actual_minutes÷seat_minutes×100（同上口径）。
+- GET /api/admin/asset-claims?start_date=&end_date= -> data `{claims:[{asset_id,asset_name,claims,last_start}]}`。仅管理员；区间 ≤31 天；claims 为该资源在区间内的有效声明次数，last_start 为最近一次声明所在场次的开始时间（无声明为 0）。
+- GET /api/admin/asset-claims/export?start_date=&end_date= -> data `{filename,content}`。声明占用 CSV（带 BOM，列为资源编号/资源名称/声明次数/最近占用日期，末行为合计），不修改任何数据。
 - GET /api/admin/stats/utilization/export?start_date=&end_date= -> data `{filename,content}`。利用率 CSV（BOM，Excel 直开）。
 - 数据不变量：assets(lab_id,name) 唯一；status CHECK 约束；实验室内资源随 labs 保留（停用实验室不清空清单）。
 - GET /api/admin/assets/{id}/usage?start_date=&end_date= -> data `{asset:{...},usage:[{date,claims}]}`。仅管理员；区间 ≤31 天；按有效预约（CONFIRMED）逐日聚合资源声明次数。
@@ -71,6 +73,15 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 - CLI（r17）：`--restore FILE` 从备份文件灌回主库并自动执行 integrity_check（退出码 0/1）；`--lead-time SEC` 预约提前量（0..86400，0=关闭）。
 - POST /api/reservations/{id}/reschedule `{slot_id,request_id}` -> data `{reservation_id,new_slot_id,old_slot_id,promoted_reservation_id}`（r18）。仅本人、CONFIRMED、原/新场次均未开始；限**同实验室**（资源声明语义）；事务内重校新槽开放/容量(排除自身)/重叠(排除自身)/提前量/资源声明配额（声明保留按新时段计入）；原子改期后旧槽触发 FIFO 补位；审计 RESCHEDULE；摘要含新槽（同编号不同目标仍 REQUEST_ID_CONFLICT）。
 - POST /api/reservations 请求体可选 `note`（≤200 字符，r18）：预约备注，随记录返回（RES_ROW.note）。
+- **可执行 FIFO 递补（r24，BR19）**：递补按 `priority DESC, id` **顺序扫描**候补队列——账号停用者置 `SKIPPED`；**临时时间冲突者暂跳且保留原序号**（不改变其 `id`/`priority`，故下次扫描仍优先于后来的申请）；只递补第一个当前可执行的候选，直到容量用尽。这正是"可执行申请间的 FIFO"：新请求不能绕过队内更早且当前可执行的候补，但不因队首暂时冲突而阻塞全队。`--waitlist-strategy=strict` 回退为"队首不可执行即阻塞"的旧语义。
+- **HELD 限时保留（r24，BR20）**：需以 `--hold-window=N`（秒）启用。启用后递补写入 `status='HELD'` 与 `hold_deadline=min(now+N, 时段开始时刻)`；`POST /api/reservations/{id}/confirm {request_id}` -> `{reservation_id}` 在截止前确认后转 `CONFIRMED`（**恰好等于截止时刻视为超时**，409 HOLD_EXPIRED）；扫描器将超时 HELD 转 `EXPIRED` 并立即重新递补。HELD **占用容量**，并与 CONFIRMED 同等地构成时间冲突。默认 `--hold-window=0` 时该机制不生效，补位仍直接确认。
+- **可注入时钟（r24）**：`--fake-now=<epoch 秒>` 固定服务端当前时刻（仅供测试/演示），用于确定性验证保留截止等边界。
+- **候补优先级与抢占（r23，BR15）**：`waitlist` 与 `reservations` 均有 `priority`（由服务端按角色校准，管理员 10、普通用户 0，不接受客户端自报）。候补出队顺序为 `priority DESC, id ASC`（高优先级内仍是 FIFO）。管理员预约遇场次满员时，可抢占该场次内"未签到且优先级更低"的确认预约：被抢占预约置为 `status='CANCELLED', cancel_reason='PREEMPTED'`（不计爽约），其所有者获 +1 信用补偿并收到通知；被抢占者若已签到则不可被抢占。
+- **信用账户（r23，BR16）**：`GET /api/me/credits?page=&page_size=` -> data `{ledger:[{id,delta,reason,reservation_id,created_at}],balance,base,page,page_size,has_more}`；`reason ∈ RESERVE/CANCEL/CHECKIN/NO_SHOW/PREEMPTED/WEEKLY/GRANT`。`POST /api/admin/users/{id}/credit {delta,request_id}` -> data `{granted}`，delta 取值 1..基准额度。余额钳制在 `0..CREDIT_BASE(5)`；签到 +1、爽约 -1、被抢占 +1、每周一自动回补至基准；**预约不消耗信用**，余额为 0 时禁止新预约与候补（409 CREDIT_EXHAUSTED）。
+- **资源自身可用时段（r23，BR17）**：`GET /api/admin/assets/{id}/windows` -> data `{windows:[{id,asset_id,weekday_mask,start_minute,end_minute,reason}]}`；`POST /api/admin/assets/{id}/windows {weekday_mask?,start_minute?,end_minute?,reason?,id?,request_id}` -> data `{window_id}`（带 `id` 为删除）。`weekday_mask` 0..127（位 0=周一），`start_minute`/`end_minute` 为北京时间的当日分钟数。**未配置时段的资源视为全天可用**（向后兼容）；配置后声明该资源的场次起点必须落在匹配窗口内，否则 409 WINDOW_CONFLICT。
+- **资源维护工单（r23，BR18）**：`GET /api/admin/assets/{id}/maintenance` -> data `{maintenance:[{id,asset_id,started_at,ended_at,reason,operator}]}`；`POST /api/admin/assets/{id}/maintenance {op:"open"|"close",reason?,request_id}` -> `{maintenance_id}`（open）或 `{closed}`（close）。open 时资源置为 `MAINTENANCE`，close 时恢复 `AVAILABLE`；已有未关闭工单时再次 open 返回 409。
+- **跨时段连续预约（r23）**：`POST /api/reservations/batch {slot_ids:[...],request_id}` -> data `{created}`。1..8 个场次，须同实验室且时间首尾相连；同一 `BEGIN IMMEDIATE` 事务内校验容量/重复/重叠/信用，全成或全败。该路径不处理资源声明与审批（走单场次路径）。
+- **日历导出（r23）**：`GET /api/me/calendar.ics` -> data `{filename,content}`，`content` 为 ICS 文本（UTC 时间、含 CONFIRMED 与 PENDING 预约）。
 - API 令牌（r20，对标 Cal.com API keys）：POST /api/me/tokens `{name}` -> data `{token,name}`（64 位十六进制，明文仅此一次返回）；GET /api/me/tokens -> `{tokens:[{id,name,created_at,last_used_at}]}`；POST /api/me/tokens/{id}/revoke `{token}` -> 404/200。令牌存哈希，仅限本人自助管理，审计 TOKEN_CREATE/TOKEN_REVOKE。
 - 业务规则（r17）BR14 预约提前量：开始前不足 lead_time 秒的场次停止受理预约与候补（409 LEAD_TIME），防止临开始抢占；默认 0 关闭。
 - 业务规则（r16）BR13 每周预约配额：`--quota-weekly N`（0=不限）启用后，本周（北京周一 0 点起）有效预约数达 N 时新的预约返回 409 WEEKLY_QUOTA；候补不入配额（补位为 FIFO 公平结果）。

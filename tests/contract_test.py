@@ -114,10 +114,10 @@ LAB_OBJ = {"id": T_ID, "name": T_STR, "location": T_STR, "description": T_STR, "
 SLOT_OBJ = {"id": T_ID, "lab_id": T_ID, "start_at": T_INT, "end_at": T_INT, "enabled": T_BOOL, "lab_enabled": T_BOOL,
             "capacity": T_INT, "confirmed_count": T_INT, "waiting_count": T_INT, "my_reservation_id": nb(T_ID),
             "my_checked_in_at": nb(T_INT), "my_waitlist_id": nb(T_ID)}
-RES_ROW = {"id": T_ID, "slot_id": T_ID, "lab_id": T_ID, "lab_name": T_STR, "start_at": T_INT, "end_at": T_INT,
+RES_ROW = {"id": T_ID, "slot_id": T_ID, "lab_id": T_ID, "lab_name": T_STR, "username": T_STR, "start_at": T_INT, "end_at": T_INT,
            "status": T_STR, "source": T_STR, "cancel_reason": nb(T_STR), "checked_in_at": nb(T_INT),
            "note": nb(T_STR)}
-WAIT_ROW = {"id": T_ID, "slot_id": T_ID, "lab_name": T_STR, "start_at": T_INT, "end_at": T_INT,
+WAIT_ROW = {"id": T_ID, "slot_id": T_ID, "lab_name": T_STR, "username": T_STR, "start_at": T_INT, "end_at": T_INT,
             "status": T_STR, "position": nb(T_INT)}
 NOTIFY_ROW = {"id": T_ID, "kind": T_STR, "title": T_STR, "body": T_STR, "slot_id": nb(T_ID),
               "reservation_id": nb(T_ID), "read_at": nb(T_INT), "created_at": T_INT}
@@ -125,24 +125,28 @@ SESSION_ROW = {"id": T_STR, "created_at": nb(T_INT), "expires_at": T_INT, "curre
 STAT_ROW = {"date": T_STR, "slots": T_INT, "confirmed": T_INT, "cancelled": T_INT,
             "no_show": T_INT, "checked_in": T_INT, "waiting": T_INT}
 ASSET_OBJ = {"id": T_ID, "name": T_STR, "spec": T_STR, "total": T_INT, "status": T_STR}
-UTIL_ROW = {"lab_id": T_ID, "lab_name": T_STR, "slots": T_INT, "seats": T_INT, "confirmed": T_INT, "checked_in": T_INT, "no_show": T_INT, "utilization": T_NUM}
+UTIL_ROW = {"lab_id": T_ID, "lab_name": T_STR, "slots": T_INT, "seats": T_INT, "confirmed": T_INT, "checked_in": T_INT, "no_show": T_INT, "utilization": T_NUM, "actual_minutes": T_NUM, "seat_minutes": T_NUM, "utilization_actual": T_NUM}
 STAT_DAY = {"date": T_STR, "claims": T_INT}
-TOKEN_ROW = {"id": T_ID, "name": T_STR, "created_at": T_INT}
+CLAIM_ROW = {"asset_id": T_ID, "asset_name": T_STR, "claims": T_INT, "last_start": T_INT}
+LEDGER_ROW = {"id": T_ID, "delta": T_INT, "reason": T_STR, "reservation_id": nb(T_ID), "created_at": T_INT}
+WINDOW_ROW = {"id": T_ID, "asset_id": T_ID, "weekday_mask": T_INT, "start_minute": T_INT, "end_minute": T_INT, "reason": T_STR}
+MAINT_ROW = {"id": T_ID, "asset_id": T_ID, "started_at": T_INT, "ended_at": nb(T_INT), "reason": T_STR, "operator": nb(T_STR)}
+TOKEN_ROW = {"id": T_ID, "name": T_STR, "created_at": T_INT, "last_used_at": nb(T_INT)}
 TOTALS_OBJ = {"slots": T_INT, "confirmed": T_INT, "cancelled": T_INT, "no_show": T_INT,
               "checked_in": T_INT, "waiting": T_INT}
 COUNTERS_OBJ = {"requests_total": T_NUM, "ok_2xx": T_NUM, "err_4xx": T_NUM, "err_5xx": T_NUM,
                 "db_busy_503": T_NUM, "logins": T_NUM}
 LATENCY_OBJ = {"count": T_NUM, "sum": T_NUM, "max": T_NUM, "buckets": arr(T_NUM)}
-EVENT_ROW_ADMIN = {"actor": T_STR, "action": T_STR, "entity_id": T_ID, "created_at": T_INT,
+EVENT_ROW_ADMIN = {"id": T_ID, "actor": T_STR, "action": T_STR, "entity_id": T_ID, "created_at": T_INT,
                    "request_id": nb(T_STR)}
 PAGED = {"page": T_INT, "page_size": T_INT, "has_more": T_BOOL}
 ME_RECORDS = {"reservations": arr(RES_ROW), "waitlist": arr(WAIT_ROW), "events": arr({}), **PAGED}
-ADMIN_RECORDS = {"reservations": arr({"username": T_STR, **RES_ROW}), "waitlist": arr({"username": T_STR, **WAIT_ROW}),
+ADMIN_RECORDS = {"reservations": arr(RES_ROW), "waitlist": arr(WAIT_ROW),
                  "events": arr(EVENT_ROW_ADMIN), **PAGED}
 
 # 路径 -> (方法, data schema)；{id} 为占位符，运行时替换
 SCHEMAS = [
-    ("GET",  "/api/health",                    {"status": T_STR}),
+    ("GET",  "/api/health",                    {"status": T_STR, "version": T_STR, "uptime_s": T_NUM}),
     ("POST", "/api/login",                     LOGIN_DATA),
     ("GET",  "/api/me",                        LOGIN_DATA),
     ("POST", "/api/logout",                    "empty-or-obj"),
@@ -176,6 +180,17 @@ SCHEMAS = [
     ("GET",  "/api/admin/labs/utilization?start_date={today}&end_date={today}", {"utilization": arr(UTIL_ROW)}),
     ("GET",  "/api/admin/assets/{aid}/usage?start_date={today}&end_date={today}", {"asset": ASSET_OBJ, "usage": arr(STAT_DAY)}),
     ("GET",  "/api/admin/stats/utilization/export?start_date={today}&end_date={today}", {"filename": T_STR, "content": T_STR}),
+    ("GET",  "/api/admin/asset-claims?start_date={today}&end_date={today}", {"claims": arr(CLAIM_ROW)}),
+    ("GET",  "/api/admin/asset-claims/export?start_date={today}&end_date={today}", {"filename": T_STR, "content": T_STR}),
+    ("GET",  "/api/admin/records?status=PENDING&page=1&page_size=5", ADMIN_RECORDS),
+    ("GET",  "/api/me/credits?page=1&page_size=5", {"ledger": arr(LEDGER_ROW), "balance": T_INT, "base": T_INT, **PAGED}),
+    ("GET",  "/api/me/calendar.ics",           {"filename": T_STR, "content": T_STR}),
+    ("POST", "/api/reservations/batch",        {"created": T_INT}),
+    ("GET",  "/api/admin/assets/{aid}/windows", {"windows": arr(WINDOW_ROW)}),
+    ("POST", "/api/admin/assets/{aid}/windows", {"window_id": T_ID}),
+    ("GET",  "/api/admin/assets/{aid}/maintenance", {"maintenance": arr(MAINT_ROW)}),
+    ("POST", "/api/admin/assets/{aid}/maintenance", {"maintenance_id": T_ID}),
+    ("POST", "/api/admin/users/{uid1}/credit",  {"granted": T_INT}),
     ("POST", "/api/admin/slots/publish",       {"created": T_INT}),
     ("POST", "/api/register",                  LOGIN_DATA),
     ("POST", "/api/me/sessions/{sid}/revoke",  "empty-or-obj"),
@@ -253,6 +268,9 @@ def run_scenarios(server):
     now = int(time.time())  # 把第二个预约所在场次推到“已开始”，使其处于可签到状态
     server.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?", (now - 1, now + 3599, slot_pairs[1][0]))
     bind["lid"] = str(server.sql("SELECT id FROM labs WHERE enabled=1 ORDER BY id LIMIT 1")[0][0])
+    bind["uid1"] = str(server.sql("SELECT id FROM users WHERE username='user01'")[0][0])
+    # 批量预约需要一个未被其它场景占用的场次：取最晚的一个空闲场次，避免与 free_slot 冲突
+    bind["batch_slot"] = str(server.sql("SELECT s.id FROM slots s WHERE s.start_at>? AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') ORDER BY s.start_at DESC LIMIT 1", (int(time.time()) + 3600,))[0][0])
     st, body = admin.request("POST", f"/api/admin/labs/{bind['lid']}/assets", {"name": "契约资源", "spec": "contract", "total": "2"})
     require(st == 200, f"准备资源失败：{st} {body}")
     bind["aid"] = body["data"]["asset_id"]
@@ -289,6 +307,14 @@ def run_scenarios(server):
         if method == "POST":
             if path_tpl == "/api/login":
                 payload = {"username": "user03", "password": PASSWORD}
+            elif path_tpl == "/api/reservations/batch":
+                payload = {"slot_ids": [bind["batch_slot"]], "request_id": uid()}
+            elif path_tpl == "/api/admin/users/{uid1}/credit":
+                payload = {"delta": "1", "request_id": uid()}
+            elif path_tpl == "/api/admin/assets/{aid}/maintenance":
+                payload = {"op": "open", "reason": "contract", "request_id": uid()}
+            elif path_tpl == "/api/admin/assets/{aid}/windows":
+                payload = {"weekday_mask": 127, "start_minute": 480, "end_minute": 720, "request_id": uid()}
             elif path_tpl == "/api/register":
                 payload = {"username": f"cts{uid()[:8]}", "password": PASSWORD}
             elif path_tpl == "/api/admin/labs":

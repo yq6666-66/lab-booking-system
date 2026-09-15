@@ -2,6 +2,66 @@
 
 本项目遵循语义化版本。所有重要变更记录于此。
 
+## [1.13.0] - 2026-09-16
+
+第二十二轮（第一批）：候补策略升级——可执行 FIFO、HELD 限时保留、可注入时钟。
+
+### 新增
+- **可执行 FIFO 候补递补（BR19）**：递补不再只取队首。按 `priority DESC,id` 顺序扫描候补队列，账号停用者置 `SKIPPED`；**临时时间冲突者暂跳并保留原序号**，只递补第一个当前可执行的候选。这样队首暂时不可执行时不会阻塞整条队列、名额不被空置。`--waitlist-strategy=strict` 可回退到旧语义（队首不可执行即阻塞），供对照实验使用（T61）。
+- **HELD 限时保留（BR20）**：`--hold-window=N` 启用后，候补递补先落 `HELD` 态并写入 `hold_deadline = min(now+N, 时段开始时刻)`，用户在截止前调用 `POST /api/reservations/{id}/confirm` 才转为 `CONFIRMED`；扫描器把超时的 HELD 转 `EXPIRED` 并**立即对同一场次重新递补**，形成"超时即让位"的重试环（T62）。**默认 `--hold-window=0` 保持原有"补位即确认"行为**。
+- **可注入时钟**：新增统一时间源 `clock_now()`（默认系统时间），`--fake-now=<epoch>` 可固定当前时刻，使保留截止等时间边界可确定性测试。
+- 新增 `Config` 字段 `hold_window` / `waitlist_strict` / `fake_now` 与对应命令行参数。
+
+### 变更
+- `reservations.status` 扩展 `HELD`、`EXPIRED`；新增 `hold_deadline` 列。**占容量口径统一为 `CONFIRMED + HELD`**（否则启用保留后会超售），时间冲突判定同步纳入 HELD。
+- schema `user_version` 4 → 5；集成断言 61 → 63；`LAB_VERSION` 1.12.0 → 1.13.0。
+
+### 第二批（资格授权与对照实验）
+- **资格授权（BR21）**：`qualifications` 表与 `assets.requires_qualification` 开关；开启后声明该资源须持有有效资格，否则 409 QUALIFICATION_REQUIRED。新增 `GET/POST /api/admin/assets/{id}/qualifications`（grant/revoke）与 `op:"require"` 开关。**默认不要求**，完全向后兼容。
+- **对照实验脚本** `tests/experiment.py`：以同一申请序列分别驱动 `--waitlist-strategy=strict|executable` 两臂，统计名额利用率、候补成功率、等待时间与队首阻塞次数。实测（3 轮/臂）：**利用率 0.0 → 1.0**，候补成功率 0.0 → 1.0，队首阻塞 3 次；证据见 `docs/evidence/experiment/fifo_comparison.json`。
+
+### 兼容性
+- 默认配置下不产生 HELD，既有 61 项断言语义不变（已实测全绿）；可执行 FIFO 仅在"队首临时冲突"这一既有缺陷场景下改变结果。
+
+## [1.12.0] - 2026-09-16
+
+第二十一轮：候补策略与资源生命周期（优先级/抢占、信用账户、资源时段与维护工单、连续预约、日历导出）。
+
+### 新增
+- **候补优先级与抢占（BR15）**：`waitlist.priority` / `reservations.priority` 由服务端按角色校准（管理员 10、普通用户 0），候补出队按 `priority DESC,id`——高优先级内仍保持 FIFO；管理员预约遇满员时可抢占"未签到的最低优先级确认预约"，被抢占者记 `cancel_reason='PREEMPTED'`（不计爽约）、获 1 点信用补偿并收到通知（T56）。
+- **信用账户（BR16）**：`users.credit`（钳制 0..5，基准 5）+ `credit_ledger` 流水；签到 +1、爽约 -1、被抢占 +1、每周一自动回补至基准；余额为 0 时禁止新预约与候补。**预约本身不消耗信用**，故不改变既有预约行为。新增 `GET /api/me/credits` 与 `POST /api/admin/users/{id}/credit`（T55）。
+- **资源自身可用时段（BR17）**：`asset_windows` 表与 `GET/POST /api/admin/assets/{id}/windows`；未配置的资源视为全天可用（向后兼容），配置后声明该资源的场次必须落在其开放窗口内，否则 409 WINDOW_CONFLICT（T57）。
+- **资源维护工单（BR18）**：`asset_maintenance` 表与 `GET/POST /api/admin/assets/{id}/maintenance`（`op=open|close`）；开启即置资源为维修中，关闭恢复可用，重复开启 409（T58）。
+- **跨时段连续预约**：`POST /api/reservations/batch {slot_ids[]}`（1..8 个同实验室、时间连续的场次），同一事务内全成或全败，消除"订到一半"（T59）。
+- **日历导出**：`GET /api/me/calendar.ics` 输出 ICS 文本，可直接导入日历客户端（T60）。
+
+### 变更
+- schema `user_version` 3 → 4（幂等迁移：新增列/新表，并把 `reservations.cancel_reason` 的 CHECK 扩展 `PREEMPTED`）。
+- 契约端点 39 → 47；集成断言 55 → 61；`LAB_VERSION` 1.11.0 → 1.12.0。
+
+### 本轮取舍
+- **时段模板（可配置节次时长）未实现**：`slots` 的 `CHECK(end_at=start_at+3600)` 是"固定一小时场次"的核心约束，放宽须重建表并改变既有语义与断言，故保留现状。
+- 通知渠道插件化、`service.c` 领域拆分未在本轮落地。
+
+## [1.11.0] - 2026-09-15
+
+第二十轮：管理端待审批专页签、声明占用 CSV 导出与 API 令牌只读访问。
+
+### 新增
+- 管理端「待审批」专页签：`GET /api/admin/records?status=PENDING` 仅列出 PENDING 预约（不传 `date` 即不按日期过滤，覆盖跨天场次），支持就地批准/拒绝；概览新增「待审批」卡片与页签徽标计数（T52）。
+- 声明占用 CSV 导出：`GET /api/admin/asset-claims/export?start_date=&end_date=` 输出带 BOM 的 CSV（资源编号/资源名称/声明次数/最近占用日期 + 合计行），为只读操作（T53）。
+- X-API-Token 只读访问：GET 请求可携带 `X-API-Token` 头免 Cookie 认证，命中即刷新 `last_used_at`；写操作、令牌吊销端点与越权端点一律拒绝（T54）。
+
+### 修复
+- `/api/admin/records` 新增 `status` 过滤参数；`records()` 原将 status 拼为字面量 `'?'` 致条件恒不成立，现按白名单枚举直接拼接（T52 覆盖）。
+- 令牌吊销 `POST /api/me/tokens/{id}/revoke` 原误置于 GET 分支——GET 请求体不被解析、`request_id` 恒缺失，该端点恒返回 400、功能不可用；现按契约移入 POST 分支。
+- 管理端「声明占用」表调用未定义的 `stamp()`，致该表始终加载失败，改用 `fmtStamp()`。
+- `utilization_export` 表头 `利用率%\n` 的 `%` 未转义（触发 `-Wformat` 告警且表头错乱），改为 `%%`。
+- 契约文档与测试 schema 补齐既有漂移字段（health.version/uptime_s、records 的 username/lab_id/note、events.id、tokens.last_used_at、utilization 实机时三列），契约测试实现零漂移。
+
+### 变更
+- 契约端点 36 → 39（补入 r21 遗漏的 `asset-claims` 及本轮 `asset-claims/export`）；集成断言 52 → 55。
+
 ## [1.10.0] - 2026-09-15
 
 第十九轮：资源声明数据闭环可视化。

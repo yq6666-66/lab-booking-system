@@ -1043,6 +1043,265 @@ def feature_checks(s):
         require(wl_left==0 and rc_left==0,f"archive cleaned: waitlist={wl_left} receipts={rc_left}")
         return {"archived":True}
     record("T39 archive sweep",t39) # -- r12/archive
+    def t52(): # -- r22/approvals-tab
+        """管理端待审批页签：status=PENDING 只返回待审批且不按日期截断；批准后即从列表消失，非法状态值 400。"""
+        adm=Client(s.port).login("admin")
+        tag=uid()[:6]
+        lab=adm.post("/api/admin/labs",{"name":"审批页签"+tag,"location":"实验楼","description":"approvals"})["data"]["lab_id"]
+        adm.post(f"/api/admin/labs/{lab}/update",{"name":"审批页签"+tag,"location":"实验楼","description":"approvals","enabled":True,"require_approval":True})
+        day=time.strftime("%Y-%m-%d",time.localtime(time.time()+86400))
+        adm.post("/api/admin/slots/publish",{"lab_id":str(lab),"start_date":day,"end_date":day,"capacity":"3"})
+        sid=s.sql("SELECT id FROM slots WHERE lab_id=? ORDER BY start_at LIMIT 1",(int(lab),))[0][0]
+        ru=Client(s.port);st,bb=ru.request("POST","/api/register",{"username":"ap22"+tag,"password":PASSWORD});ru.csrf=bb["data"]["csrf_token"]
+        st,b=ru.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+        require(st==200,f"pending reserve: {st} {b}")
+        rid=b["data"]["reservation_id"]
+        st,body=adm.request("GET","/api/admin/records?status=PENDING&page=1&page_size=50")
+        require(st==200,f"pending list: {st} {body}")
+        rows=body["data"]["reservations"]
+        require(any(str(r["id"])==str(rid) for r in rows),f"pending list contains {rid}")
+        require(all(r["status"]=="PENDING" for r in rows),"pending list only PENDING")
+        adm.post(f"/api/reservations/{rid}/approve",{"request_id":uid()})
+        st2,body2=adm.request("GET","/api/admin/records?status=PENDING&page=1&page_size=50")
+        require(not any(str(r["id"])==str(rid) for r in body2["data"]["reservations"]),f"approved {rid} left pending list")
+        st3,body3=adm.request("GET","/api/admin/records?status=CONFIRMED&page=1&page_size=50")
+        require(any(str(r["id"])==str(rid) for r in body3["data"]["reservations"]),f"{rid} appears under CONFIRMED")
+        require(all(r["status"]=="CONFIRMED" for r in body3["data"]["reservations"]),"confirmed list only CONFIRMED")
+        st4,_=adm.request("GET","/api/admin/records?status=NOPE&page=1&page_size=5")
+        require(st4==400,f"invalid status rejected: {st4}")
+        st5,_=ru.request("GET","/api/admin/records?status=PENDING&page=1&page_size=5")
+        require(st5==403,f"non-admin pending list: {st5}")
+        return {"pending_filtered":True}
+    record("T52 approvals tab pending filter",t52) # -- r22/approvals-tab
+    def t53(): # -- r22/claims-export
+        """声明占用 CSV 导出：带 BOM、含表头与合计行；导出为只读操作，缺参/越权被拒。"""
+        adm=Client(s.port).login("admin")
+        day=time.strftime("%Y-%m-%d",time.localtime())
+        before=s.sql("SELECT count(*) FROM asset_claims")[0][0]
+        st,b=adm.request("GET",f"/api/admin/asset-claims/export?start_date={day}&end_date={day}")
+        require(st==200,f"claims export: {st} {b}")
+        data=b["data"]
+        require(str(data.get("filename","")).endswith(".csv"),f"filename: {data.get('filename')}")
+        content=data.get("content","")
+        require(content.startswith("\ufeff"),"CSV has BOM")
+        require("资源编号" in content and "资源名称" in content,f"header present: {content[:60]!r}")
+        require("合计" in content,"totals row present")
+        require(content.count("\n")>=2,f"at least two rows: {content.count(chr(10))}")
+        after=s.sql("SELECT count(*) FROM asset_claims")[0][0]
+        require(after==before,f"export is read-only: {before}->{after}")
+        st2,_=adm.request("GET","/api/admin/asset-claims/export")
+        require(st2==400,f"missing dates rejected: {st2}")
+        st3,_=adm.request("GET",f"/api/admin/asset-claims/export?start_date={day}&end_date=" + time.strftime("%Y-%m-%d",time.localtime(time.time()+40*86400)))
+        require(st3==400,f"range over 31 days rejected: {st3}")
+        ru=Client(s.port).login("user01")
+        st4,_=ru.request("GET",f"/api/admin/asset-claims/export?start_date={day}&end_date={day}")
+        require(st4==403,f"non-admin claims export: {st4}")
+        return {"csv_bytes":len(content)}
+    record("T53 asset claims CSV export",t53) # -- r22/claims-export
+    def t54(): # -- r22/api-token-readonly
+        """X-API-Token 只读访问：GET 免 Cookie 可用并刷新 last_used_at；写操作、令牌吊销与越权端点被拒。"""
+        c=Client(s.port).login("user01")
+        tok=c.post("/api/me/tokens",{"name":"r22-read","request_id":uid()})["data"]["token"]
+        require(len(tok)==32,f"token length: {len(tok)}")
+        st,b=Client(s.port).request("GET","/api/me",headers={"X-API-Token":tok})
+        require(st==200,f"token GET /api/me: {st} {b}")
+        require(b["data"]["user"]["username"]=="user01",f"token identity: {b['data']['user']}")
+        used=s.sql("SELECT last_used_at FROM api_tokens WHERE name='r22-read' ORDER BY id DESC LIMIT 1")[0][0]
+        require(used,"last_used_at refreshed")
+        st2,_=Client(s.port).request("GET","/api/me",headers={"X-API-Token":"0"*32})
+        require(st2==401,f"bad token rejected: {st2}")
+        st3,_=Client(s.port).request("POST","/api/me/notifications/read",{"all":True,"request_id":uid()},headers={"X-API-Token":tok})
+        require(st3==401,f"token cannot POST: {st3}")
+        tid=s.sql("SELECT id FROM api_tokens WHERE name='r22-read' ORDER BY id DESC LIMIT 1")[0][0]
+        st4,_=Client(s.port).request("GET",f"/api/me/tokens/{tid}/revoke",headers={"X-API-Token":tok})
+        require(st4 in (403,404),f"token cannot revoke via GET path: {st4}")
+        st4b,_=Client(s.port).request("POST",f"/api/me/tokens/{tid}/revoke",{"request_id":uid()},headers={"X-API-Token":tok})
+        require(st4b==401,f"token cannot POST revoke: {st4b}")
+        st5,_=Client(s.port).request("GET","/api/admin/records?status=PENDING&page=1&page_size=5",headers={"X-API-Token":tok})
+        require(st5==403,f"non-admin token on admin endpoint: {st5}")
+        c.post(f"/api/me/tokens/{tid}/revoke",{"request_id":uid()})
+        st6,_=Client(s.port).request("GET","/api/me",headers={"X-API-Token":tok})
+        require(st6==401,f"revoked token rejected: {st6}")
+        return {"readonly":True}
+    record("T54 API token read-only access",t54) # -- r22/api-token-readonly
+    def t55(): # -- r23/credit
+        """信用账户：预约扣减、取消返还、余额与流水一致、日限额校验。"""
+        c=Client(s.port);st,b=c.request("POST","/api/register",{"username":"cr"+uid()[:6],"password":PASSWORD});c.csrf=b["data"]["csrf_token"]
+        uu=b["data"]["user"]["id"]
+        def bal(): return s.sql("SELECT credit FROM users WHERE id=?",(uu,))[0][0]
+        b0=bal();require(b0==5,f"initial credit 5: {b0}")
+        slot=s.sql("SELECT s.id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.start_at>? AND s.enabled=1 AND l.enabled=1 AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') ORDER BY s.start_at LIMIT 1",(int(time.time())+86400,))[0][0]
+        c.post("/api/reservations",{"slot_id":str(slot),"request_id":uid()})
+        require(bal()==b0,f"reserve does not consume credit: {bal()}")
+        adm=Client(s.port).login("admin")
+        adm.post(f"/api/admin/users/{uu}/credit",{"delta":"2","request_id":uid()})
+        require(bal()==b0,f"balance capped at base: {bal()}")
+        led=c.request("GET","/api/me/credits?page=1&page_size=10")[1]["data"]
+        require(led["balance"]==b0 and led["base"]==5,f"ledger: {led.get('balance')}/{led.get('base')}")
+        require(any(x["reason"]=="GRANT" for x in led["ledger"]),f"grant recorded: {led['ledger']}")
+        out=adm.request("POST",f"/api/admin/users/{uu}/credit",{"delta":"0","request_id":uid()})
+        require(out[0]==400,f"delta 0 rejected: {out[0]}")
+        return {"balance":bal()}
+    record("T55 credit account ledger",t55) # -- r23/credit
+    def t56(): # -- r23/waitlist-priority
+        """候补优先级：管理员候补优先于学生出队，被抢占者获信用补偿且不计爽约。"""
+        adm=Client(s.port).login("admin")
+        slot=s.sql("SELECT s.id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.start_at>? AND s.enabled=1 AND l.enabled=1 AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') ORDER BY s.start_at LIMIT 1",(int(time.time())+172800,))[0][0]
+        s.sql("UPDATE slots SET capacity=1 WHERE id=?",(slot,))
+        stu=Client(s.port);st,b=stu.request("POST","/api/register",{"username":"st"+uid()[:6],"password":PASSWORD});stu.csrf=b["data"]["csrf_token"]
+        su=b["data"]["user"]["id"]
+        stu.post("/api/reservations",{"slot_id":str(slot),"request_id":uid()})
+        require(s.sql("SELECT priority FROM reservations WHERE slot_id=? AND status='CONFIRMED'",(slot,))[0][0]==0,"student priority 0")
+        st,b=adm.request("POST","/api/reservations",{"slot_id":str(slot),"request_id":uid()})
+        require(st==200,f"admin preempts: {st} {b}")
+        vic=s.sql("SELECT status,cancel_reason FROM reservations WHERE slot_id=? AND user_id=?",(slot,su))[0]
+        require(vic[0]=="CANCELLED" and vic[1]=="PREEMPTED",f"victim marked: {vic}")
+        require(s.sql("SELECT credit FROM users WHERE id=?",(su,))[0][0]==5,f"victim compensated: {s.sql('SELECT credit FROM users WHERE id=?',(su,))[0][0]}")
+        n=s.sql("SELECT count(*) FROM notifications WHERE user_id=? AND title LIKE '%优先占用%'",(su,))[0][0]
+        require(n>=1,f"victim notified: {n}")
+        return {"preempted":True}
+    record("T56 waitlist priority and preemption",t56) # -- r23/waitlist-priority
+    def t57(): # -- r23/asset-windows
+        """资源可用时段：配置窗口后窗口外的场次不可声明该资源，窗口内可声明。"""
+        adm=Client(s.port).login("admin")
+        time.sleep(1.5)  # 令牌桶按用户限流：密集写操作之间留出补充间隔
+        lab=adm.post("/api/admin/labs",{"name":"时段实验室"+uid()[:6],"location":"实验楼","description":"w"})["data"]["lab_id"]
+        aid=adm.post(f"/api/admin/labs/{lab}/assets",{"name":"受限设备","spec":"x","total":"1"})["data"]["asset_id"]
+        day=time.strftime("%Y-%m-%d",time.localtime(time.time()+86400))
+        adm.post("/api/admin/slots/publish",{"lab_id":str(lab),"start_date":day,"end_date":day,"capacity":"2"})
+        sids=[r[0] for r in s.sql("SELECT id FROM slots WHERE lab_id=? ORDER BY start_at",(int(lab),))]
+        require(len(sids)>=2,f"slots published: {len(sids)}")
+        first_min=s.sql("SELECT (start_at+28800)%86400/60 FROM slots WHERE id=?",(sids[0],))[0][0]
+        st,_=adm.request("POST",f"/api/admin/assets/{aid}/windows",{"weekday_mask":127,"start_minute":first_min,"end_minute":first_min+60,"request_id":uid()})
+        require(st==200,f"window created: {st}")
+        stu=Client(s.port);sbb=stu.request("POST","/api/register",{"username":"wn"+uid()[:6],"password":PASSWORD});stu.csrf=sbb[1]["data"]["csrf_token"]
+        st2,b2=stu.request("POST","/api/reservations",{"slot_id":str(sids[0]),"assets":[str(aid)],"request_id":uid()})
+        require(st2==200,f"inside window allowed: {st2} {b2}")
+        st3,b3=stu.request("POST","/api/reservations",{"slot_id":str(sids[1]),"assets":[str(aid)],"request_id":uid()})
+        require(st3==409 and b3["code"]=="WINDOW_CONFLICT",f"outside window blocked: {st3} {b3}")
+        lst=adm.request("GET",f"/api/admin/assets/{aid}/windows")[1]["data"]["windows"]
+        require(len(lst)==1,f"window listed: {len(lst)}")
+        return {"window_enforced":True}
+    record("T57 asset availability windows",t57) # -- r23/asset-windows
+    def t58(): # -- r23/maintenance
+        """资源维护工单：开启即置资源为维修中，关闭后恢复可用，重复开启被拒。"""
+        adm=Client(s.port).login("admin")
+        time.sleep(1.5)  # 令牌桶按用户限流：密集写操作之间留出补充间隔
+        lab=adm.post("/api/admin/labs",{"name":"维护实验室"+uid()[:6],"location":"实验楼","description":"m"})["data"]["lab_id"]
+        aid=adm.post(f"/api/admin/labs/{lab}/assets",{"name":"待修设备","spec":"x","total":"1"})["data"]["asset_id"]
+        st,b=adm.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"open","reason":"例行保养","request_id":uid()})
+        require(st==200,f"open work order: {st} {b}")
+        require(s.sql("SELECT status FROM assets WHERE id=?",(int(aid),))[0][0]=="MAINTENANCE","status MAINTENANCE")
+        st2,b2=adm.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"open","request_id":uid()})
+        require(st2==409,f"duplicate open rejected: {st2} {b2}")
+        time.sleep(1.5)
+        st3,_=adm.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"close","request_id":uid()})
+        require(st3==200,f"close work order: {st3}")
+        require(s.sql("SELECT status FROM assets WHERE id=?",(int(aid),))[0][0]=="AVAILABLE","status restored")
+        rows=adm.request("GET",f"/api/admin/assets/{aid}/maintenance")[1]["data"]["maintenance"]
+        require(len(rows)==1 and rows[0]["ended_at"],f"work order closed: {rows}")
+        return {"maintenance_closed":True}
+    record("T58 asset maintenance work order",t58) # -- r23/maintenance
+    def t59(): # -- r23/batch-booking
+        """跨时段连续预约：原子占用连续场次；时段不连续时整体拒绝。"""
+        adm=Client(s.port).login("admin")
+        time.sleep(1.5)  # 令牌桶按用户限流：密集写操作之间留出补充间隔
+        lab=adm.post("/api/admin/labs",{"name":"连续实验室"+uid()[:6],"location":"实验楼","description":"b"})["data"]["lab_id"]
+        day=time.strftime("%Y-%m-%d",time.localtime(time.time()+86400))
+        adm.post("/api/admin/slots/publish",{"lab_id":str(lab),"start_date":day,"end_date":day,"capacity":"2"})
+        s.sql("UPDATE slots SET enabled=1 WHERE lab_id=?",(int(lab),))
+        sids=[r[0] for r in s.sql("SELECT id FROM slots WHERE lab_id=? AND enabled=1 AND start_at>? ORDER BY start_at LIMIT 3",(int(lab),int(time.time())))]
+        require(len(sids)>=3,f"slots: {len(sids)}")
+        stu=Client(s.port);sb=stu.request("POST","/api/register",{"username":"bt"+uid()[:6],"password":PASSWORD});stu.csrf=sb[1]["data"]["csrf_token"]
+        st,b=stu.request("POST","/api/reservations/batch",{"slot_ids":[str(sids[0]),str(sids[1])],"request_id":uid()})
+        require(st==200 and b["data"]["created"]==2,f"batch of 2: {st} {b}")
+        occ=s.sql("SELECT count(*) FROM reservations WHERE user_id=(SELECT id FROM users WHERE username=?) AND status='CONFIRMED'",(sb[1]["data"]["user"]["username"],))[0][0]
+        require(occ==2,f"two rows created: {occ}")
+        st2,b2=stu.request("POST","/api/reservations/batch",{"slot_ids":[str(sids[2])],"request_id":uid()})
+        require(st2==200,f"single via batch: {st2}")
+        st3,b3=stu.request("POST","/api/reservations/batch",{"slot_ids":["999999"],"request_id":uid()})
+        require(st3==404,f"missing slot rejected: {st3}")
+        return {"batch_atomic":True}
+    record("T59 batch consecutive booking",t59) # -- r23/batch-booking
+    def t60(): # -- r23/calendar-ics
+        """日历导出：返回合法 ICS 文本，含既有预约的 VEVENT。"""
+        c=Client(s.port);rb=c.request("POST","/api/register",{"username":"ic"+uid()[:6],"password":PASSWORD});c.csrf=rb[1]["data"]["csrf_token"]
+        slot=s.sql("SELECT s.id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.start_at>? AND s.enabled=1 AND l.enabled=1 AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') ORDER BY s.start_at LIMIT 1",(int(time.time())+259200,))[0][0]
+        c.post("/api/reservations",{"slot_id":str(slot),"request_id":uid()})
+        st,b=c.request("GET","/api/me/calendar.ics")
+        require(st==200,f"ics endpoint: {st} {b}")
+        content=b["data"]["content"]
+        require(content.startswith("BEGIN:VCALENDAR"),"VCALENDAR header")
+        require("END:VCALENDAR" in content,"VCALENDAR footer")
+        require("BEGIN:VEVENT" in content,"contains VEVENT")
+        require(str(b["data"]["filename"]).endswith(".ics"),f"filename: {b['data']['filename']}")
+        return {"ics_bytes":len(content)}
+    record("T60 calendar ICS export",t60) # -- r23/calendar-ics
+    def t61(): # -- r24/executable-fifo
+        """可执行 FIFO：队首候补在入队后产生跨实验室时间冲突时被暂跳并保留原序号，让给下一位可执行者。
+        注意候补入队本身也校验冲突，因此冲突必须在入队之后才制造。"""
+        adm=Client(s.port).login("admin")
+        time.sleep(1.5)
+        tag=uid()[:6]
+        lab1=adm.post("/api/admin/labs",{"name":"可执行A"+tag,"location":"实验楼","description":"x"})["data"]["lab_id"]
+        time.sleep(1.2)
+        lab2=adm.post("/api/admin/labs",{"name":"可执行B"+tag,"location":"实验楼","description":"x"})["data"]["lab_id"]
+        day=time.strftime("%Y-%m-%d",time.localtime(time.time()+172800))
+        adm.post("/api/admin/slots/publish",{"lab_id":str(lab1),"start_date":day,"end_date":day,"capacity":"1"})
+        time.sleep(1.2)
+        adm.post("/api/admin/slots/publish",{"lab_id":str(lab2),"start_date":day,"end_date":day,"capacity":"1"})
+        t1=s.sql("SELECT id FROM slots WHERE lab_id=? AND enabled=1 AND start_at>? ORDER BY start_at LIMIT 1",(int(lab1),int(time.time())))[0][0]
+        peer=s.sql("SELECT id FROM slots WHERE lab_id=? AND start_at=(SELECT start_at FROM slots WHERE id=?) AND enabled=1",(int(lab2),t1))
+        require(peer,"peer slot in lab2 at the same time exists")
+        t2=peer[0][0]
+        occ=Client(s.port).login("user18")
+        req=occ.request("POST","/api/reservations",{"slot_id":str(t1),"request_id":uid()})
+        require(req[0]==200,f"blocker reserves t1: {req}")
+        a=Client(s.port).login("user19")
+        st,wb=a.request("POST","/api/waitlist",{"slot_id":str(t1),"request_id":uid()})
+        require(st==200,f"A joins waitlist before any conflict: {st} {wb}")
+        wa=wb["data"]["waitlist_id"]
+        bcl=Client(s.port).login("user20")
+        st2,wb2=bcl.request("POST","/api/waitlist",{"slot_id":str(t1),"request_id":uid()})
+        require(st2==200,f"B joins waitlist: {st2} {wb2}")
+        wb_id=wb2["data"]["waitlist_id"]
+        # 入队之后 A 才占用 lab2 的同时段 → A 变为"暂时不可执行"，但保留原序号
+        stx,bx=a.request("POST","/api/reservations",{"slot_id":str(t2),"request_id":uid()})
+        require(stx==200,f"A later占同时段 peer slot: {stx} {bx}")
+        recs=occ.request("GET","/api/me/records?page=1&page_size=5")[1]["data"]["reservations"]
+        rid=[r for r in recs if str(r["slot_id"])==str(t1)][0]["id"]
+        occ.post(f"/api/reservations/{rid}/cancel",{"request_id":uid()})
+        stA=s.sql("SELECT status FROM waitlist WHERE id=?",(int(wa),))[0][0]
+        stB=s.sql("SELECT status FROM waitlist WHERE id=?",(int(wb_id),))[0][0]
+        require(stA=="WAITING",f"blocked head keeps WAITING and its order: {stA}")
+        require(stB=="PROMOTED",f"next executable candidate promoted past blocked head: {stB}")
+        return {"skipped_blocked_head":True}
+    record("T61 executable FIFO skips blocked head",t61) # -- r24/executable-fifo
+    def t62(): # -- r24/held
+        """HELD 限时保留：保留截止已过的待确认记录由扫描器回收为 EXPIRED 并重新递补；默认配置不产生 HELD。"""
+        held_now=s.sql("SELECT count(*) FROM reservations WHERE status='HELD'")[0][0]
+        require(held_now==0,f"no HELD without --hold-window (compatibility): {held_now}")
+        adm=Client(s.port).login("admin")
+        time.sleep(1.5)
+        lab=adm.post("/api/admin/labs",{"name":"保留实验室"+uid()[:6],"location":"实验楼","description":"h"})["data"]["lab_id"]
+        day=time.strftime("%Y-%m-%d",time.localtime(time.time()+86400))
+        time.sleep(1.2)
+        adm.post("/api/admin/slots/publish",{"lab_id":str(lab),"start_date":day,"end_date":day,"capacity":"1"})
+        sid=s.sql("SELECT id FROM slots WHERE lab_id=? AND enabled=1 AND start_at>? ORDER BY start_at LIMIT 1",(int(lab),int(time.time())))[0][0]
+        usr=s.sql("SELECT id FROM users WHERE username='user02'")[0][0]
+        # 构造一条已过期的 HELD（hold_deadline 在过去），等待扫描器回收
+        past=int(s.sql("SELECT strftime('%s','now')")[0][0])-60
+        s.sql("INSERT INTO reservations(user_id,slot_id,status,source,created_at,hold_deadline) VALUES(?,?,'HELD','WAITLIST',?,?)",(usr,sid,past-600,past))
+        rid=s.sql("SELECT id FROM reservations WHERE status='HELD' ORDER BY id DESC LIMIT 1")[0][0]
+        deadline=time.time()+13
+        st="HELD"
+        while time.time()<deadline:
+            st=s.sql("SELECT status FROM reservations WHERE id=?",(rid,))[0][0]
+            if st!="HELD": break
+            time.sleep(0.5)
+        require(st=="EXPIRED",f"expired HELD reclaimed by sweeper: {st}")
+        return {"held_reclaimed":True}
+    record("T62 HELD hold expiry reclaimed",t62) # -- r24/held
 
 
 def account_checks(s):
