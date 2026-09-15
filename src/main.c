@@ -45,7 +45,7 @@ static int gen_demo(DB *db,int days,const char *password){
  return 1;
 }
  int app_main(int argc,char **argv){
- Config c={"data/lab.db","web",8080,900,30,30,1,5,900,500,NULL,NULL,NULL,NULL,1800,21600,0,0,NULL};int seed=0,init=0,check=0,demo_days=0;
+ Config c={"data/lab.db","web",8080,900,30,30,1,5,900,500,NULL,NULL,NULL,NULL,1800,21600,0,0};int seed=0,init=0,check=0,demo_days=0;
  for(int i=1;i<argc;i++){
   if(!strcmp(argv[i],"--seed"))seed=1;else if(!strcmp(argv[i],"--init-only"))init=1;else if(!strcmp(argv[i],"--check"))check=1;
   else if(!strcmp(argv[i],"--db")&&i+1<argc)c.db_path=argv[++i];

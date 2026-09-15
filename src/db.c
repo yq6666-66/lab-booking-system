@@ -128,31 +128,28 @@ static int has_column(DB *d,const char *table,const char *column){
 }
 /* v1→v2：仅追加列，不重建表；v2→v3：场次容量制，退役单占用唯一索引。全部幂等。 */
 static int db_migrate(DB *d){
- fprintf(stderr,"[mig] enter\n");
  if(!has_column(d,"reservations","checked_in_at")||!has_column(d,"reservations","cancel_reason")||!has_column(d,"sessions","created_at")){
   if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
   if(!has_column(d,"reservations","checked_in_at"))db_run(d,"ALTER TABLE reservations ADD COLUMN checked_in_at INTEGER","");
   if(!has_column(d,"reservations","cancel_reason"))db_run(d,"ALTER TABLE reservations ADD COLUMN cancel_reason TEXT","");
   if(!has_column(d,"sessions","created_at"))db_run(d,"ALTER TABLE sessions ADD COLUMN created_at INTEGER","");
   db_run(d,"UPDATE reservations SET cancel_reason='USER' WHERE status='CANCELLED' AND cancel_reason IS NULL","");
-  if(d->error){fprintf(stderr,"[mig] block err code=%d\n",d->error);sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
   if(!db_run(d,"COMMIT",""))return 0;
  }
  if(!has_column(d,"slots","capacity")){
   if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
   db_run(d,"ALTER TABLE slots ADD COLUMN capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 200)","");
   db_run(d,"DROP INDEX IF EXISTS one_booking","");
-  if(d->error){fprintf(stderr,"[mig] block err code=%d\n",d->error);sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
   if(!db_run(d,"COMMIT",""))return 0;
  }
- fprintf(stderr,"[mig] s1 done\n");
  if(!has_column(d,"labs","require_approval")){ /* r19 审批开关：幂等追加 */
   if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
   db_run(d,"ALTER TABLE labs ADD COLUMN require_approval INTEGER NOT NULL DEFAULT 0 CHECK(require_approval IN(0,1))","");
-  if(d->error){fprintf(stderr,"[mig] block err code=%d\n",d->error);sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
   if(!db_run(d,"COMMIT",""))return 0;
  }
- fprintf(stderr,"[mig] s2 done\n");
  if(has_column(d,"api_tokens","token_hash")&&!has_column(d,"api_tokens","id")){ /* r20 旧结构修复：令牌为可再生数据，直接重建 */
   db_run(d,"DROP TABLE api_tokens","");
  }
@@ -162,22 +159,19 @@ static int db_migrate(DB *d){
  if(!has_column(d,"reservations","checked_out_at")){ /* r16 签退列：幂等追加 */
   if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
   db_run(d,"ALTER TABLE reservations ADD COLUMN checked_out_at INTEGER","");
-  if(d->error)fprintf(stderr,"[mig] checked_out ALTER err=%d msg=%s\n",d->error,sqlite3_errmsg(d->sql));
-  if(d->error){fprintf(stderr,"[mig] block err code=%d\n",d->error);sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
   if(!db_run(d,"COMMIT",""))return 0;
  }
- fprintf(stderr,"[mig] s3 done\n");
  if(!has_column(d,"reservations","note")){ /* r18 预约备注列：幂等追加 */
   if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
   db_run(d,"ALTER TABLE reservations ADD COLUMN note TEXT","");
-  if(d->error){fprintf(stderr,"[mig] block err code=%d\n",d->error);sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
   if(!db_run(d,"COMMIT",""))return 0;
  }
- fprintf(stderr,"[mig] s4 done\n");
   if(!has_column(d,"slots","reminded_at")){ /* v3/v4→提醒列：幂等追加 */
   if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
   db_run(d,"ALTER TABLE slots ADD COLUMN reminded_at INTEGER","");
-  if(d->error){fprintf(stderr,"[mig] block err code=%d\n",d->error);sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
   if(!db_run(d,"COMMIT",""))return 0;
  }
  /* r19 审批状态：reservations 的 status/reason CHECK 扩展 PENDING/REJECTED——CHECK 无法原地修改，
@@ -188,10 +182,9 @@ static int db_migrate(DB *d){
   if(rdl&&!strstr(rdl,"'PENDING'")){
    cJSON_Delete(rz);
    db_run(d,"PRAGMA foreign_keys=OFF","");
-   if(!db_run(d,"BEGIN IMMEDIATE","")){fprintf(stderr,"[migrate] reservations rebuild begin failed code=%d\n",d->error);return 0;}
+   if(!db_run(d,"BEGIN IMMEDIATE","")){return 0;}
    db_run(d,"CREATE TABLE reservations_new(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','PENDING','CANCELLED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,checked_out_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW','REJECTED')),note TEXT);","");
    db_run(d,"INSERT INTO reservations_new(id,user_id,slot_id,status,source,created_at,cancelled_at,checked_in_at,checked_out_at,cancel_reason,note) SELECT id,user_id,slot_id,status,source,created_at,cancelled_at,checked_in_at,checked_out_at,cancel_reason,note FROM reservations","");
-   if(d->error)fprintf(stderr,"[migrate] reservations copy failed code=%d\n",d->error);
    db_run(d,"DROP TABLE reservations","");
    db_run(d,"ALTER TABLE reservations_new RENAME TO reservations","");
    db_run(d,"CREATE INDEX IF NOT EXISTS bookings_slot ON reservations(slot_id,status);","");
@@ -200,7 +193,6 @@ static int db_migrate(DB *d){
    db_run(d,"PRAGMA foreign_keys=ON","");
   } else cJSON_Delete(rz);
  }
- fprintf(stderr,"[mig] s5 rebuild done\n");
  /* v3→v4：notifications.kind 增加 'NOTICE'（管理员公告）与 'REMIND'（开场提醒）；CHECK 无法原地修改，检测到旧约束时重建表。 */
  cJSON *nt=db_first(d,"SELECT sql FROM sqlite_master WHERE type='table' AND name='notifications'","");
  if(!nt)return d->error?0:1;
@@ -243,7 +235,7 @@ int db_init(DB *d){
  "CREATE TABLE IF NOT EXISTS api_tokens(id INTEGER PRIMARY KEY,token_hash TEXT NOT NULL UNIQUE,user_id INTEGER NOT NULL REFERENCES users(id),name TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,last_used_at INTEGER);"
  "PRAGMA user_version=3;COMMIT;";
  cJSON *wal=db_first(d,"PRAGMA journal_mode=WAL","");int ok=wal&&jstr(wal,"journal_mode")&&!strcmp(jstr(wal,"journal_mode"),"wal");cJSON_Delete(wal);if(!ok)return 0;
- int rc=sqlite3_exec(d->sql,schema,NULL,NULL,NULL);if(rc!=SQLITE_OK){fprintf(stderr,"[init] schema exec failed rc=%d msg=%s\n",rc,sqlite3_errmsg(d->sql));d->error=rc;}
+ int rc=sqlite3_exec(d->sql,schema,NULL,NULL,NULL);if(rc!=SQLITE_OK){d->error=rc;}
  if(d->error)return 0;
  return db_migrate(d);
 }
@@ -261,29 +253,19 @@ int publish_slots_week(DB *d,Id lab,Id start,Id end,Id capacity,int mask){ /* ma
 }
 int db_check(DB *d){
  int ok=1;
- fprintf(stderr,"[check] enter error=%d\n",d->error);
- {cJSON *ci=db_rows(d,"PRAGMA table_info(reservations)","");char *pt=ci?cJSON_PrintUnformatted(ci):NULL;fprintf(stderr,"[check] cols=%s\n",pt?pt:"NULL");free(pt);cJSON_Delete(ci);}
- fprintf(stderr,"[check] enter error=%d\n",d->error);
- cJSON *r=db_first(d,"PRAGMA integrity_check","");if(!(r&&jstr(r,"integrity_check")&&!strcmp(jstr(r,"integrity_check"),"ok"))){ok=0;fprintf(stderr,"[check] integrity_check failed\n");}cJSON_Delete(r);
- cJSON *fk=db_rows(d,"PRAGMA foreign_key_check","");if(!fk||cJSON_GetArraySize(fk)){ok=0;fprintf(stderr,"[check] foreign_key_check failed (%d rows)\n",fk?cJSON_GetArraySize(fk):-1);}cJSON_Delete(fk);
- if(db_num(d,"SELECT count(*) FROM waitlist w JOIN reservations r ON w.user_id=r.user_id AND w.slot_id=r.slot_id WHERE w.status='WAITING' AND r.status='CONFIRMED'","")>0){ok=0;fprintf(stderr,"[check] waiting+confirmed overlap\n");}
-fprintf(stderr,"[mig] q err=%d",d->error);
- if(db_num(d,"SELECT count(*) FROM waitlist w LEFT JOIN reservations r ON r.id=w.promoted_reservation_id WHERE w.status='PROMOTED' AND (r.id IS NULL OR r.user_id!=w.user_id OR r.slot_id!=w.slot_id OR r.source!='WAITLIST')","")>0){ok=0;fprintf(stderr,"[check] promoted without valid waitlist reservation\n");}
-fprintf(stderr,"[mig] q err=%d",d->error);
- if(db_num(d,"SELECT count(*) FROM slots s WHERE (SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED')>s.capacity","")>0){ok=0;fprintf(stderr,"[check] over capacity\n");}
-fprintf(stderr,"[mig] q err=%d",d->error);
- if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_in_at IS NOT NULL AND status<>'CONFIRMED'","")>0){ok=0;fprintf(stderr,"[check] checked-in but not confirmed\n");}
-fprintf(stderr,"[mig] q err=%d",d->error);
- if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason='NO_SHOW' AND (status<>'CANCELLED' OR checked_in_at IS NOT NULL)","")>0){ok=0;fprintf(stderr,"[check] no_show inconsistent\n");}
-fprintf(stderr,"[mig] q err=%d",d->error);
- if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason IS NOT NULL AND status<>'CANCELLED'","")>0){ok=0;fprintf(stderr,"[check] cancel_reason on non-cancelled\n");}
- if(db_num(d,"SELECT count(*) FROM reservations WHERE status='CANCELLED' AND cancelled_at IS NOT NULL AND cancel_reason IS NULL","")>0){ok=0;fprintf(stderr,"[check] cancelled without reason\n");}
-fprintf(stderr,"[mig] q err=%d",d->error);
- if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_out_at IS NOT NULL AND checked_in_at IS NULL","")>0){ok=0;fprintf(stderr,"[check] checkout without checkin\n");}
-fprintf(stderr,"[mig] q err=%d",d->error);
- if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_out_at IS NOT NULL AND checked_out_at<checked_in_at","")>0){ok=0;fprintf(stderr,"[check] checkout before checkin\n");}
-fprintf(stderr,"[mig] q err=%d",d->error);
- if(d->error){fprintf(stderr,"[check] db.error=%d\n",d->error);ok=0;}
+ {cJSON *ci=db_rows(d,"PRAGMA table_info(reservations)","");char *pt=ci?cJSON_PrintUnformatted(ci):NULL;free(pt);cJSON_Delete(ci);}
+ cJSON *r=db_first(d,"PRAGMA integrity_check","");if(!(r&&jstr(r,"integrity_check")&&!strcmp(jstr(r,"integrity_check"),"ok"))){ok=0;}cJSON_Delete(r);
+ cJSON *fk=db_rows(d,"PRAGMA foreign_key_check","");if(!fk||cJSON_GetArraySize(fk)){ok=0;}cJSON_Delete(fk);
+ if(db_num(d,"SELECT count(*) FROM waitlist w JOIN reservations r ON w.user_id=r.user_id AND w.slot_id=r.slot_id WHERE w.status='WAITING' AND r.status='CONFIRMED'","")>0){ok=0;}
+ if(db_num(d,"SELECT count(*) FROM waitlist w LEFT JOIN reservations r ON r.id=w.promoted_reservation_id WHERE w.status='PROMOTED' AND (r.id IS NULL OR r.user_id!=w.user_id OR r.slot_id!=w.slot_id OR r.source!='WAITLIST')","")>0){ok=0;}
+ if(db_num(d,"SELECT count(*) FROM slots s WHERE (SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED')>s.capacity","")>0){ok=0;}
+ if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_in_at IS NOT NULL AND status<>'CONFIRMED'","")>0){ok=0;}
+ if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason='NO_SHOW' AND (status<>'CANCELLED' OR checked_in_at IS NOT NULL)","")>0){ok=0;}
+ if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason IS NOT NULL AND status<>'CANCELLED'","")>0){ok=0;}
+ if(db_num(d,"SELECT count(*) FROM reservations WHERE status='CANCELLED' AND cancelled_at IS NOT NULL AND cancel_reason IS NULL","")>0){ok=0;}
+ if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_out_at IS NOT NULL AND checked_in_at IS NULL","")>0){ok=0;}
+ if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_out_at IS NOT NULL AND checked_out_at<checked_in_at","")>0){ok=0;}
+ if(d->error){ok=0;}
  return ok;
 }
 int db_seed(DB *d,const char *password){

@@ -163,7 +163,8 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
    Id slot_end=start_at+3600;
    cJSON *it;int n=0;
    cJSON_ArrayForEach(it,claim_arr){
-    if(n>=5)break;n++;
+    if(n>=5)break;
+    n++;
     Id aid=0;const char *sv=cJSON_IsString(it)?cJSON_GetStringValue(it):NULL;
     if(!sv||!parse_id(sv,&aid)||aid<1){r=result(400,"INVALID_INPUT","资源编号不合法",NULL);goto save;}
     if(!db_num(d,"SELECT count(*) FROM assets WHERE id=? AND lab_id=(SELECT lab_id FROM slots WHERE id=?) AND status='AVAILABLE'","ii",aid,sid)){
@@ -251,10 +252,13 @@ Result records(DB *d,const User *u,int all,Id date,int page,int size,const char 
  /* status 为白名单枚举（调用方已校验，直接拼接无注入面），过滤预约列表；
     ev_action/ev_user 仅过滤管理端操作日志（参数化绑定）。 */
  const char *where=all?"(?=0 OR (s.start_at>=? AND s.start_at<?))":"r.user_id=?";
- char sql[1900];
+ char sql[1900],sfilter[48]={0};
+ /* status 由调用方按白名单枚举校验后传入，直接拼接无注入面；
+    原实现写成字面量 '?' 使条件恒不成立（r22 修正）。 */
+ if(status)snprintf(sfilter,sizeof sfilter," AND r.status='%s'",status);
  Id limit=(Id)size+1,offset=(Id)(page-1)*size;int more=0;
  snprintf(sql,sizeof sql,"SELECT r.id,r.slot_id,l.id AS lab_id,l.name AS lab_name,u.username,s.start_at,s.end_at,r.status,r.source,r.cancel_reason,r.checked_in_at,r.note FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id JOIN users u ON u.id=r.user_id WHERE %s%s ORDER BY r.id DESC LIMIT ? OFFSET ?",
-  where,status?" AND r.status='?'":"");
+  where,sfilter);
  cJSON *a=all?db_rows(d,sql,"iiiii",date,date,date+86400,limit,offset):db_rows(d,sql,"iii",u->id,limit,offset);
  if(a&&cJSON_GetArraySize(a)>size){cJSON_DeleteItemFromArray(a,(int)size);more=1;}
  snprintf(sql,sizeof sql,"SELECT r.id,r.slot_id,l.name AS lab_name,u.username,s.start_at,s.end_at,r.status,CASE WHEN r.status='WAITING' THEN (SELECT count(*) FROM waitlist w JOIN users wu ON wu.id=w.user_id WHERE w.slot_id=r.slot_id AND w.status='WAITING' AND w.id<=r.id AND wu.enabled=1) ELSE 0 END AS position FROM waitlist r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id JOIN users u ON u.id=r.user_id WHERE %s ORDER BY r.id DESC LIMIT ? OFFSET ?",where);
@@ -793,15 +797,42 @@ Result asset_claim_report(DB *d,Id start,Id end){
  cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"claims",out);
  return result(200,"OK","查询成功",j);
 }
+/* r22 声明占用报表 CSV 导出：复用 asset_claim_report 的结果，输出带 BOM 的 CSV（对齐 stats_export / utilization_export）。
+   仅导出报表已有字段，避免为导出而改动既有响应契约。 */
+Result asset_claim_export(DB *d,Id start,Id end){
+ Result r=asset_claim_report(d,start,end);if(r.status!=200)return r;
+ cJSON *data=cJSON_GetObjectItemCaseSensitive(r.body,"data"),*rows=cJSON_GetObjectItemCaseSensitive(data,"claims");
+ char a[11],b[11];date_text((start+28800)/86400,a);date_text((end+28800)/86400,b);
+ size_t cap=4096+(size_t)(rows?cJSON_GetArraySize(rows):0)*160;char *csv=malloc(cap);
+ if(!csv){cJSON_Delete(r.body);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
+ int n=snprintf(csv,cap,"\xEF\xBB\xBF" "资源编号,资源名称,声明次数,最近占用日期\n");
+ if(n<0||(size_t)n>=cap)n=0;
+ Id total=0;cJSON *it;
+ cJSON_ArrayForEach(it,rows){
+  if((size_t)n+160>=cap)break;
+  cJSON *aid=cJSON_GetObjectItemCaseSensitive(it,"asset_id");
+  const char *idtext=(aid&&aid->valuestring)?aid->valuestring:"";
+  const char *nm=jstr(it,"asset_name");
+  double claims=cJSON_GetObjectItemCaseSensitive(it,"claims")?cJSON_GetObjectItemCaseSensitive(it,"claims")->valuedouble:0;
+  cJSON *ls=cJSON_GetObjectItemCaseSensitive(it,"last_start");
+  char ld[11]="";if(ls&&ls->valuedouble>0)date_text(((Id)ls->valuedouble+28800)/86400,ld);
+  n+=snprintf(csv+n,cap-(size_t)n,"%s,%s,%g,%s\n",idtext,nm?nm:"",claims,ld);
+  total+=(Id)claims;
+ }
+ if(rows&&(size_t)n+64<cap)n+=snprintf(csv+n,cap-(size_t)n,"合计,,%lld,\n",(long long)total);
+ cJSON_Delete(r.body);
+ char name[72];snprintf(name,sizeof name,"lab-asset-claims-%s_%s.csv",a,b);
+ cJSON *j2=cJSON_CreateObject();cJSON_AddStringToObject(j2,"filename",name);cJSON_AddStringToObject(j2,"content",csv);free(csv);
+ return result(200,"OK","导出完成",j2);
+}
 /* r20 API 令牌：只读程序化访问（Cal.com API keys 模式）。明文仅创建时返回一次，库中存哈希。 */
 Result token_create(DB *d,const User *u,const cJSON *body){
  const char *name=jstr(body,"name");
- fprintf(stderr,"[tc] name=%s\n",name?name:"(null)");
  if(!name||!strlen(name)||strlen(name)>80)return result(400,"INVALID_INPUT","令牌名称不合法",NULL);
  char raw[65];random_hex(raw);
  raw[32]=0;
  char th[65];hash_text(raw,th);
- if(!db_run(d,"INSERT INTO api_tokens(token_hash,user_id,name,created_at) VALUES(?,?,?,?)","sisi",th,u->id,name,now_sec())){fprintf(stderr,"[tc] insert failed\n");return db_failure(d);}
+ if(!db_run(d,"INSERT INTO api_tokens(token_hash,user_id,name,created_at) VALUES(?,?,?,?)","sisi",th,u->id,name,now_sec())){return db_failure(d);}
  event(d,u->id,"TOKEN_CREATE",u->id,NULL);
  cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"token",raw);cJSON_AddStringToObject(j,"name",name);
  return result(200,"OK","令牌已创建，明文仅此一次显示",j);
@@ -820,6 +851,23 @@ Result token_list(DB *d,const User *u){
  if(!rows)rows=cJSON_CreateArray();
  cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"tokens",rows);
  return result(200,"OK","查询成功",j);
+}
+/* r22 X-API-Token 只读访问：以令牌明文换取用户身份，供 GET 路径免 Cookie 认证。
+   明文仅创建时返回一次，库内只存 SHA-256 十六进制（与 token_create 一致，长度 32）。
+   命中即刷新 last_used_at 以便管理端观察使用情况；不写入操作事件，避免读操作刷屏。 */
+Result token_auth(DB *d,const char *raw,User *u){
+ if(!raw||strlen(raw)!=32)return result(401,"UNAUTHORIZED","令牌无效",NULL);
+ char th[65];hash_text(raw,th);
+ cJSON *r=db_first(d,"SELECT t.id,u.id AS user_id,u.username,u.role FROM api_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=? AND u.enabled=1","s",th);
+ if(d->error)return db_failure(d);
+ if(!r)return result(401,"UNAUTHORIZED","令牌无效",NULL);
+ memset(u,0,sizeof *u);
+ parse_id(jstr(r,"user_id"),&u->id);
+ u->admin=!strcmp(jstr(r,"role"),"ADMIN");
+ snprintf(u->username,sizeof u->username,"%s",jstr(r,"username"));
+ Id tid=0;parse_id(jstr(r,"id"),&tid);cJSON_Delete(r);
+ db_run(d,"UPDATE api_tokens SET last_used_at=? WHERE id=?","ii",now_sec(),tid);
+ return result(200,"OK","令牌有效",NULL);
 }
 /* r19 审批：PENDING → CONFIRMED（批准，重校容量与资源配额，通知用户）/ → CANCELLED+REJECTED（拒绝，通知用户）。 */
 Result reservation_approval(DB *d,const User *u,Id target,int approve,const char *key){
@@ -918,7 +966,7 @@ Result utilization_export(DB *d,Id start,Id end){ Result r=lab_utilization(d,sta
  char a[11],b[11];date_text((start+28800)/86400,a);date_text((end+28800)/86400,b);
  size_t cap=2048+(size_t)(rows?cJSON_GetArraySize(rows):0)*160;char *csv=malloc(cap);
  if(!csv){cJSON_Delete(r.body);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
- int n=snprintf(csv,cap,"\xEF\xBB\xBF" "实验室,开放场次,总席位,有效预约,已签到,已爽约,利用率%\n");
+ int n=snprintf(csv,cap,"\xEF\xBB\xBF" "实验室,开放场次,总席位,有效预约,已签到,已爽约,利用率%%\n");
  if(n<0||(size_t)n>=cap)n=0;
  cJSON *it;cJSON_ArrayForEach(it,rows){
   if((size_t)n+200>=cap)break;

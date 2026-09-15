@@ -114,10 +114,10 @@ LAB_OBJ = {"id": T_ID, "name": T_STR, "location": T_STR, "description": T_STR, "
 SLOT_OBJ = {"id": T_ID, "lab_id": T_ID, "start_at": T_INT, "end_at": T_INT, "enabled": T_BOOL, "lab_enabled": T_BOOL,
             "capacity": T_INT, "confirmed_count": T_INT, "waiting_count": T_INT, "my_reservation_id": nb(T_ID),
             "my_checked_in_at": nb(T_INT), "my_waitlist_id": nb(T_ID)}
-RES_ROW = {"id": T_ID, "slot_id": T_ID, "lab_id": T_ID, "lab_name": T_STR, "start_at": T_INT, "end_at": T_INT,
+RES_ROW = {"id": T_ID, "slot_id": T_ID, "lab_id": T_ID, "lab_name": T_STR, "username": T_STR, "start_at": T_INT, "end_at": T_INT,
            "status": T_STR, "source": T_STR, "cancel_reason": nb(T_STR), "checked_in_at": nb(T_INT),
            "note": nb(T_STR)}
-WAIT_ROW = {"id": T_ID, "slot_id": T_ID, "lab_name": T_STR, "start_at": T_INT, "end_at": T_INT,
+WAIT_ROW = {"id": T_ID, "slot_id": T_ID, "lab_name": T_STR, "username": T_STR, "start_at": T_INT, "end_at": T_INT,
             "status": T_STR, "position": nb(T_INT)}
 NOTIFY_ROW = {"id": T_ID, "kind": T_STR, "title": T_STR, "body": T_STR, "slot_id": nb(T_ID),
               "reservation_id": nb(T_ID), "read_at": nb(T_INT), "created_at": T_INT}
@@ -125,24 +125,25 @@ SESSION_ROW = {"id": T_STR, "created_at": nb(T_INT), "expires_at": T_INT, "curre
 STAT_ROW = {"date": T_STR, "slots": T_INT, "confirmed": T_INT, "cancelled": T_INT,
             "no_show": T_INT, "checked_in": T_INT, "waiting": T_INT}
 ASSET_OBJ = {"id": T_ID, "name": T_STR, "spec": T_STR, "total": T_INT, "status": T_STR}
-UTIL_ROW = {"lab_id": T_ID, "lab_name": T_STR, "slots": T_INT, "seats": T_INT, "confirmed": T_INT, "checked_in": T_INT, "no_show": T_INT, "utilization": T_NUM}
+UTIL_ROW = {"lab_id": T_ID, "lab_name": T_STR, "slots": T_INT, "seats": T_INT, "confirmed": T_INT, "checked_in": T_INT, "no_show": T_INT, "utilization": T_NUM, "actual_minutes": T_NUM, "seat_minutes": T_NUM, "utilization_actual": T_NUM}
 STAT_DAY = {"date": T_STR, "claims": T_INT}
-TOKEN_ROW = {"id": T_ID, "name": T_STR, "created_at": T_INT}
+CLAIM_ROW = {"asset_id": T_ID, "asset_name": T_STR, "claims": T_INT, "last_start": T_INT}
+TOKEN_ROW = {"id": T_ID, "name": T_STR, "created_at": T_INT, "last_used_at": nb(T_INT)}
 TOTALS_OBJ = {"slots": T_INT, "confirmed": T_INT, "cancelled": T_INT, "no_show": T_INT,
               "checked_in": T_INT, "waiting": T_INT}
 COUNTERS_OBJ = {"requests_total": T_NUM, "ok_2xx": T_NUM, "err_4xx": T_NUM, "err_5xx": T_NUM,
                 "db_busy_503": T_NUM, "logins": T_NUM}
 LATENCY_OBJ = {"count": T_NUM, "sum": T_NUM, "max": T_NUM, "buckets": arr(T_NUM)}
-EVENT_ROW_ADMIN = {"actor": T_STR, "action": T_STR, "entity_id": T_ID, "created_at": T_INT,
+EVENT_ROW_ADMIN = {"id": T_ID, "actor": T_STR, "action": T_STR, "entity_id": T_ID, "created_at": T_INT,
                    "request_id": nb(T_STR)}
 PAGED = {"page": T_INT, "page_size": T_INT, "has_more": T_BOOL}
 ME_RECORDS = {"reservations": arr(RES_ROW), "waitlist": arr(WAIT_ROW), "events": arr({}), **PAGED}
-ADMIN_RECORDS = {"reservations": arr({"username": T_STR, **RES_ROW}), "waitlist": arr({"username": T_STR, **WAIT_ROW}),
+ADMIN_RECORDS = {"reservations": arr(RES_ROW), "waitlist": arr(WAIT_ROW),
                  "events": arr(EVENT_ROW_ADMIN), **PAGED}
 
 # 路径 -> (方法, data schema)；{id} 为占位符，运行时替换
 SCHEMAS = [
-    ("GET",  "/api/health",                    {"status": T_STR}),
+    ("GET",  "/api/health",                    {"status": T_STR, "version": T_STR, "uptime_s": T_NUM}),
     ("POST", "/api/login",                     LOGIN_DATA),
     ("GET",  "/api/me",                        LOGIN_DATA),
     ("POST", "/api/logout",                    "empty-or-obj"),
@@ -176,6 +177,9 @@ SCHEMAS = [
     ("GET",  "/api/admin/labs/utilization?start_date={today}&end_date={today}", {"utilization": arr(UTIL_ROW)}),
     ("GET",  "/api/admin/assets/{aid}/usage?start_date={today}&end_date={today}", {"asset": ASSET_OBJ, "usage": arr(STAT_DAY)}),
     ("GET",  "/api/admin/stats/utilization/export?start_date={today}&end_date={today}", {"filename": T_STR, "content": T_STR}),
+    ("GET",  "/api/admin/asset-claims?start_date={today}&end_date={today}", {"claims": arr(CLAIM_ROW)}),
+    ("GET",  "/api/admin/asset-claims/export?start_date={today}&end_date={today}", {"filename": T_STR, "content": T_STR}),
+    ("GET",  "/api/admin/records?status=PENDING&page=1&page_size=5", ADMIN_RECORDS),
     ("POST", "/api/admin/slots/publish",       {"created": T_INT}),
     ("POST", "/api/register",                  LOGIN_DATA),
     ("POST", "/api/me/sessions/{sid}/revoke",  "empty-or-obj"),

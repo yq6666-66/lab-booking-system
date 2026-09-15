@@ -11,8 +11,8 @@
 - GET /api/health -> data `{status:"ok",version,uptime_s}`。
 - GET /api/labs -> data `{labs:[{id,name,location,description,enabled}]}`。
 - GET /api/slots?lab_id=1&date=YYYY-MM-DD -> data `{slots:[{id,lab_id,start_at,end_at,enabled,lab_enabled,occupied,waiting_count,my_reservation_id,my_checked_in_at,my_waitlist_id}],checkin_window}`。my_reservation_id/my_checked_in_at/my_waitlist_id 可为 null；checkin_window 为签到窗口秒数，页面据此判断何时显示签到按钮。
-- GET /api/me/records?page=&page_size= -> data `{reservations:[{id,slot_id,lab_name,start_at,end_at,status,source,cancel_reason,checked_in_at}],waitlist:[{id,slot_id,lab_name,start_at,end_at,status,position}],events:[],page,page_size,has_more}`。page_size 取值 1..200（默认 20），has_more 表示是否还有下一页。
-- GET /api/admin/records?date=YYYY-MM-DD&page=&page_size= -> 同上但所有用户，记录附username，events含actor/action/entity_id/created_at/request_id。
+- GET /api/me/records?page=&page_size= -> data `{reservations:[{id,slot_id,lab_id,lab_name,username,start_at,end_at,status,source,cancel_reason,checked_in_at,note}],waitlist:[{id,slot_id,lab_name,username,start_at,end_at,status,position}],events:[],page,page_size,has_more}`。page_size 取值 1..200（默认 20），has_more 表示是否还有下一页。
+- GET /api/admin/records?date=YYYY-MM-DD&page=&page_size= -> 同上但所有用户；records 与 waitlist 均附 username，events 含 id/actor/action/entity_id/created_at/request_id。支持可选 `status` 参数（CONFIRMED/CANCELLED/NO_SHOW/PENDING，其他值 400）过滤预约列表，不传 `date` 时不按日期过滤（用于跨天场景，如待审批列表）。
 - GET /api/admin/stats?start_date=&end_date=（最多31个日期）-> data `{stats:[{date,slots,confirmed,cancelled,no_show,checked_in,waiting}],totals:{slots,confirmed,cancelled,no_show,checked_in,waiting}}`。按北京日聚合；仅返回有场次的日期。slots为开放场次数；confirmed为该日有效预约数；cancelled为其中用户主动取消数；no_show为签到超时释放数；checked_in为已签到数；waiting为有效候补人数。
 - GET /api/admin/stats/export?start_date=&end_date= -> data `{filename,content}`（最多31天）。content 为带 BOM 的 CSV 文本（日期/开放场次/有效预约/已取消/已爽约/已签到/候补人数，末行为合计），由页面下载为 .csv 文件。
 - POST /api/reservations `{slot_id,request_id}` -> data `{reservation_id}`。
@@ -59,7 +59,9 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 - GET /api/labs/{id}/assets -> data `{assets:[{id,name,spec,total,status}]}`。登录即可调用（用户端预约页展示）；不含 status=DISABLED 的资源。
 - POST /api/admin/labs/{id}/assets `{name,spec?,total?,status?}` -> data `{asset_id}`。仅管理员；total 1..999；status ∈ AVAILABLE/MAINTENANCE/DISABLED（缺省 AVAILABLE）；同一实验室内资源名唯一（409 STATE_CONFLICT「该实验室已有同名资源」）；实验室不存在 404；审计 ASSET_CREATE。
 - POST /api/admin/assets/{id}/update `{name,spec?,total?,status?}` -> data `{asset_id}`。仅管理员；语义同上；资源不存在 404；审计 ASSET_UPDATE。
-- GET /api/admin/labs/utilization?start_date=&end_date= -> data `{utilization:[{lab_id,lab_name,slots,seats,confirmed,checked_in,no_show,utilization}]}`。仅管理员；区间 ≤31 天；utilization=confirmed÷seats×100（保留 1 位小数，seats=0 时为 0）。
+- GET /api/admin/labs/utilization?start_date=&end_date= -> data `{utilization:[{lab_id,lab_name,slots,seats,confirmed,checked_in,no_show,utilization,actual_minutes,seat_minutes,utilization_actual}]}`。仅管理员；区间 ≤31 天；utilization=confirmed÷seats×100（保留 1 位小数，seats=0 时为 0）；actual_minutes 为实机时合计（分钟），seat_minutes 为席位分钟合计，utilization_actual=actual_minutes÷seat_minutes×100（同上口径）。
+- GET /api/admin/asset-claims?start_date=&end_date= -> data `{claims:[{asset_id,asset_name,claims,last_start}]}`。仅管理员；区间 ≤31 天；claims 为该资源在区间内的有效声明次数，last_start 为最近一次声明所在场次的开始时间（无声明为 0）。
+- GET /api/admin/asset-claims/export?start_date=&end_date= -> data `{filename,content}`。声明占用 CSV（带 BOM，列为资源编号/资源名称/声明次数/最近占用日期，末行为合计），不修改任何数据。
 - GET /api/admin/stats/utilization/export?start_date=&end_date= -> data `{filename,content}`。利用率 CSV（BOM，Excel 直开）。
 - 数据不变量：assets(lab_id,name) 唯一；status CHECK 约束；实验室内资源随 labs 保留（停用实验室不清空清单）。
 - GET /api/admin/assets/{id}/usage?start_date=&end_date= -> data `{asset:{...},usage:[{date,claims}]}`。仅管理员；区间 ≤31 天；按有效预约（CONFIRMED）逐日聚合资源声明次数。

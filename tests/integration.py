@@ -1043,6 +1043,87 @@ def feature_checks(s):
         require(wl_left==0 and rc_left==0,f"archive cleaned: waitlist={wl_left} receipts={rc_left}")
         return {"archived":True}
     record("T39 archive sweep",t39) # -- r12/archive
+    def t52(): # -- r22/approvals-tab
+        """管理端待审批页签：status=PENDING 只返回待审批且不按日期截断；批准后即从列表消失，非法状态值 400。"""
+        adm=Client(s.port).login("admin")
+        tag=uid()[:6]
+        lab=adm.post("/api/admin/labs",{"name":"审批页签"+tag,"location":"实验楼","description":"approvals"})["data"]["lab_id"]
+        adm.post(f"/api/admin/labs/{lab}/update",{"name":"审批页签"+tag,"location":"实验楼","description":"approvals","enabled":True,"require_approval":True})
+        day=time.strftime("%Y-%m-%d",time.localtime(time.time()+86400))
+        adm.post("/api/admin/slots/publish",{"lab_id":str(lab),"start_date":day,"end_date":day,"capacity":"3"})
+        sid=s.sql("SELECT id FROM slots WHERE lab_id=? ORDER BY start_at LIMIT 1",(int(lab),))[0][0]
+        ru=Client(s.port);st,bb=ru.request("POST","/api/register",{"username":"ap22"+tag,"password":PASSWORD});ru.csrf=bb["data"]["csrf_token"]
+        st,b=ru.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+        require(st==200,f"pending reserve: {st} {b}")
+        rid=b["data"]["reservation_id"]
+        st,body=adm.request("GET","/api/admin/records?status=PENDING&page=1&page_size=50")
+        require(st==200,f"pending list: {st} {body}")
+        rows=body["data"]["reservations"]
+        require(any(str(r["id"])==str(rid) for r in rows),f"pending list contains {rid}")
+        require(all(r["status"]=="PENDING" for r in rows),"pending list only PENDING")
+        adm.post(f"/api/reservations/{rid}/approve",{"request_id":uid()})
+        st2,body2=adm.request("GET","/api/admin/records?status=PENDING&page=1&page_size=50")
+        require(not any(str(r["id"])==str(rid) for r in body2["data"]["reservations"]),f"approved {rid} left pending list")
+        st3,body3=adm.request("GET","/api/admin/records?status=CONFIRMED&page=1&page_size=50")
+        require(any(str(r["id"])==str(rid) for r in body3["data"]["reservations"]),f"{rid} appears under CONFIRMED")
+        require(all(r["status"]=="CONFIRMED" for r in body3["data"]["reservations"]),"confirmed list only CONFIRMED")
+        st4,_=adm.request("GET","/api/admin/records?status=NOPE&page=1&page_size=5")
+        require(st4==400,f"invalid status rejected: {st4}")
+        st5,_=ru.request("GET","/api/admin/records?status=PENDING&page=1&page_size=5")
+        require(st5==403,f"non-admin pending list: {st5}")
+        return {"pending_filtered":True}
+    record("T52 approvals tab pending filter",t52) # -- r22/approvals-tab
+    def t53(): # -- r22/claims-export
+        """声明占用 CSV 导出：带 BOM、含表头与合计行；导出为只读操作，缺参/越权被拒。"""
+        adm=Client(s.port).login("admin")
+        day=time.strftime("%Y-%m-%d",time.localtime())
+        before=s.sql("SELECT count(*) FROM asset_claims")[0][0]
+        st,b=adm.request("GET",f"/api/admin/asset-claims/export?start_date={day}&end_date={day}")
+        require(st==200,f"claims export: {st} {b}")
+        data=b["data"]
+        require(str(data.get("filename","")).endswith(".csv"),f"filename: {data.get('filename')}")
+        content=data.get("content","")
+        require(content.startswith("\ufeff"),"CSV has BOM")
+        require("资源编号" in content and "资源名称" in content,f"header present: {content[:60]!r}")
+        require("合计" in content,"totals row present")
+        require(content.count("\n")>=2,f"at least two rows: {content.count(chr(10))}")
+        after=s.sql("SELECT count(*) FROM asset_claims")[0][0]
+        require(after==before,f"export is read-only: {before}->{after}")
+        st2,_=adm.request("GET","/api/admin/asset-claims/export")
+        require(st2==400,f"missing dates rejected: {st2}")
+        st3,_=adm.request("GET",f"/api/admin/asset-claims/export?start_date={day}&end_date=" + time.strftime("%Y-%m-%d",time.localtime(time.time()+40*86400)))
+        require(st3==400,f"range over 31 days rejected: {st3}")
+        ru=Client(s.port).login("user01")
+        st4,_=ru.request("GET",f"/api/admin/asset-claims/export?start_date={day}&end_date={day}")
+        require(st4==403,f"non-admin claims export: {st4}")
+        return {"csv_bytes":len(content)}
+    record("T53 asset claims CSV export",t53) # -- r22/claims-export
+    def t54(): # -- r22/api-token-readonly
+        """X-API-Token 只读访问：GET 免 Cookie 可用并刷新 last_used_at；写操作、令牌吊销与越权端点被拒。"""
+        c=Client(s.port).login("user01")
+        tok=c.post("/api/me/tokens",{"name":"r22-read","request_id":uid()})["data"]["token"]
+        require(len(tok)==32,f"token length: {len(tok)}")
+        st,b=Client(s.port).request("GET","/api/me",headers={"X-API-Token":tok})
+        require(st==200,f"token GET /api/me: {st} {b}")
+        require(b["data"]["user"]["username"]=="user01",f"token identity: {b['data']['user']}")
+        used=s.sql("SELECT last_used_at FROM api_tokens WHERE name='r22-read' ORDER BY id DESC LIMIT 1")[0][0]
+        require(used,"last_used_at refreshed")
+        st2,_=Client(s.port).request("GET","/api/me",headers={"X-API-Token":"0"*32})
+        require(st2==401,f"bad token rejected: {st2}")
+        st3,_=Client(s.port).request("POST","/api/me/notifications/read",{"all":True,"request_id":uid()},headers={"X-API-Token":tok})
+        require(st3==401,f"token cannot POST: {st3}")
+        tid=s.sql("SELECT id FROM api_tokens WHERE name='r22-read' ORDER BY id DESC LIMIT 1")[0][0]
+        st4,_=Client(s.port).request("GET",f"/api/me/tokens/{tid}/revoke",headers={"X-API-Token":tok})
+        require(st4 in (403,404),f"token cannot revoke via GET path: {st4}")
+        st4b,_=Client(s.port).request("POST",f"/api/me/tokens/{tid}/revoke",{"request_id":uid()},headers={"X-API-Token":tok})
+        require(st4b==401,f"token cannot POST revoke: {st4b}")
+        st5,_=Client(s.port).request("GET","/api/admin/records?status=PENDING&page=1&page_size=5",headers={"X-API-Token":tok})
+        require(st5==403,f"non-admin token on admin endpoint: {st5}")
+        c.post(f"/api/me/tokens/{tid}/revoke",{"request_id":uid()})
+        st6,_=Client(s.port).request("GET","/api/me",headers={"X-API-Token":tok})
+        require(st6==401,f"revoked token rejected: {st6}")
+        return {"readonly":True}
+    record("T54 API token read-only access",t54) # -- r22/api-token-readonly
 
 
 def account_checks(s):
