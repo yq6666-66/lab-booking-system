@@ -108,7 +108,7 @@ for i, t in enumerate(["预约 / 取消", "容量校验\npromote_fill", "请求�
 box(ax, 6.9, 2.55, 2.6, 0.85, "限流防爆破\n令牌桶 + 登录锁定", fc="#f6efdf", fs=8.5, name="4-1限流")
 box(ax, 6.9, 1.45, 2.6, 0.85, "运行指标\n原子计数 + 延迟直方图", fc="#f6efdf", fs=8.5, name="4-1指标")
 box(ax, 0.5, 2.55, 6.0, 0.85, "结构化日志（分级 · 轮转 · 访问日志 · 慢请求告警）", fc="#f6efdf", fs=9, name="4-1日志")
-box(ax, 0.5, 1.2, 9, 1.0, "数据访问 db.c（参数绑定 · 语句缓存 · 线程连接复用 · 幂等迁移）", bold=True, fs=10, name="4-1db")
+box(ax, 0.5, 1.2, 5.9, 1.0, "数据访问 db.c\n绑定 · 语句缓存\n连接复用 · 幂等迁移", bold=True, fs=9, name="4-1db")
 box(ax, 0.5, 0.1, 9, 0.85, "SQLite（WAL · synchronous=FULL · 外键 · 备份 API）", fc="#dbe9e2", bold=True, fs=10, name="4-1sqlite")
 for y in (8.22, 6.5, 4.05, 2.45, 1.12):
     ax.add_patch(FancyArrowPatch((5, y), (5, y - 0.22), arrowstyle="-|>", mutation_scale=12, color=BD))
@@ -156,9 +156,7 @@ line(5.3, 5.6, 6.6, 5.4, "场次 1:N", lx=5.7, ly=5.15)
 line(8.3, 9.0, 8.9, 9.0, "去重 N:1", lx=8.6, ly=9.18)
 line(8.3, 8.6, 8.9, 6.3, "审计 N:1", lx=8.25, ly=7.4)
 line(8.3, 8.2, 8.9, 3.6, "通知 N:1", lx=8.05, ly=5.6)
-note(ax, 0.15, 0.25, "不变量：每场次占容（CONFIRMED+HELD）数 ≤ capacity；每（用户,场次）至多 1 条 WAITING\n回执（用户,请求编号）主键幂等；assets(lab_id,name) 唯一",
-        fontsize=9, color=BD, ha="left", linespacing=1.6)
-note(ax, 0.25, 3.0, "schema v5 共 17 表：上图为核心 11 表，\nr17–r24 幂等迁移扩展 6 表：\nasset_claims 资源声明 · credit_ledger 信用流水\napi_tokens 访问令牌（仅存哈希）\nasset_windows 时段窗 · asset_maintenance 维护工单\nqualifications 资格 · outbox 通知外发\nlabs.require_approval；reservations 增 PENDING/HELD/EXPIRED",
+note(ax, 0.25, 1.15, "不变量：每场次占容（CONFIRMED+HELD）≤ capacity\n每(用户,场次)至多 1 条 WAITING；回执(用户,请求编号)幂等\nassets(lab_id,name) 唯一；schema v5 共 17 表\n上图为核心 11 表；r17–r24 幂等迁移扩展 6 表：\nasset_claims 资源声明 · credit_ledger 信用流水\noutbox 通知外发 · api_tokens 令牌（仅存哈希）\nasset_windows 时段窗 · asset_maintenance 维护工单\nqualifications 资格 · labs.require_approval 开关\nreservations 增 PENDING/HELD/EXPIRED\n新增 hold_deadline、note、checked_out_at 列",
      fontsize=8.2, color=G, ha="left", linespacing=1.5)
 save(fig, "fig4-2-er.png")
 
