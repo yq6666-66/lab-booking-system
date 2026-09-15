@@ -4,6 +4,10 @@ import argparse, concurrent.futures, contextlib, csv, datetime, http.client, jso
 import os, pathlib, shutil, socket, sqlite3, statistics, subprocess, tempfile, threading, time, uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+# CI（Windows runner）stdout 默认 cp1252，中文断言消息会导致 UnicodeEncodeError——强制 UTF-8 输出
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 PASSWORD = os.environ.get("LAB_TEST_PASSWORD", "")  # 由运行方提供，测试口令不入库
 RESULTS = []
 RACES = []
