@@ -19,7 +19,11 @@ def slide(title, bullets=None, img=None, note=""):
     tf.paragraphs[0].font.size = Pt(28); tf.paragraphs[0].font.bold = True
     tf.paragraphs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
     if img:
-        p = s.shapes.add_picture(str(FIG / img), Inches(0.8), Inches(1.2), width=Inches(9.2))
+        from PIL import Image
+        with Image.open(str(FIG / img)) as im:
+            ar = im.width / im.height
+        w = min(9.2, 5.9 * ar)  # 高度上限 5.9in（页高 7.5 - 标题 1.2 - 边距），避免图被页底截断
+        p = s.shapes.add_picture(str(FIG / img), Inches(0.8), Inches(1.2), width=Inches(w))
         if note:
             nb = s.shapes.add_textbox(Inches(10.2), Inches(1.4), Inches(2.8), Inches(5.5))
             ntf = nb.text_frame; ntf.word_wrap = True
@@ -44,17 +48,15 @@ slide("一、背景与问题", bullets=[
     ("语言选择：C11 贴近系统底层，显式资源管理，正确性论证更有说服力", 0),
 ])
 slide("二、系统总览", img="fig4-1-architecture.png", note="五层架构：浏览器 → CivetWeb 接入 → 单写者事务业务层 → db.c 数据访问 → SQLite。横切：限流、指标、日志、后台任务（提醒/备份/归档）。")
-slide("三、需求与业务规则（BR1–BR11）", bullets=[
+slide("三、需求与业务规则（BR1–BR21）", bullets=[
     ("容量制预约：场次 1..200 席位，实时显示已约 X/Y", 0),
-    ("FIFO 候补：满员排队，释放后同事务连续补位", 0),
-    ("限时签到：超时爽约回收并自动补位，双向通知", 0),
+    ("候补：满员排队，释放后同事务连续补位；限时签到：超时爽约回收", 0),
     ("幂等重试：每操作携带 UUID，同号重放返回原结果", 0),
-    ("爽约信用：近 7 天两次爽约受限拒约；时间重叠检测", 0),
-    ("生命周期三件套：创建 / 改期（原子+补位联动）/ 取消；资源声明配额（BR12）；每周配额（BR13）；提前量（BR14）", 0),
-    ("审批流：require_approval 实验室预约落 PENDING，批准时事务内重校容量（APPROVAL_CAPACITY）", 0),
-    ("候补策略：可执行 FIFO（BR19，暂跳冲突保留序号）与 strict 对照；HELD 限时保留（BR20，confirm 确认）", 0),
-    ("信用账户（BR16，+1 抢占补偿/周回补）与优先级抢占（BR15，仅未签到者）；维护工单（BR18）、时段窗（BR17）、资格授权（BR21）", 0),
-    ("管理端：独立控制台——场次调整、用户管理、通知发布、资源清单、运行日志；API 访问令牌自助管理", 0),
+    ("爽约信用受限；时间重叠检测；预约审批流（PENDING→批准重校容量）", 0),
+    ("候补策略：可执行 FIFO（BR19，暂跳冲突保留序号）与 strict；HELD 限时保留（BR20，confirm 确认）", 0),
+    ("抢占（BR15，仅未签到者）× 信用账户（BR16，补偿/周回补）", 0),
+    ("资源域：声明配额（BR12）· 维护工单（BR18）· 时段窗（BR17）· 资格授权（BR21）；周配额（BR13）· 提前量（BR14）", 0),
+    ("管理端：独立控制台；API 访问令牌自助管理", 0),
 ])
 slide("四、数据模型（schema v2→v5）", img="fig4-2-er.png", note="17 张表（核心 11 表 + r17-r24 扩展 6 表）；v3 容量制；v4 提醒防重 + CHECK 重建；v5 资源表 assets 及声明/时段窗/维护工单/资格/信用/令牌各表。全部幂等迁移，旧库实测。")
 slide("五、核心机制 1：并发一致性", bullets=[
