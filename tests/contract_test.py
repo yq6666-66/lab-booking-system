@@ -8,7 +8,7 @@
 结果写入 docs/evidence/contract/contract_results.json，退出码 0 表示全部通过。
 """
 from __future__ import annotations
-import argparse, contextlib, http.client, json, os, pathlib, re, shutil, socket, sqlite3, subprocess, tempfile, time, uuid
+import sys, argparse, contextlib, http.client, json, os, pathlib, re, shutil, socket, sqlite3, subprocess, tempfile, time, uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 if hasattr(sys.stdout, "reconfigure"):
