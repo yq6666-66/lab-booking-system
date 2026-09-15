@@ -1237,6 +1237,71 @@ def feature_checks(s):
         require(str(b["data"]["filename"]).endswith(".ics"),f"filename: {b['data']['filename']}")
         return {"ics_bytes":len(content)}
     record("T60 calendar ICS export",t60) # -- r23/calendar-ics
+    def t61(): # -- r24/executable-fifo
+        """可执行 FIFO：队首候补在入队后产生跨实验室时间冲突时被暂跳并保留原序号，让给下一位可执行者。
+        注意候补入队本身也校验冲突，因此冲突必须在入队之后才制造。"""
+        adm=Client(s.port).login("admin")
+        time.sleep(1.5)
+        tag=uid()[:6]
+        lab1=adm.post("/api/admin/labs",{"name":"可执行A"+tag,"location":"实验楼","description":"x"})["data"]["lab_id"]
+        time.sleep(1.2)
+        lab2=adm.post("/api/admin/labs",{"name":"可执行B"+tag,"location":"实验楼","description":"x"})["data"]["lab_id"]
+        day=time.strftime("%Y-%m-%d",time.localtime(time.time()+172800))
+        adm.post("/api/admin/slots/publish",{"lab_id":str(lab1),"start_date":day,"end_date":day,"capacity":"1"})
+        time.sleep(1.2)
+        adm.post("/api/admin/slots/publish",{"lab_id":str(lab2),"start_date":day,"end_date":day,"capacity":"1"})
+        t1=s.sql("SELECT id FROM slots WHERE lab_id=? AND enabled=1 AND start_at>? ORDER BY start_at LIMIT 1",(int(lab1),int(time.time())))[0][0]
+        peer=s.sql("SELECT id FROM slots WHERE lab_id=? AND start_at=(SELECT start_at FROM slots WHERE id=?) AND enabled=1",(int(lab2),t1))
+        require(peer,"peer slot in lab2 at the same time exists")
+        t2=peer[0][0]
+        occ=Client(s.port).login("user18")
+        req=occ.request("POST","/api/reservations",{"slot_id":str(t1),"request_id":uid()})
+        require(req[0]==200,f"blocker reserves t1: {req}")
+        a=Client(s.port).login("user19")
+        st,wb=a.request("POST","/api/waitlist",{"slot_id":str(t1),"request_id":uid()})
+        require(st==200,f"A joins waitlist before any conflict: {st} {wb}")
+        wa=wb["data"]["waitlist_id"]
+        bcl=Client(s.port).login("user20")
+        st2,wb2=bcl.request("POST","/api/waitlist",{"slot_id":str(t1),"request_id":uid()})
+        require(st2==200,f"B joins waitlist: {st2} {wb2}")
+        wb_id=wb2["data"]["waitlist_id"]
+        # 入队之后 A 才占用 lab2 的同时段 → A 变为"暂时不可执行"，但保留原序号
+        stx,bx=a.request("POST","/api/reservations",{"slot_id":str(t2),"request_id":uid()})
+        require(stx==200,f"A later占同时段 peer slot: {stx} {bx}")
+        recs=occ.request("GET","/api/me/records?page=1&page_size=5")[1]["data"]["reservations"]
+        rid=[r for r in recs if str(r["slot_id"])==str(t1)][0]["id"]
+        occ.post(f"/api/reservations/{rid}/cancel",{"request_id":uid()})
+        stA=s.sql("SELECT status FROM waitlist WHERE id=?",(int(wa),))[0][0]
+        stB=s.sql("SELECT status FROM waitlist WHERE id=?",(int(wb_id),))[0][0]
+        require(stA=="WAITING",f"blocked head keeps WAITING and its order: {stA}")
+        require(stB=="PROMOTED",f"next executable candidate promoted past blocked head: {stB}")
+        return {"skipped_blocked_head":True}
+    record("T61 executable FIFO skips blocked head",t61) # -- r24/executable-fifo
+    def t62(): # -- r24/held
+        """HELD 限时保留：保留截止已过的待确认记录由扫描器回收为 EXPIRED 并重新递补；默认配置不产生 HELD。"""
+        held_now=s.sql("SELECT count(*) FROM reservations WHERE status='HELD'")[0][0]
+        require(held_now==0,f"no HELD without --hold-window (compatibility): {held_now}")
+        adm=Client(s.port).login("admin")
+        time.sleep(1.5)
+        lab=adm.post("/api/admin/labs",{"name":"保留实验室"+uid()[:6],"location":"实验楼","description":"h"})["data"]["lab_id"]
+        day=time.strftime("%Y-%m-%d",time.localtime(time.time()+86400))
+        time.sleep(1.2)
+        adm.post("/api/admin/slots/publish",{"lab_id":str(lab),"start_date":day,"end_date":day,"capacity":"1"})
+        sid=s.sql("SELECT id FROM slots WHERE lab_id=? AND enabled=1 AND start_at>? ORDER BY start_at LIMIT 1",(int(lab),int(time.time())))[0][0]
+        usr=s.sql("SELECT id FROM users WHERE username='user02'")[0][0]
+        # 构造一条已过期的 HELD（hold_deadline 在过去），等待扫描器回收
+        past=int(s.sql("SELECT strftime('%s','now')")[0][0])-60
+        s.sql("INSERT INTO reservations(user_id,slot_id,status,source,created_at,hold_deadline) VALUES(?,?,'HELD','WAITLIST',?,?)",(usr,sid,past-600,past))
+        rid=s.sql("SELECT id FROM reservations WHERE status='HELD' ORDER BY id DESC LIMIT 1")[0][0]
+        deadline=time.time()+13
+        st="HELD"
+        while time.time()<deadline:
+            st=s.sql("SELECT status FROM reservations WHERE id=?",(rid,))[0][0]
+            if st!="HELD": break
+            time.sleep(0.5)
+        require(st=="EXPIRED",f"expired HELD reclaimed by sweeper: {st}")
+        return {"held_reclaimed":True}
+    record("T62 HELD hold expiry reclaimed",t62) # -- r24/held
 
 
 def account_checks(s):
