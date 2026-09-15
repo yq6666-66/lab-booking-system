@@ -1,7 +1,7 @@
         -:    0:Source:src/log.c
         -:    0:Graph:C:\Users\admin\Desktop\��ҵ���\build\cov_log.gcno
         -:    0:Data:C:\Users\admin\Desktop\��ҵ���\build\cov_log.gcda
-        -:    0:Runs:3
+        -:    0:Runs:7
         -:    1:/* r6/L3 结构化分级日志：DEBUG/INFO/WARN/ERROR，按大小轮转（app.log→.1→.2），SRWLOCK 线程安全 */
         -:    2:#include "app.h"
         -:    3:#include <windows.h>
@@ -12,8 +12,8 @@
         -:    8:#include <time.h>
         -:    9:static SRWLOCK lg_lock=SRWLOCK_INIT;
         -:   10:static FILE *lg_file;static char lg_path[300];static long lg_max=5*1024*1024;
-function lg_name called 49 returned 100% blocks executed 67%
-      49*:   11:static const char *lg_name(int lv){return lv>=3?"ERROR":lv==2?"WARN":lv==1?"INFO":"DEBUG";}
+function lg_name called 113 returned 100% blocks executed 67%
+     113*:   11:static const char *lg_name(int lv){return lv>=3?"ERROR":lv==2?"WARN":lv==1?"INFO":"DEBUG";}
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 branch  2 taken 100% (fallthrough)
@@ -42,20 +42,20 @@ branch  1 taken 0%
 call    0 returned 100%
         1:   21: return lg_file!=NULL;
         -:   22:}
-function log_write called 50 returned 100% blocks executed 75%
-       50:   23:void log_write(int level,const char *fmt,...){
-       50:   24: if(!lg_file||level<0||level>3)return;
-branch  0 taken 98% (fallthrough)
-branch  1 taken 2%
+function log_write called 114 returned 100% blocks executed 75%
+      114:   23:void log_write(int level,const char *fmt,...){
+      114:   24: if(!lg_file||level<0||level>3)return;
+branch  0 taken 99% (fallthrough)
+branch  1 taken 1%
 branch  2 taken 100% (fallthrough)
 branch  3 taken 0%
 branch  4 taken 0% (fallthrough)
 branch  5 taken 100%
-       49:   25: AcquireSRWLockExclusive(&lg_lock);
+      113:   25: AcquireSRWLockExclusive(&lg_lock);
 call    0 returned 100%
-       49:   26: long size=ftell(lg_file);
+      113:   26: long size=ftell(lg_file);
 call    0 returned 100%
-       49:   27: if(size>lg_max){ /* 轮转：app.log→app.log.1→app.log.2（最旧丢弃） */
+      113:   27: if(size>lg_max){ /* 轮转：app.log→app.log.1→app.log.2（最旧丢弃） */
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
     #####:   28:  fclose(lg_file);lg_file=NULL;
@@ -68,21 +68,21 @@ call    2 never executed
     #####:   31:  lg_file=fopen(lg_path,"ab");
 call    0 never executed
         -:   32: }
-       49:   33: if(lg_file){
+      113:   33: if(lg_file){
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
-       49:   34:  time_t t=time(NULL)+28800;struct tm g;gmtime_s(&g,&t);
+      113:   34:  time_t t=time(NULL)+28800;struct tm g;gmtime_s(&g,&t);
 call    0 returned 100%
 call    1 returned 100%
-       49:   35:  fprintf(lg_file,"%04d-%02d-%02dT%02d:%02d:%02d+08:00 [%s] ",g.tm_year+1900,g.tm_mon+1,g.tm_mday,g.tm_hour,g.tm_min,g.tm_sec,lg_name(level));
+      113:   35:  fprintf(lg_file,"%04d-%02d-%02dT%02d:%02d:%02d+08:00 [%s] ",g.tm_year+1900,g.tm_mon+1,g.tm_mday,g.tm_hour,g.tm_min,g.tm_sec,lg_name(level));
 call    0 returned 100%
 call    1 returned 100%
-       49:   36:  va_list a2;va_start(a2,fmt);vfprintf(lg_file,fmt,a2);va_end(a2);
+      113:   36:  va_list a2;va_start(a2,fmt);vfprintf(lg_file,fmt,a2);va_end(a2);
 call    0 returned 100%
-       49:   37:  fputc('\n',lg_file);fflush(lg_file);
+      113:   37:  fputc('\n',lg_file);fflush(lg_file);
 call    0 returned 100%
 call    1 returned 100%
         -:   38: }
-       49:   39: ReleaseSRWLockExclusive(&lg_lock);
+      113:   39: ReleaseSRWLockExclusive(&lg_lock);
 call    0 returned 100%
         -:   40:}

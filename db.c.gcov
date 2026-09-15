@@ -1,46 +1,49 @@
         -:    0:Source:src/db.c
         -:    0:Graph:C:\Users\admin\Desktop\��ҵ���\build\cov_db.gcno
         -:    0:Data:C:\Users\admin\Desktop\��ҵ���\build\cov_db.gcda
-        -:    0:Runs:3
+        -:    0:Runs:7
         -:    1:#include "app.h"
         -:    2:#include <stdarg.h>
         -:    3:#include <string.h>
         -:    4:#include <stdio.h>
         -:    5:#include <stdlib.h>
         -:    6:#include <sodium.h>
-        -:    7:#include <windows.h>
-        -:    8:#ifndef WATCHDOG_MS
-        -:    9:#define WATCHDOG_MS 5000
-        -:   10:#endif
-        -:   11:/* r6 语句看门狗：单条语句墙钟超过 WATCHDOG_MS（含锁等待）由 progress 回调打断，
-        -:   12:   防止慢查询长期占用写锁；常规短事务不受影响。单测构建以 -DWATCHDOG_MS=50 收紧验证。 */
-        -:   13:static _Thread_local unsigned long long tls_tick0;
-function prog_cb called 9 returned 100% blocks executed 100%
-        9:   14:static int prog_cb(void *p){(void)p;return GetTickCount64()-tls_tick0>WATCHDOG_MS;}
+        -:    7:#include <time.h>
+        -:    8:#include <windows.h>
+        -:    9:#ifndef WATCHDOG_MS
+        -:   10:#define WATCHDOG_MS 5000
+        -:   11:#endif
+        -:   12:/* r6 语句看门狗：单条语句墙钟超过 WATCHDOG_MS（含锁等待）由 progress 回调打断，
+        -:   13:   防止慢查询长期占用写锁；常规短事务不受影响。单测构建以 -DWATCHDOG_MS=50 收紧验证。 */
+        -:   14:static _Thread_local unsigned long long tls_tick0;
+function prog_cb called 4 returned 100% blocks executed 100%
+        4:   15:static int prog_cb(void *p){(void)p;return GetTickCount64()-tls_tick0>WATCHDOG_MS;}
 call    0 returned 100%
-        -:   15:/* r6 语句缓存：每连接按 SQL 文本缓存预处理语句（LRU，上限 32），消除重复 prepare；
-        -:   16:   任一步骤出错即淘汰对应条目，保守优先。 */
+        -:   16:#ifndef STMT_CACHE_MAX
         -:   17:#define STMT_CACHE_MAX 32
-        -:   18:typedef struct { char *sql; sqlite3_stmt *stmt; unsigned lru; } CacheEntry;
-        -:   19:typedef struct { CacheEntry items[STMT_CACHE_MAX]; unsigned tick; } StmtCache;
-function cache_fetch called 1948 returned 100% blocks executed 88%
-     1948:   20:static sqlite3_stmt *cache_fetch(DB *d,const char *sql){
-     1948:   21: StmtCache *c=(StmtCache*)d->cache;unsigned best=0;int bi=-1;
-    29979:   22: for(int i=0;i<STMT_CACHE_MAX;i++){
+        -:   18:#endif
+        -:   19:/* r6 语句缓存：每连接按 SQL 文本缓存预处理语句（LRU，上限 32），消除重复 prepare；
+        -:   20:   任一步骤出错即淘汰对应条目，保守优先。 */
+        -:   21:typedef struct { char *sql; sqlite3_stmt *stmt; unsigned lru; } CacheEntry;
+        -:   22:typedef struct { CacheEntry items[STMT_CACHE_MAX]; unsigned tick; } StmtCache;
+function cache_fetch called 3100 returned 100% blocks executed 88%
+     3100:   23:static sqlite3_stmt *cache_fetch(DB *d,const char *sql){
+     3100:   24: StmtCache *c=(StmtCache*)d->cache;unsigned best=0;int bi=-1;
+    76593:   25: for(int i=0;i<STMT_CACHE_MAX;i++){
 branch  0 taken 99%
 branch  1 taken 1% (fallthrough)
-    29643:   23:  CacheEntry *e=&c->items[i];
-    29643:   24:  if(e->sql&&e->lru>best){best=e->lru;bi=i;}
-branch  0 taken 85% (fallthrough)
-branch  1 taken 15%
-branch  2 taken 70% (fallthrough)
-branch  3 taken 30%
-    29643:   25:  if(e->sql&&!strcmp(e->sql,sql)){
-branch  0 taken 85% (fallthrough)
-branch  1 taken 15%
-branch  2 taken 6% (fallthrough)
-branch  3 taken 94%
-    1612*:   26:   if(sqlite3_reset(e->stmt)!=SQLITE_OK||sqlite3_clear_bindings(e->stmt)!=SQLITE_OK){sqlite3_finalize(e->stmt);free(e->sql);e->sql=NULL;e->stmt=NULL;return NULL;}
+    75721:   26:  CacheEntry *e=&c->items[i];
+    75721:   27:  if(e->sql&&e->lru>best){best=e->lru;bi=i;}
+branch  0 taken 90% (fallthrough)
+branch  1 taken 10%
+branch  2 taken 45% (fallthrough)
+branch  3 taken 55%
+    75721:   28:  if(e->sql&&!strcmp(e->sql,sql)){
+branch  0 taken 90% (fallthrough)
+branch  1 taken 10%
+branch  2 taken 3% (fallthrough)
+branch  3 taken 97%
+    2228*:   29:   if(sqlite3_reset(e->stmt)!=SQLITE_OK||sqlite3_clear_bindings(e->stmt)!=SQLITE_OK){sqlite3_finalize(e->stmt);free(e->sql);e->sql=NULL;e->stmt=NULL;return NULL;}
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
@@ -48,147 +51,153 @@ call    3 returned 100%
 branch  4 taken 0% (fallthrough)
 branch  5 taken 100%
 call    6 never executed
-     1612:   27:   e->lru=++c->tick;return e->stmt;
-        -:   28:  }
-        -:   29: }
-      336:   30: (void)bi;return NULL;
-        -:   31:}
-function cache_store called 335 returned 100% blocks executed 79%
-      335:   32:static void cache_store(DB *d,const char *sql,sqlite3_stmt *stmt){
-      335:   33: StmtCache *c=(StmtCache*)d->cache;int slot=-1, victim=-1;unsigned minl=~0u;
-     6856:   34: for(int i=0;i<STMT_CACHE_MAX&&slot<0;i++){
+     2228:   30:   e->lru=++c->tick;return e->stmt;
+        -:   31:  }
+        -:   32: }
+      872:   33: (void)bi;return NULL;
+        -:   34:}
+function cache_store called 871 returned 100% blocks executed 79%
+      871:   35:static void cache_store(DB *d,const char *sql,sqlite3_stmt *stmt){
+      871:   36: StmtCache *c=(StmtCache*)d->cache;int slot=-1, victim=-1;unsigned minl=~0u;
+    21482:   37: for(int i=0;i<STMT_CACHE_MAX&&slot<0;i++){
 branch  0 taken 98% (fallthrough)
 branch  1 taken 2%
-branch  2 taken 97%
-branch  3 taken 3% (fallthrough)
-     6521:   35:  if(!c->items[i].sql)slot=i;
-branch  0 taken 4% (fallthrough)
-branch  1 taken 96%
-     6291:   36:  else if(c->items[i].lru<minl){minl=c->items[i].lru;victim=i;}
-branch  0 taken 9% (fallthrough)
-branch  1 taken 91%
-        -:   37: }
-      335:   38: if(slot<0){
-branch  0 taken 31% (fallthrough)
-branch  1 taken 69%
-     105*:   39:  if(victim<0){sqlite3_finalize(stmt);return;}
+branch  2 taken 98%
+branch  3 taken 2% (fallthrough)
+    20611:   38:  if(!c->items[i].sql)slot=i;
+branch  0 taken 2% (fallthrough)
+branch  1 taken 98%
+    20165:   39:  else if(c->items[i].lru<minl){minl=c->items[i].lru;victim=i;}
+branch  0 taken 10% (fallthrough)
+branch  1 taken 90%
+        -:   40: }
+      871:   41: if(slot<0){
+branch  0 taken 49% (fallthrough)
+branch  1 taken 51%
+     425*:   42:  if(victim<0){sqlite3_finalize(stmt);return;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-      105:   40:  CacheEntry *v=&c->items[victim];sqlite3_finalize(v->stmt);free(v->sql);v->sql=NULL;v->stmt=NULL;slot=victim;
+      425:   43:  CacheEntry *v=&c->items[victim];sqlite3_finalize(v->stmt);free(v->sql);v->sql=NULL;v->stmt=NULL;slot=victim;
 call    0 returned 100%
-        -:   41: }
-      335:   42: c->items[slot].sql=_strdup(sql);c->items[slot].stmt=stmt;c->items[slot].lru=++c->tick;
+        -:   44: }
+      871:   45: c->items[slot].sql=_strdup(sql);c->items[slot].stmt=stmt;c->items[slot].lru=++c->tick;
 call    0 returned 100%
-     335*:   43: if(!c->items[slot].sql){sqlite3_finalize(stmt);c->items[slot].stmt=NULL;return;}
+     871*:   46: if(!c->items[slot].sql){sqlite3_finalize(stmt);c->items[slot].stmt=NULL;return;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-        -:   44:}
-function cache_drop called 1 returned 100% blocks executed 100%
-        1:   45:static void cache_drop(DB *d,sqlite3_stmt *stmt){
-        1:   46: StmtCache *c=(StmtCache*)d->cache;
-       25:   47: for(int i=0;i<STMT_CACHE_MAX;i++)if(c->items[i].stmt==stmt){sqlite3_finalize(stmt);free(c->items[i].sql);c->items[i].sql=NULL;c->items[i].stmt=NULL;return;}
-branch  0 taken 4% (fallthrough)
-branch  1 taken 96%
+        -:   47:}
+function cache_drop called 3 returned 100% blocks executed 100%
+        3:   48:static void cache_drop(DB *d,sqlite3_stmt *stmt){
+        3:   49: StmtCache *c=(StmtCache*)d->cache;
+       45:   50: for(int i=0;i<STMT_CACHE_MAX;i++)if(c->items[i].stmt==stmt){sqlite3_finalize(stmt);free(c->items[i].sql);c->items[i].sql=NULL;c->items[i].stmt=NULL;return;}
+branch  0 taken 7% (fallthrough)
+branch  1 taken 93%
 call    2 returned 100%
 branch  3 taken 100%
 branch  4 taken 0% (fallthrough)
-        -:   48:}
-function cache_clear called 10 returned 100% blocks executed 89%
-       10:   49:static void cache_clear(DB *d){
-      10*:   50: StmtCache *c=(StmtCache*)d->cache;if(!c)return;
+        -:   51:}
+function cache_clear called 14 returned 100% blocks executed 89%
+       14:   52:static void cache_clear(DB *d){
+      14*:   53: StmtCache *c=(StmtCache*)d->cache;if(!c)return;
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
-      330:   51: for(int i=0;i<STMT_CACHE_MAX;i++)if(c->items[i].stmt){sqlite3_finalize(c->items[i].stmt);free(c->items[i].sql);c->items[i].sql=NULL;c->items[i].stmt=NULL;}
-branch  0 taken 52% (fallthrough)
-branch  1 taken 48%
+      462:   54: for(int i=0;i<STMT_CACHE_MAX;i++)if(c->items[i].stmt){sqlite3_finalize(c->items[i].stmt);free(c->items[i].sql);c->items[i].sql=NULL;c->items[i].stmt=NULL;}
+branch  0 taken 77% (fallthrough)
+branch  1 taken 23%
 call    2 returned 100%
 branch  3 taken 97%
 branch  4 taken 3% (fallthrough)
-        -:   52:}
-function stmt_get called 1948 returned 100% blocks executed 100%
-     1948:   53:static sqlite3_stmt *stmt_get(DB *d,const char *sql){
-     1948:   54: sqlite3_stmt *s=cache_fetch(d,sql);
+        -:   55:}
+function stmt_get called 3100 returned 100% blocks executed 100%
+     3100:   56:static sqlite3_stmt *stmt_get(DB *d,const char *sql){
+     3100:   57: sqlite3_stmt *s=cache_fetch(d,sql);
 call    0 returned 100%
-     1948:   55: if(s)return s;
-branch  0 taken 83% (fallthrough)
-branch  1 taken 17%
-      336:   56: if(sqlite3_prepare_v2(d->sql,sql,-1,&s,NULL)!=SQLITE_OK){d->error=sqlite3_errcode(d->sql);return NULL;}
+     3100:   58: if(s)return s;
+branch  0 taken 72% (fallthrough)
+branch  1 taken 28%
+      872:   59: if(sqlite3_prepare_v2(d->sql,sql,-1,&s,NULL)!=SQLITE_OK){d->error=sqlite3_errcode(d->sql);return NULL;}
 call    0 returned 100%
 branch  1 taken 1% (fallthrough)
 branch  2 taken 100%
 call    3 returned 100%
-      335:   57: cache_store(d,sql,s);return s;
+      871:   60: cache_store(d,sql,s);return s;
 call    0 returned 100%
-        -:   58:}
-function stmt_done called 1946 returned 100% blocks executed 100%
-     1946:   59:static void stmt_done(DB *d,sqlite3_stmt *s){(void)d;sqlite3_reset(s);}
+        -:   61:}
+function stmt_done called 3096 returned 100% blocks executed 100%
+     3096:   62:static void stmt_done(DB *d,sqlite3_stmt *s){(void)d;sqlite3_reset(s);}
 call    0 returned 100%
-function stmt_fail called 1 returned 100% blocks executed 100%
-        1:   60:static void stmt_fail(DB *d,sqlite3_stmt *s){cache_drop(d,s);}
+function stmt_fail called 3 returned 100% blocks executed 100%
+        3:   63:static void stmt_fail(DB *d,sqlite3_stmt *s){cache_drop(d,s);}
 call    0 returned 100%
-function prepare called 1948 returned 100% blocks executed 80%
-     1948:   61:static sqlite3_stmt *prepare(DB *d,const char *sql,const char *fmt,va_list a){
-     1948:   62: tls_tick0=GetTickCount64();
+function prepare called 3100 returned 100% blocks executed 84%
+     3100:   64:static sqlite3_stmt *prepare(DB *d,const char *sql,const char *fmt,va_list a){
+     3100:   65: tls_tick0=GetTickCount64();
 call    0 returned 100%
-     1948:   63: sqlite3_stmt *s=stmt_get(d,sql);
+     3100:   66: sqlite3_stmt *s=stmt_get(d,sql);
 call    0 returned 100%
-    1948*:   64: if(!s){ d->error=d->error?d->error:SQLITE_NOMEM;return NULL; }
+    3100*:   67: if(!s){ d->error=d->error?d->error:SQLITE_NOMEM;return NULL; }
 branch  0 taken 1% (fallthrough)
 branch  1 taken 100%
 branch  2 taken 100% (fallthrough)
 branch  3 taken 0%
-     1947:   65: int rc=0;
-     7488:   66: for(int i=0;fmt&&fmt[i];i++){
+     3099:   68: int rc=0;
+    10175:   69: for(int i=0;fmt&&fmt[i];i++){
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
-branch  2 taken 74%
-branch  3 taken 26% (fallthrough)
-     5541:   67:  if(fmt[i]=='i')rc=sqlite3_bind_int64(s,i+1,va_arg(a,Id));
-branch  0 taken 90% (fallthrough)
-branch  1 taken 10%
+branch  2 taken 70%
+branch  3 taken 30% (fallthrough)
+     7076:   70:   if(fmt[i]=='i')rc=sqlite3_bind_int64(s,i+1,va_arg(a,Id));
+branch  0 taken 88% (fallthrough)
+branch  1 taken 12%
 call    2 returned 100%
 call    3 returned 100%
-     552*:   68:  else if(fmt[i]=='s'){const char *v=va_arg(a,const char*);rc=v?sqlite3_bind_text(s,i+1,v,-1,SQLITE_TRANSIENT):sqlite3_bind_null(s,i+1);}
+      841:   71:  else if(fmt[i]=='s'){const char *v=va_arg(a,const char*);rc=v?sqlite3_bind_text(s,i+1,v,-1,SQLITE_TRANSIENT):sqlite3_bind_null(s,i+1);}
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 call    2 returned 100%
-branch  3 taken 100% (fallthrough)
-branch  4 taken 0%
+branch  3 taken 96% (fallthrough)
+branch  4 taken 4%
 call    5 returned 100%
-call    6 never executed
-    #####:   69:  else rc=SQLITE_MISUSE;
-    5541*:   70:  if(rc!=SQLITE_OK){d->error=rc;stmt_fail(d,s);return NULL;}
+call    6 returned 100%
+    #####:   72:  else rc=SQLITE_MISUSE;
+    7076*:   73:  if(rc!=SQLITE_OK){d->error=rc;stmt_fail(d,s);return NULL;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-        -:   71: }
-     1947:   72: return s;
-        -:   73:}
-function db_open called 12 returned 100% blocks executed 77%
-       12:   74:int db_open(DB *d,const char *p){
-       12:   75: memset(d,0,sizeof *d);int rc=sqlite3_open_v2(p,&d->sql,SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE|SQLITE_OPEN_FULLMUTEX,NULL);
+        -:   74: }
+     3099:   75: return s;
+        -:   76:}
+function db_open called 17 returned 100% blocks executed 81%
+       17:   77:int db_open(DB *d,const char *p){
+       17:   78: memset(d,0,sizeof *d);int rc=sqlite3_open_v2(p,&d->sql,SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE|SQLITE_OPEN_FULLMUTEX,NULL);
 call    0 returned 100%
-      12*:   76: if(rc!=SQLITE_OK){d->error=rc;return 0;}
+      17*:   79: if(rc!=SQLITE_OK){d->error=rc;return 0;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
-       12:   77: d->cache=calloc(1,sizeof(StmtCache));
-      12*:   78: if(!d->cache){sqlite3_close(d->sql);d->sql=NULL;d->error=SQLITE_NOMEM;return 0;}
+       17:   80: d->cache=calloc(1,sizeof(StmtCache));
+      17*:   81: if(!d->cache){sqlite3_close(d->sql);d->sql=NULL;d->error=SQLITE_NOMEM;return 0;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-       12:   79: sqlite3_extended_result_codes(d->sql,1);sqlite3_busy_timeout(d->sql,3000);
+       17:   82: sqlite3_extended_result_codes(d->sql,1);sqlite3_busy_timeout(d->sql,3000);
 call    0 returned 100%
 call    1 returned 100%
-       12:   80: sqlite3_progress_handler(d->sql,200000,prog_cb,0); /* 语句看门狗：超长查询按 20 万 VM 步打断 */
+       17:   83: sqlite3_progress_handler(d->sql,200000,prog_cb,0); /* 语句看门狗：超长查询按 20 万 VM 步打断 */
 call    0 returned 100%
-       12:   81: db_run(d,"PRAGMA foreign_keys=ON","");db_run(d,"PRAGMA synchronous=FULL","");return !d->error;
+       17:   84: db_run(d,"PRAGMA foreign_keys=ON","");db_run(d,"PRAGMA synchronous=FULL","");
 call    0 returned 100%
 call    1 returned 100%
-        -:   82:}
-function db_close called 10 returned 100% blocks executed 86%
-      10*:   83:void db_close(DB *d){if(d->sql){if(!sqlite3_get_autocommit(d->sql))sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cache_clear(d);sqlite3_close(d->sql);}d->sql=NULL;d->cache=NULL;}
+       17:   85: db_run(d,"PRAGMA mmap_size=268435456","");   /* 256MB 内存映射读取 */
+call    0 returned 100%
+       17:   86: db_run(d,"PRAGMA wal_autocheckpoint=512",""); /* WAL 512 页（约 2MB）自动检查点 */
+call    0 returned 100%
+       17:   87: db_run(d,"PRAGMA cache_size=-2000","");       /* 2MB 页缓存 */return !d->error;
+call    0 returned 100%
+        -:   88:}
+function db_close called 14 returned 100% blocks executed 86%
+      14*:   89:void db_close(DB *d){if(d->sql){if(!sqlite3_get_autocommit(d->sql))sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cache_clear(d);sqlite3_close(d->sql);}d->sql=NULL;d->cache=NULL;}
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 call    2 returned 100%
@@ -197,48 +206,48 @@ branch  4 taken 100%
 call    5 never executed
 call    6 returned 100%
 call    7 returned 100%
-function db_run called 1386 returned 100% blocks executed 100%
-     1386:   84:int db_run(DB *d,const char *sql,const char *fmt,...){
-     1386:   85: va_list a;va_start(a,fmt);sqlite3_stmt *s=prepare(d,sql,fmt,a);va_end(a);if(!s)return 0;
+function db_run called 1780 returned 100% blocks executed 100%
+     1780:   90:int db_run(DB *d,const char *sql,const char *fmt,...){
+     1780:   91: va_list a;va_start(a,fmt);sqlite3_stmt *s=prepare(d,sql,fmt,a);va_end(a);if(!s)return 0;
 call    0 returned 100%
 branch  1 taken 1% (fallthrough)
 branch  2 taken 100%
-     1385:   86: int rc;do{rc=sqlite3_step(s);}while(rc==SQLITE_ROW);if(rc!=SQLITE_DONE)d->error=rc;
+     1813:   92: int rc;do{rc=sqlite3_step(s);}while(rc==SQLITE_ROW);if(rc!=SQLITE_DONE)d->error=rc;
 call    0 returned 100%
-branch  1 taken 0%
-branch  2 taken 100% (fallthrough)
+branch  1 taken 2%
+branch  2 taken 98% (fallthrough)
 branch  3 taken 1% (fallthrough)
 branch  4 taken 100%
-     1385:   87: if(rc!=SQLITE_DONE){stmt_fail(d,s);return 0;}
+     1779:   93: if(rc!=SQLITE_DONE){stmt_fail(d,s);return 0;}
 branch  0 taken 1% (fallthrough)
 branch  1 taken 100%
 call    2 returned 100%
-     1384:   88: stmt_done(d,s);return 1;
+     1776:   94: stmt_done(d,s);return 1;
 call    0 returned 100%
-        -:   89:}
-function db_num called 311 returned 100% blocks executed 79%
-      311:   90:Id db_num(DB *d,const char *sql,const char *fmt,...){
-     311*:   91: va_list a;va_start(a,fmt);sqlite3_stmt *s=prepare(d,sql,fmt,a);va_end(a);if(!s)return 0;
+        -:   95:}
+function db_num called 753 returned 100% blocks executed 79%
+      753:   96:Id db_num(DB *d,const char *sql,const char *fmt,...){
+     753*:   97: va_list a;va_start(a,fmt);sqlite3_stmt *s=prepare(d,sql,fmt,a);va_end(a);if(!s)return 0;
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-      311:   92: int rc=sqlite3_step(s);Id n=0;
+      753:   98: int rc=sqlite3_step(s);Id n=0;
 call    0 returned 100%
-      311:   93: if(rc==SQLITE_ROW){n=sqlite3_column_int64(s,0);rc=sqlite3_step(s);}
+      753:   99: if(rc==SQLITE_ROW){n=sqlite3_column_int64(s,0);rc=sqlite3_step(s);}
 branch  0 taken 99% (fallthrough)
 branch  1 taken 1%
 call    2 returned 100%
 call    3 returned 100%
-     311*:   94: if(rc!=SQLITE_DONE){d->error=rc;stmt_fail(d,s);return 0;}
+     753*:  100: if(rc!=SQLITE_DONE){d->error=rc;stmt_fail(d,s);return 0;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-      311:   95: stmt_done(d,s);return n;
+      753:  101: stmt_done(d,s);return n;
 call    0 returned 100%
-        -:   96:}
-function rowsv called 251 returned 100% blocks executed 78%
-      251:   97:static cJSON *rowsv(DB *d,const char *sql,const char *fmt,va_list a){
-     251*:   98: sqlite3_stmt *s=prepare(d,sql,fmt,a);if(!s)return NULL;cJSON *rows=cJSON_CreateArray();if(!rows){d->error=SQLITE_NOMEM;stmt_fail(d,s);return NULL;}
+        -:  102:}
+function rowsv called 567 returned 100% blocks executed 78%
+      567:  103:static cJSON *rowsv(DB *d,const char *sql,const char *fmt,va_list a){
+     567*:  104: sqlite3_stmt *s=prepare(d,sql,fmt,a);if(!s)return NULL;cJSON *rows=cJSON_CreateArray();if(!rows){d->error=SQLITE_NOMEM;stmt_fail(d,s);return NULL;}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
@@ -246,188 +255,501 @@ call    3 returned 100%
 branch  4 taken 0% (fallthrough)
 branch  5 taken 100%
 call    6 never executed
-      637:   99: int rc;while((rc=sqlite3_step(s))==SQLITE_ROW){
+     2476:  105: int rc;while((rc=sqlite3_step(s))==SQLITE_ROW){
 call    0 returned 100%
-branch  1 taken 61%
-branch  2 taken 39% (fallthrough)
-     386*:  100:  cJSON *r=cJSON_CreateObject();if(!r){d->error=SQLITE_NOMEM;break;}cJSON_AddItemToArray(rows,r);
+branch  1 taken 77%
+branch  2 taken 23% (fallthrough)
+    1909*:  106:  cJSON *r=cJSON_CreateObject();if(!r){d->error=SQLITE_NOMEM;break;}cJSON_AddItemToArray(rows,r);
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
 call    3 returned 100%
-     2430:  101:  for(int i=0;i<sqlite3_column_count(s);i++){
+    13092:  107:  for(int i=0;i<sqlite3_column_count(s);i++){
 call    0 returned 100%
-branch  1 taken 84%
-branch  2 taken 16% (fallthrough)
-     2044:  102:   const char *n=sqlite3_column_name(s,i);int t=sqlite3_column_type(s,i);size_t len=strlen(n);
+branch  1 taken 85%
+branch  2 taken 15% (fallthrough)
+    11183:  108:   const char *n=sqlite3_column_name(s,i);int t=sqlite3_column_type(s,i);size_t len=strlen(n);
 call    0 returned 100%
 call    1 returned 100%
-     2044:  103:   if(t==SQLITE_NULL)cJSON_AddNullToObject(r,n);
-branch  0 taken 12% (fallthrough)
-branch  1 taken 88%
+    11183:  109:   if(t==SQLITE_NULL)cJSON_AddNullToObject(r,n);
+branch  0 taken 14% (fallthrough)
+branch  1 taken 86%
 call    2 returned 100%
-     1800:  104:   else if(t==SQLITE_INTEGER){
-branch  0 taken 65% (fallthrough)
-branch  1 taken 35%
-     1169:  105:    if(!strcmp(n,"id")||(len>3&&!strcmp(n+len-3,"_id")))jid(r,n,sqlite3_column_int64(s,i));
-branch  0 taken 87% (fallthrough)
-branch  1 taken 13%
-branch  2 taken 64% (fallthrough)
-branch  3 taken 36%
+     9666:  110:   else if(t==SQLITE_INTEGER){
+branch  0 taken 60% (fallthrough)
+branch  1 taken 40%
+     5816:  111:    if(!strcmp(n,"id")||(len>3&&!strcmp(n+len-3,"_id")))jid(r,n,sqlite3_column_int64(s,i));
+branch  0 taken 94% (fallthrough)
+branch  1 taken 6%
+branch  2 taken 48% (fallthrough)
+branch  3 taken 52%
 branch  4 taken 8% (fallthrough)
 branch  5 taken 92%
 call    6 returned 100%
 call    7 returned 100%
-      965:  106:    else if(!strcmp(n,"enabled")||!strcmp(n,"lab_enabled")||!strcmp(n,"occupied"))cJSON_AddBoolToObject(r,n,sqlite3_column_int(s,i));
-branch  0 taken 93% (fallthrough)
-branch  1 taken 7%
-branch  2 taken 94% (fallthrough)
-branch  3 taken 6%
+     5226:  112:    else if(!strcmp(n,"enabled")||!strcmp(n,"lab_enabled")||!strcmp(n,"occupied"))cJSON_AddBoolToObject(r,n,sqlite3_column_int(s,i));
+branch  0 taken 98% (fallthrough)
+branch  1 taken 2%
+branch  2 taken 98% (fallthrough)
+branch  3 taken 2%
 branch  4 taken 0% (fallthrough)
 branch  5 taken 100%
 call    6 returned 100%
 call    7 returned 100%
-      844:  107:    else cJSON_AddNumberToObject(r,n,(double)sqlite3_column_int64(s,i));
+     5046:  113:    else cJSON_AddNumberToObject(r,n,(double)sqlite3_column_int64(s,i));
 call    0 returned 100%
 call    1 returned 100%
-      631:  108:   }else cJSON_AddStringToObject(r,n,(const char*)sqlite3_column_text(s,i));
+     3850:  114:   }else cJSON_AddStringToObject(r,n,(const char*)sqlite3_column_text(s,i));
 call    0 returned 100%
 call    1 returned 100%
-        -:  109:  }
-        -:  110: }
-     251*:  111: if(rc!=SQLITE_DONE){if(!d->error)d->error=rc;stmt_fail(d,s);cJSON_Delete(rows);return NULL;}
+        -:  115:  }
+        -:  116: }
+     567*:  117: if(rc!=SQLITE_DONE){if(!d->error)d->error=rc;stmt_fail(d,s);cJSON_Delete(rows);return NULL;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 branch  2 never executed (fallthrough)
 branch  3 never executed
 call    4 never executed
 call    5 never executed
-      251:  112: stmt_done(d,s);
+      567:  118: stmt_done(d,s);
 call    0 returned 100%
-     251*:  113: if(d->error){cJSON_Delete(rows);return NULL;}return rows;
+     567*:  119: if(d->error){cJSON_Delete(rows);return NULL;}return rows;
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-        -:  114:}
-function db_rows called 72 returned 100% blocks executed 100%
-       72:  115:cJSON *db_rows(DB *d,const char *sql,const char *fmt,...){va_list a;va_start(a,fmt);cJSON *j=rowsv(d,sql,fmt,a);va_end(a);return j;}
+        -:  120:}
+function db_rows called 269 returned 100% blocks executed 100%
+      269:  121:cJSON *db_rows(DB *d,const char *sql,const char *fmt,...){va_list a;va_start(a,fmt);cJSON *j=rowsv(d,sql,fmt,a);va_end(a);return j;}
 call    0 returned 100%
-function db_first called 179 returned 100% blocks executed 88%
-     179*:  116:cJSON *db_first(DB *d,const char *sql,const char *fmt,...){va_list a;va_start(a,fmt);cJSON *j=rowsv(d,sql,fmt,a);va_end(a);if(!j)return NULL;cJSON *r=cJSON_DetachItemFromArray(j,0);cJSON_Delete(j);return r;}
+function db_first called 298 returned 100% blocks executed 88%
+     298*:  122:cJSON *db_first(DB *d,const char *sql,const char *fmt,...){va_list a;va_start(a,fmt);cJSON *j=rowsv(d,sql,fmt,a);va_end(a);if(!j)return NULL;cJSON *r=cJSON_DetachItemFromArray(j,0);cJSON_Delete(j);return r;}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
 call    3 returned 100%
 call    4 returned 100%
-function has_column called 25 returned 100% blocks executed 85%
-       25:  117:static int has_column(DB *d,const char *table,const char *column){
-       25:  118: char sql[96];snprintf(sql,sizeof sql,"PRAGMA table_info(%s)",table);
-      25*:  119: cJSON *rows=d->error?NULL:db_rows(d,sql,"");if(!rows)return 0;
+function has_column called 151 returned 100% blocks executed 85%
+      151:  123:static int has_column(DB *d,const char *table,const char *column){
+      151:  124: char sql[96];snprintf(sql,sizeof sql,"PRAGMA table_info(%s)",table);
+     151*:  125: cJSON *rows=d->error?NULL:db_rows(d,sql,"");if(!rows)return 0;
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 call    2 returned 100%
 branch  3 taken 0% (fallthrough)
 branch  4 taken 100%
-     176*:  120: int found=0;cJSON *it;cJSON_ArrayForEach(it,rows)if(jstr(it,"name")&&!strcmp(jstr(it,"name"),column)){found=1;break;}
+    1017*:  126: int found=0;cJSON *it;cJSON_ArrayForEach(it,rows)if(jstr(it,"name")&&!strcmp(jstr(it,"name"),column)){found=1;break;}
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 call    2 returned 100%
 branch  3 taken 100% (fallthrough)
 branch  4 taken 0%
 call    5 returned 100%
-branch  6 taken 12% (fallthrough)
-branch  7 taken 88%
-branch  8 taken 97%
-branch  9 taken 3% (fallthrough)
-       25:  121: cJSON_Delete(rows);return found;
+branch  6 taken 14% (fallthrough)
+branch  7 taken 86%
+branch  8 taken 99%
+branch  9 taken 1% (fallthrough)
+      151:  127: cJSON_Delete(rows);return found;
 call    0 returned 100%
-        -:  122:}
-        -:  123:/* v1→v2：仅追加列，不重建表；v2→v3：场次容量制，退役单占用唯一索引。全部幂等。 */
-function db_migrate called 6 returned 100% blocks executed 80%
-        6:  124:static int db_migrate(DB *d){
-        6:  125: if(!has_column(d,"reservations","checked_in_at")||!has_column(d,"reservations","cancel_reason")||!has_column(d,"sessions","created_at")){
+        -:  128:}
+        -:  129:/* v1→v2：仅追加列，不重建表；v2→v3：场次容量制，退役单占用唯一索引。全部幂等。 */
+function db_migrate called 10 returned 100% blocks executed 62%
+       10:  130:static int db_migrate(DB *d){
+       10:  131: if(!has_column(d,"reservations","checked_in_at")||!has_column(d,"reservations","cancel_reason")||!has_column(d,"sessions","created_at")){
 call    0 returned 100%
-branch  1 taken 83% (fallthrough)
-branch  2 taken 17%
+branch  1 taken 90% (fallthrough)
+branch  2 taken 10%
 call    3 returned 100%
 branch  4 taken 100% (fallthrough)
 branch  5 taken 0%
 call    6 returned 100%
 branch  7 taken 0% (fallthrough)
 branch  8 taken 100%
-       1*:  126:  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+       1*:  132:  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-        1:  127:  if(!has_column(d,"reservations","checked_in_at"))db_run(d,"ALTER TABLE reservations ADD COLUMN checked_in_at INTEGER","");
+        1:  133:  if(!has_column(d,"reservations","checked_in_at"))db_run(d,"ALTER TABLE reservations ADD COLUMN checked_in_at INTEGER","");
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
 call    3 returned 100%
-        1:  128:  if(!has_column(d,"reservations","cancel_reason"))db_run(d,"ALTER TABLE reservations ADD COLUMN cancel_reason TEXT","");
+        1:  134:  if(!has_column(d,"reservations","cancel_reason"))db_run(d,"ALTER TABLE reservations ADD COLUMN cancel_reason TEXT","");
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
 call    3 returned 100%
-        1:  129:  if(!has_column(d,"sessions","created_at"))db_run(d,"ALTER TABLE sessions ADD COLUMN created_at INTEGER","");
+        1:  135:  if(!has_column(d,"sessions","created_at"))db_run(d,"ALTER TABLE sessions ADD COLUMN created_at INTEGER","");
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
 call    3 returned 100%
-        1:  130:  db_run(d,"UPDATE reservations SET cancel_reason='USER' WHERE status='CANCELLED' AND cancel_reason IS NULL","");
+        1:  136:  db_run(d,"UPDATE reservations SET cancel_reason='USER' WHERE status='CANCELLED' AND cancel_reason IS NULL","");
 call    0 returned 100%
-       1*:  131:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+       1*:  137:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-       1*:  132:  if(!db_run(d,"COMMIT",""))return 0;
+       1*:  138:  if(!db_run(d,"COMMIT",""))return 0;
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-        -:  133: }
-        6:  134: if(!has_column(d,"slots","capacity")){
+        -:  139: }
+       10:  140: if(!has_column(d,"slots","capacity")){
 call    0 returned 100%
-branch  1 taken 17% (fallthrough)
-branch  2 taken 83%
-       1*:  135:  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+branch  1 taken 10% (fallthrough)
+branch  2 taken 90%
+       1*:  141:  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-        1:  136:  db_run(d,"ALTER TABLE slots ADD COLUMN capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 200)","");
+        1:  142:  db_run(d,"ALTER TABLE slots ADD COLUMN capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 200)","");
 call    0 returned 100%
-        1:  137:  db_run(d,"DROP INDEX IF EXISTS one_booking","");
+        1:  143:  db_run(d,"DROP INDEX IF EXISTS one_booking","");
 call    0 returned 100%
-       1*:  138:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+       1*:  144:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-       1*:  139:  if(!db_run(d,"COMMIT",""))return 0;
+       1*:  145:  if(!db_run(d,"COMMIT",""))return 0;
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-        -:  140: }
-        6:  141: return 1;
-        -:  142:}
-function db_init called 6 returned 100% blocks executed 78%
-        6:  143:int db_init(DB *d){
-        6:  144: const char *schema=
-        -:  145: "BEGIN IMMEDIATE;"
-        -:  146: "CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN('USER','ADMIN')),enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)));"
-        -:  147: "CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),csrf_token TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER);"
-        -:  148: "CREATE TABLE IF NOT EXISTS labs(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,location TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)));"
-        -:  149: "CREATE TABLE IF NOT EXISTS slots(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL REFERENCES labs(id),start_at INTEGER NOT NULL,end_at INTEGER NOT NULL,enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)),capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 200),UNIQUE(lab_id,start_at),CHECK(end_at=start_at+3600));"
-        -:  150: "CREATE TABLE IF NOT EXISTS reservations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','CANCELLED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW')));"
-        -:  151: "CREATE INDEX IF NOT EXISTS bookings_slot ON reservations(slot_id,status);"
-        -:  152: "CREATE INDEX IF NOT EXISTS bookings_user ON reservations(user_id,created_at);"
-        -:  153: "CREATE TABLE IF NOT EXISTS waitlist(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('WAITING','WITHDRAWN','PROMOTED','SKIPPED')),created_at INTEGER NOT NULL,promoted_reservation_id INTEGER REFERENCES reservations(id));"
-        -:  154: "CREATE UNIQUE INDEX IF NOT EXISTS one_waiter ON waitlist(user_id,slot_id) WHERE status='WAITING';"
-        -:  155: "CREATE INDEX IF NOT EXISTS wait_order ON waitlist(slot_id,status,id);"
-        -:  156: "CREATE TABLE IF NOT EXISTS request_receipts(user_id INTEGER NOT NULL REFERENCES users(id),request_id TEXT NOT NULL,action TEXT NOT NULL,payload_digest TEXT NOT NULL,http_status INTEGER NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(user_id,request_id));"
-        -:  157: "CREATE TABLE IF NOT EXISTS operation_events(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL REFERENCES users(id),action TEXT NOT NULL,entity_id INTEGER NOT NULL,request_id TEXT,created_at INTEGER NOT NULL);"
-        -:  158: "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN('PROMOTED','NO_SHOW')),title TEXT NOT NULL,body TEXT NOT NULL,slot_id INTEGER REFERENCES slots(id),reservation_id INTEGER REFERENCES reservations(id),read_at INTEGER,created_at INTEGER NOT NULL);"
-        -:  159: "CREATE INDEX IF NOT EXISTS notify_user ON notifications(user_id,id);"
-        -:  160: "PRAGMA user_version=3;COMMIT;";
-       6*:  161: cJSON *wal=db_first(d,"PRAGMA journal_mode=WAL","");int ok=wal&&jstr(wal,"journal_mode")&&!strcmp(jstr(wal,"journal_mode"),"wal");cJSON_Delete(wal);if(!ok)return 0;
+        -:  146: }
+       10:  147: if(!has_column(d,"labs","require_approval")){ /* r19 审批开关：幂等追加 */
+call    0 returned 100%
+branch  1 taken 10% (fallthrough)
+branch  2 taken 90%
+       1*:  148:  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        1:  149:  db_run(d,"ALTER TABLE labs ADD COLUMN require_approval INTEGER NOT NULL DEFAULT 0 CHECK(require_approval IN(0,1))","");
+call    0 returned 100%
+       1*:  150:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       1*:  151:  if(!db_run(d,"COMMIT",""))return 0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -:  152: }
+       10:  153: if(has_column(d,"api_tokens","token_hash")&&!has_column(d,"api_tokens","id")){ /* r20 旧结构修复：令牌为可再生数据，直接重建 */
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+    #####:  154:  db_run(d,"DROP TABLE api_tokens","");
+call    0 never executed
+        -:  155: }
+       10:  156: if(!has_column(d,"api_tokens","token_hash")){ /* r20 令牌表：幂等追加 */
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+    #####:  157:  db_run(d,"CREATE TABLE api_tokens(id INTEGER PRIMARY KEY,token_hash TEXT NOT NULL UNIQUE,user_id INTEGER NOT NULL REFERENCES users(id),name TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,last_used_at INTEGER);","");
+call    0 never executed
+        -:  158: }
+       10:  159: if(!has_column(d,"reservations","checked_out_at")){ /* r16 签退列：幂等追加 */
+call    0 returned 100%
+branch  1 taken 50% (fallthrough)
+branch  2 taken 50%
+       5*:  160:  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        5:  161:  db_run(d,"ALTER TABLE reservations ADD COLUMN checked_out_at INTEGER","");
+call    0 returned 100%
+       5*:  162:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       5*:  163:  if(!db_run(d,"COMMIT",""))return 0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -:  164: }
+       10:  165: if(!has_column(d,"reservations","note")){ /* r18 预约备注列：幂等追加 */
+call    0 returned 100%
+branch  1 taken 10% (fallthrough)
+branch  2 taken 90%
+       1*:  166:  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        1:  167:  db_run(d,"ALTER TABLE reservations ADD COLUMN note TEXT","");
+call    0 returned 100%
+       1*:  168:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       1*:  169:  if(!db_run(d,"COMMIT",""))return 0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -:  170: }
+       10:  171:  if(!has_column(d,"slots","reminded_at")){ /* v3/v4→提醒列：幂等追加 */
+call    0 returned 100%
+branch  1 taken 10% (fallthrough)
+branch  2 taken 90%
+       1*:  172:  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        1:  173:  db_run(d,"ALTER TABLE slots ADD COLUMN reminded_at INTEGER","");
+call    0 returned 100%
+       1*:  174:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       1*:  175:  if(!db_run(d,"COMMIT",""))return 0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -:  176: }
+        -:  177:/* r19 审批状态 + r23 抢占态：reservations 的 status/reason CHECK 需扩展 PENDING/REJECTED/PREEMPTED——
+        -:  178:    CHECK 无法原地修改，且三张表引用本表，重建须临时关断外键并逐一重建索引。以是否含对应枚举字面量判定，幂等。 */
+       10:  179: {cJSON *rz=db_first(d,"SELECT sql FROM sqlite_master WHERE type='table' AND name='reservations'","");
+call    0 returned 100%
+      10*:  180:  if(!rz)return d->error?0:1;
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+       10:  181:  const char *rdl=jstr(rz,"sql");
+call    0 returned 100%
+       10:  182:  if(rdl&&(!strstr(rdl,"'PENDING'")||!strstr(rdl,"'PREEMPTED'")||!strstr(rdl,"'HELD'"))){
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 90% (fallthrough)
+branch  3 taken 10%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+branch  6 taken 0% (fallthrough)
+branch  7 taken 100%
+        1:  183:   cJSON_Delete(rz);
+call    0 returned 100%
+        1:  184:   db_run(d,"PRAGMA foreign_keys=OFF","");
+call    0 returned 100%
+       1*:  185:   if(!db_run(d,"BEGIN IMMEDIATE","")){return 0;}
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -:  186:   /* r24：status 扩展 HELD（限时保留）与 EXPIRED（确认超时）；新列 priority/hold_deadline 由本表 DDL 提供，
+        -:  187:      旧库的既有行取默认值（DEFAULT 0 / NULL）。INSERT SELECT 只搬既有列，避免在旧库上引用不存在的列。 */
+        1:  188:   db_run(d,"CREATE TABLE reservations_new(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','PENDING','CANCELLED','HELD','EXPIRED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,checked_out_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW','REJECTED','PREEMPTED')),note TEXT,priority INTEGER NOT NULL DEFAULT 0,hold_deadline INTEGER);","");
+call    0 returned 100%
+        1:  189:   db_run(d,"INSERT INTO reservations_new(id,user_id,slot_id,status,source,created_at,cancelled_at,checked_in_at,checked_out_at,cancel_reason,note) SELECT id,user_id,slot_id,status,source,created_at,cancelled_at,checked_in_at,checked_out_at,cancel_reason,note FROM reservations","");
+call    0 returned 100%
+        1:  190:   db_run(d,"DROP TABLE reservations","");
+call    0 returned 100%
+        1:  191:   db_run(d,"ALTER TABLE reservations_new RENAME TO reservations","");
+call    0 returned 100%
+        1:  192:   db_run(d,"CREATE INDEX IF NOT EXISTS bookings_slot ON reservations(slot_id,status);","");
+call    0 returned 100%
+        1:  193:   db_run(d,"CREATE INDEX IF NOT EXISTS bookings_user ON reservations(user_id,created_at);","");
+call    0 returned 100%
+       1*:  194:   if(!db_run(d,"COMMIT","")){db_run(d,"PRAGMA foreign_keys=ON","");return 0;}
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+        1:  195:   db_run(d,"PRAGMA foreign_keys=ON","");
+call    0 returned 100%
+        9:  196:  } else cJSON_Delete(rz);
+call    0 returned 100%
+        -:  197: }
+        -:  198: /* v3→v4：notifications.kind 增加 'NOTICE'（管理员公告）与 'REMIND'（开场提醒）；CHECK 无法原地修改，检测到旧约束时重建表。 */
+       10:  199: cJSON *nt=db_first(d,"SELECT sql FROM sqlite_master WHERE type='table' AND name='notifications'","");
+call    0 returned 100%
+      10*:  200: if(!nt)return d->error?0:1;
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+       10:  201: const char *nddl=jstr(nt,"sql");
+call    0 returned 100%
+       10:  202: if(nddl&&(!strstr(nddl,"'NOTICE'")||!strstr(nddl,"'REMIND'"))){
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+    #####:  203:  if(!db_run(d,"BEGIN IMMEDIATE","")){cJSON_Delete(nt);return 0;}
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+call    3 never executed
+    #####:  204:  db_run(d,"CREATE TABLE notifications_new(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN('PROMOTED','NO_SHOW','NOTICE','REMIND')),title TEXT NOT NULL,body TEXT NOT NULL,slot_id INTEGER REFERENCES slots(id),reservation_id INTEGER REFERENCES reservations(id),read_at INTEGER,created_at INTEGER NOT NULL)","");
+call    0 never executed
+    #####:  205:  db_run(d,"INSERT INTO notifications_new(id,user_id,kind,title,body,slot_id,reservation_id,read_at,created_at) SELECT id,user_id,kind,title,body,slot_id,reservation_id,read_at,created_at FROM notifications","");
+call    0 never executed
+    #####:  206:  db_run(d,"DROP TABLE notifications","");
+call    0 never executed
+    #####:  207:  db_run(d,"ALTER TABLE notifications_new RENAME TO notifications","");
+call    0 never executed
+    #####:  208:  db_run(d,"CREATE INDEX IF NOT EXISTS notify_user ON notifications(user_id,id)","");
+call    0 never executed
+    #####:  209:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cJSON_Delete(nt);return 0;}
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+call    3 never executed
+    #####:  210:  if(!db_run(d,"COMMIT","")){cJSON_Delete(nt);return 0;}
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+call    3 never executed
+        -:  211: }
+       10:  212: cJSON_Delete(nt);
+call    0 returned 100%
+        -:  213: /* r23 预约优先级列：抢占判定的依据（与 waitlist.priority 同源，均由服务端按角色校准）。 */
+       10:  214: if(!has_column(d,"reservations","priority")){
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+    #####:  215:  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+    #####:  216:  db_run(d,"ALTER TABLE reservations ADD COLUMN priority INTEGER NOT NULL DEFAULT 0","");
+call    0 never executed
+    #####:  217:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+    #####:  218:  if(!db_run(d,"COMMIT",""))return 0;
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -:  219: }
+        -:  220: /* r23 信用账户列：幂等追加；历史用户按默认额度补齐，并把既有"每周配额/爽约信用"语义统一到一本账。 */
+       10:  221: if(!has_column(d,"users","credit")){
+call    0 returned 100%
+branch  1 taken 10% (fallthrough)
+branch  2 taken 90%
+       1*:  222:  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        1:  223:  db_run(d,"ALTER TABLE users ADD COLUMN credit INTEGER NOT NULL DEFAULT 5","");
+call    0 returned 100%
+       1*:  224:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       1*:  225:  if(!db_run(d,"COMMIT",""))return 0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -:  226: }
+        -:  227: /* r23 候补优先级列：幂等追加（旧库 waitlist 原本没有该列）。 */
+       10:  228: if(!has_column(d,"waitlist","priority")){
+call    0 returned 100%
+branch  1 taken 10% (fallthrough)
+branch  2 taken 90%
+       1*:  229:  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        1:  230:  db_run(d,"ALTER TABLE waitlist ADD COLUMN priority INTEGER NOT NULL DEFAULT 0","");
+call    0 returned 100%
+       1*:  231:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       1*:  232:  if(!db_run(d,"COMMIT",""))return 0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -:  233: }
+        -:  234: /* r23 候补排序索引纳入 priority。这里按"索引定义是否含 priority"判定而不是按列判定，
+        -:  235:    以保证新库（schema 建的兼容索引）与迁移库最终一致；且必须在 priority 列存在之后执行。 */
+       10:  236: {cJSON *wi=db_first(d,"SELECT sql FROM sqlite_master WHERE type='index' AND name='wait_order'","");
+call    0 returned 100%
+      10*:  237:  if(!wi)return d->error?0:1;
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+       10:  238:  const char *isql=jstr(wi,"sql");
+call    0 returned 100%
+       10:  239:  if(isql&&!strstr(isql,"priority")){
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 50% (fallthrough)
+branch  3 taken 50%
+        5:  240:   db_run(d,"DROP INDEX IF EXISTS wait_order","");
+call    0 returned 100%
+        5:  241:   db_run(d,"CREATE INDEX IF NOT EXISTS wait_order ON waitlist(slot_id,status,priority DESC,id)","");
+call    0 returned 100%
+       5*:  242:   if(d->error){cJSON_Delete(wi);return 0;}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+        -:  243:  }
+       10:  244:  cJSON_Delete(wi);
+call    0 returned 100%
+        -:  245: }
+        -:  246: /* r24 资源资格开关列：幂等追加（只有显式开启的资源才校验使用资格）。 */
+       10:  247: if(!has_column(d,"assets","requires_qualification")){
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+    #####:  248:  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+    #####:  249:  db_run(d,"ALTER TABLE assets ADD COLUMN requires_qualification INTEGER NOT NULL DEFAULT 0 CHECK(requires_qualification IN(0,1))","");
+call    0 never executed
+    #####:  250:  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+    #####:  251:  if(!db_run(d,"COMMIT",""))return 0;
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -:  252: }
+       10:  253: return 1;
+        -:  254:}
+function db_init called 10 returned 100% blocks executed 78%
+       10:  255:int db_init(DB *d){
+       10:  256: const char *schema=
+        -:  257: "BEGIN IMMEDIATE;"
+        -:  258: "CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN('USER','ADMIN')),enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)),credit INTEGER NOT NULL DEFAULT 5);"
+        -:  259: "CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),csrf_token TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER);"
+        -:  260: "CREATE TABLE IF NOT EXISTS labs(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,location TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)),require_approval INTEGER NOT NULL DEFAULT 0 CHECK(require_approval IN(0,1)));"
+        -:  261: "CREATE TABLE IF NOT EXISTS slots(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL REFERENCES labs(id),start_at INTEGER NOT NULL,end_at INTEGER NOT NULL,enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)),capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 200),reminded_at INTEGER,UNIQUE(lab_id,start_at),CHECK(end_at=start_at+3600));"
+        -:  262: "CREATE TABLE IF NOT EXISTS reservations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','PENDING','CANCELLED','HELD','EXPIRED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW','REJECTED','PREEMPTED')),note TEXT,priority INTEGER NOT NULL DEFAULT 0,hold_deadline INTEGER);"
+        -:  263: "CREATE INDEX IF NOT EXISTS bookings_slot ON reservations(slot_id,status);"
+        -:  264: "CREATE INDEX IF NOT EXISTS bookings_user ON reservations(user_id,created_at);"
+        -:  265: "CREATE TABLE IF NOT EXISTS waitlist(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('WAITING','WITHDRAWN','PROMOTED','SKIPPED')),created_at INTEGER NOT NULL,promoted_reservation_id INTEGER REFERENCES reservations(id),priority INTEGER NOT NULL DEFAULT 0);"
+        -:  266: "CREATE UNIQUE INDEX IF NOT EXISTS one_waiter ON waitlist(user_id,slot_id) WHERE status='WAITING';"
+        -:  267: "CREATE INDEX IF NOT EXISTS wait_order ON waitlist(slot_id,status,id);"
+        -:  268: "CREATE TABLE IF NOT EXISTS request_receipts(user_id INTEGER NOT NULL REFERENCES users(id),request_id TEXT NOT NULL,action TEXT NOT NULL,payload_digest TEXT NOT NULL,http_status INTEGER NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(user_id,request_id));"
+        -:  269: "CREATE TABLE IF NOT EXISTS operation_events(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL REFERENCES users(id),action TEXT NOT NULL,entity_id INTEGER NOT NULL,request_id TEXT,created_at INTEGER NOT NULL);"
+        -:  270: "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN('PROMOTED','NO_SHOW','NOTICE','REMIND')),title TEXT NOT NULL,body TEXT NOT NULL,slot_id INTEGER REFERENCES slots(id),reservation_id INTEGER REFERENCES reservations(id),read_at INTEGER,created_at INTEGER NOT NULL);"
+        -:  271: "CREATE INDEX IF NOT EXISTS notify_user ON notifications(user_id,id);"
+        -:  272: "CREATE TABLE IF NOT EXISTS assets(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL REFERENCES labs(id),name TEXT NOT NULL,spec TEXT NOT NULL DEFAULT '',total INTEGER NOT NULL DEFAULT 1 CHECK(total BETWEEN 1 AND 999),status TEXT NOT NULL DEFAULT 'AVAILABLE' CHECK(status IN('AVAILABLE','MAINTENANCE','DISABLED')),created_at INTEGER NOT NULL,requires_qualification INTEGER NOT NULL DEFAULT 0 CHECK(requires_qualification IN(0,1)));"
+        -:  273: "CREATE INDEX IF NOT EXISTS assets_lab ON assets(lab_id,id);"
+        -:  274: "CREATE UNIQUE INDEX IF NOT EXISTS assets_uniq ON assets(lab_id,name);"
+        -:  275: "CREATE TABLE IF NOT EXISTS asset_claims(reservation_id INTEGER NOT NULL REFERENCES reservations(id),asset_id INTEGER NOT NULL REFERENCES assets(id),created_at INTEGER NOT NULL,PRIMARY KEY(reservation_id,asset_id));"
+        -:  276: "CREATE INDEX IF NOT EXISTS claims_asset ON asset_claims(asset_id);"
+        -:  277: "CREATE TABLE IF NOT EXISTS api_tokens(id INTEGER PRIMARY KEY,token_hash TEXT NOT NULL UNIQUE,user_id INTEGER NOT NULL REFERENCES users(id),name TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,last_used_at INTEGER);"
+        -:  278: /* r23 信用账户：把"每周配额"与"爽约信用"统一为一本可追溯流水。 */
+        -:  279: "CREATE TABLE IF NOT EXISTS credit_ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),delta INTEGER NOT NULL,reason TEXT NOT NULL,reservation_id INTEGER,created_at INTEGER NOT NULL);"
+        -:  280: "CREATE INDEX IF NOT EXISTS credit_user ON credit_ledger(user_id,id);"
+        -:  281: /* r23 资源自身的可用时段（对标 working plans）：与场次时段正交，用于表达"每周三下午检修"等。 */
+        -:  282: "CREATE TABLE IF NOT EXISTS asset_windows(id INTEGER PRIMARY KEY AUTOINCREMENT,asset_id INTEGER NOT NULL REFERENCES assets(id),weekday_mask INTEGER NOT NULL DEFAULT 127 CHECK(weekday_mask BETWEEN 0 AND 127),start_minute INTEGER NOT NULL CHECK(start_minute BETWEEN 0 AND 1439),end_minute INTEGER NOT NULL CHECK(end_minute BETWEEN 1 AND 1440),reason TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,CHECK(end_minute>start_minute));"
+        -:  283: "CREATE INDEX IF NOT EXISTS windows_asset ON asset_windows(asset_id);"
+        -:  284: /* r23 资源维护工单：设备生命周期可追溯，与 assets.status 联动。 */
+        -:  285: "CREATE TABLE IF NOT EXISTS asset_maintenance(id INTEGER PRIMARY KEY AUTOINCREMENT,asset_id INTEGER NOT NULL REFERENCES assets(id),started_at INTEGER NOT NULL,ended_at INTEGER,reason TEXT NOT NULL DEFAULT '',operator_id INTEGER REFERENCES users(id));"
+        -:  286: "CREATE INDEX IF NOT EXISTS maint_asset ON asset_maintenance(asset_id,ended_at);"
+        -:  287: /* r24 资格授权：贵重设备需培训授权后方可声明（默认不启用，资源须显式开启 requires_qualification）。 */
+        -:  288: "CREATE TABLE IF NOT EXISTS qualifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),asset_id INTEGER NOT NULL REFERENCES assets(id),granted_at INTEGER NOT NULL,expires_at INTEGER,note TEXT NOT NULL DEFAULT '',UNIQUE(user_id,asset_id));"
+        -:  289: "CREATE INDEX IF NOT EXISTS qual_asset ON qualifications(asset_id,user_id);"
+        -:  290: /* r24 通知出站队列：同事务写入，提交后派发；失败可重试（至少一次语义）。 */
+        -:  291: "CREATE TABLE IF NOT EXISTS outbox(id INTEGER PRIMARY KEY AUTOINCREMENT,notification_id INTEGER REFERENCES notifications(id),channel TEXT NOT NULL,payload TEXT NOT NULL,sent_at INTEGER,attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT,created_at INTEGER NOT NULL);"
+        -:  292: "CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(sent_at,id);"
+        -:  293: "PRAGMA user_version=5;COMMIT;";
+      10*:  294: cJSON *wal=db_first(d,"PRAGMA journal_mode=WAL","");int ok=wal&&jstr(wal,"journal_mode")&&!strcmp(jstr(wal,"journal_mode"),"wal");cJSON_Delete(wal);if(!ok)return 0;
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
@@ -440,19 +762,56 @@ branch  8 taken 0%
 call    9 returned 100%
 branch 10 taken 0% (fallthrough)
 branch 11 taken 100%
-       6*:  162: int rc=sqlite3_exec(d->sql,schema,NULL,NULL,NULL);if(rc!=SQLITE_OK)d->error=rc;
+      10*:  295: int rc=sqlite3_exec(d->sql,schema,NULL,NULL,NULL);if(rc!=SQLITE_OK){d->error=rc;}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-       6*:  163: if(d->error)return 0;
+      10*:  296: if(d->error)return 0;
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
-        6:  164: return db_migrate(d);
+       10:  297: return db_migrate(d);
 call    0 returned 100%
-        -:  165:}
-function db_check called 7 returned 100% blocks executed 83%
-        7:  166:int db_check(DB *d){
-       7*:  167: cJSON *r=db_first(d,"PRAGMA integrity_check","");int ok=r&&jstr(r,"integrity_check")&&!strcmp(jstr(r,"integrity_check"),"ok");cJSON_Delete(r);
+        -:  298:}
+function publish_slots called 9 returned 100% blocks executed 100%
+        9:  299:int publish_slots(DB *d,Id lab,Id start,Id end,Id capacity){ /* capacity 必须 Id：绑定格式 i 按 8 字节变参读取 */
+        9:  300: return publish_slots_week(d,lab,start,end,capacity,0); /* mask=0 表示每日 */
+call    0 returned 100%
+        -:  301:}
+function publish_slots_week called 12 returned 100% blocks executed 80%
+       12:  302:int publish_slots_week(DB *d,Id lab,Id start,Id end,Id capacity,int mask){ /* mask bit0..bit6=周一..周日，0=每日；北京周=(days+3)%7 */
+       12:  303: int count=0;const int hours[]={8,9,10,11,14,15,16,17};
+     1182:  304: for(Id day=start;day<=end;day+=86400)for(int h=0;h<8;h++){
+branch  0 taken 89%
+branch  1 taken 11% (fallthrough)
+branch  2 taken 92%
+branch  3 taken 8% (fallthrough)
+    1040*:  305:  Id s=day+hours[h]*3600;if(s<=now_sec())continue;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+    1040*:  306:  if(mask){int wd=(int)(((s+28800)/86400+3)%7);if(!(mask&(1<<wd)))continue;}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    1040*:  307:  if(!db_run(d,"INSERT INTO slots(lab_id,start_at,end_at,capacity) VALUES(?,?,?,?) ON CONFLICT(lab_id,start_at) DO NOTHING","iiii",lab,s,s+3600,capacity))return count;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+     1040:  308:  count+=sqlite3_changes(d->sql);
+call    0 returned 100%
+       12:  309: }return count;
+        -:  310:}
+function db_check called 11 returned 100% blocks executed 75%
+       11:  311:int db_check(DB *d){
+       11:  312: int ok=1;
+      11*:  313: {cJSON *ci=db_rows(d,"PRAGMA table_info(reservations)","");char *pt=ci?cJSON_PrintUnformatted(ci):NULL;free(pt);cJSON_Delete(ci);}
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+call    4 returned 100%
+      11*:  314: cJSON *r=db_first(d,"PRAGMA integrity_check","");if(!(r&&jstr(r,"integrity_check")&&!strcmp(jstr(r,"integrity_check"),"ok"))){ok=0;}cJSON_Delete(r);
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
@@ -460,10 +819,10 @@ call    3 returned 100%
 branch  4 taken 100% (fallthrough)
 branch  5 taken 0%
 call    6 returned 100%
-branch  7 taken 100% (fallthrough)
-branch  8 taken 0%
+branch  7 taken 0% (fallthrough)
+branch  8 taken 100%
 call    9 returned 100%
-       7*:  168: cJSON *fk=db_rows(d,"PRAGMA foreign_key_check","");if(!fk||cJSON_GetArraySize(fk))ok=0;cJSON_Delete(fk);
+      11*:  315: cJSON *fk=db_rows(d,"PRAGMA foreign_key_check","");if(!fk||cJSON_GetArraySize(fk)){ok=0;}cJSON_Delete(fk);
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
@@ -471,63 +830,72 @@ call    3 returned 100%
 branch  4 taken 0% (fallthrough)
 branch  5 taken 100%
 call    6 returned 100%
-        7:  169: if(db_num(d,"SELECT count(*) FROM waitlist w JOIN reservations r ON w.user_id=r.user_id AND w.slot_id=r.slot_id WHERE w.status='WAITING' AND r.status='CONFIRMED'","")>0)ok=0;
+       11:  316: if(db_num(d,"SELECT count(*) FROM waitlist w JOIN reservations r ON w.user_id=r.user_id AND w.slot_id=r.slot_id WHERE w.status='WAITING' AND r.status='CONFIRMED'","")>0){ok=0;}
 call    0 returned 100%
-branch  1 taken 14% (fallthrough)
-branch  2 taken 86%
-       7*:  170: if(db_num(d,"SELECT count(*) FROM waitlist w LEFT JOIN reservations r ON r.id=w.promoted_reservation_id WHERE w.status='PROMOTED' AND (r.id IS NULL OR r.user_id!=w.user_id OR r.slot_id!=w.slot_id OR r.source!='WAITLIST')","")>0)ok=0;
-call    0 returned 100%
-branch  1 taken 0% (fallthrough)
-branch  2 taken 100%
-        7:  171: if(db_num(d,"SELECT count(*) FROM slots s WHERE (SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED')>s.capacity","")>0)ok=0;
-call    0 returned 100%
-branch  1 taken 14% (fallthrough)
-branch  2 taken 86%
-       7*:  172: if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_in_at IS NOT NULL AND status<>'CONFIRMED'","")>0)ok=0;
+branch  1 taken 9% (fallthrough)
+branch  2 taken 91%
+      11*:  317: if(db_num(d,"SELECT count(*) FROM waitlist w LEFT JOIN reservations r ON r.id=w.promoted_reservation_id WHERE w.status='PROMOTED' AND (r.id IS NULL OR r.user_id!=w.user_id OR r.slot_id!=w.slot_id OR r.source!='WAITLIST')","")>0){ok=0;}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-       7*:  173: if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason='NO_SHOW' AND (status<>'CANCELLED' OR checked_in_at IS NOT NULL)","")>0)ok=0;
+       11:  318: if(db_num(d,"SELECT count(*) FROM slots s WHERE (SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED')>s.capacity","")>0){ok=0;}
+call    0 returned 100%
+branch  1 taken 9% (fallthrough)
+branch  2 taken 91%
+      11*:  319: if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_in_at IS NOT NULL AND status<>'CONFIRMED'","")>0){ok=0;}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-       7*:  174: if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason IS NOT NULL AND status<>'CANCELLED'","")>0)ok=0;
+      11*:  320: if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason='NO_SHOW' AND (status<>'CANCELLED' OR checked_in_at IS NOT NULL)","")>0){ok=0;}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-       7*:  175: if(db_num(d,"SELECT count(*) FROM reservations WHERE status='CANCELLED' AND cancelled_at IS NOT NULL AND cancel_reason IS NULL","")>0)ok=0;
+      11*:  321: if(db_num(d,"SELECT count(*) FROM reservations WHERE cancel_reason IS NOT NULL AND status<>'CANCELLED'","")>0){ok=0;}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-        7:  176: return ok&&!d->error;
-branch  0 taken 71% (fallthrough)
-branch  1 taken 29%
-branch  2 taken 100% (fallthrough)
-branch  3 taken 0%
-        -:  177:}
-function publish_slots called 11 returned 100% blocks executed 88%
-       11:  178:int publish_slots(DB *d,Id lab,Id start,Id end,Id capacity){ /* capacity 必须 Id：绑定格式 i 按 8 字节变参读取 */
-       11:  179: int count=0;const int hours[]={8,9,10,11,14,15,16,17};
-     1172:  180: for(Id day=start;day<=end;day+=86400)for(int h=0;h<8;h++){
-branch  0 taken 89%
-branch  1 taken 11% (fallthrough)
-branch  2 taken 92%
-branch  3 taken 8% (fallthrough)
-    1032*:  181:  Id s=day+hours[h]*3600;if(s<=now_sec())continue;
+      11*:  322: if(db_num(d,"SELECT count(*) FROM reservations WHERE status='CANCELLED' AND cancelled_at IS NOT NULL AND cancel_reason IS NULL","")>0){ok=0;}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-    1032*:  182:  if(!db_run(d,"INSERT INTO slots(lab_id,start_at,end_at,capacity) VALUES(?,?,?,?) ON CONFLICT(lab_id,start_at) DO NOTHING","iiii",lab,s,s+3600,capacity))return count;
+      11*:  323: if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_out_at IS NOT NULL AND checked_in_at IS NULL","")>0){ok=0;}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-     1032:  183:  count+=sqlite3_changes(d->sql);
+      11*:  324: if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_out_at IS NOT NULL AND checked_out_at<checked_in_at","")>0){ok=0;}
 call    0 returned 100%
-       11:  184: }return count;
-        -:  185:}
-function db_seed called 3 returned 100% blocks executed 82%
-        3:  186:int db_seed(DB *d,const char *password){
-       3*:  187: if(!password||strlen(password)<8||strlen(password)>128){fprintf(stderr,"LAB_SEED_PASSWORD must contain 8..128 bytes.\n");return 0;}
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -:  325: /* r23 新增不变量：候补优先级非负、信用流水无零变动、资源时段区间合法、维护工单时间有序。 */
+      11*:  326: if(db_num(d,"SELECT count(*) FROM waitlist WHERE priority<0","")>0){ok=0;}
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+      11*:  327: if(db_num(d,"SELECT count(*) FROM credit_ledger WHERE delta=0","")>0){ok=0;}
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+      11*:  328: if(db_num(d,"SELECT count(*) FROM asset_windows WHERE end_minute<=start_minute OR weekday_mask<0 OR weekday_mask>127","")>0){ok=0;}
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+      11*:  329: if(db_num(d,"SELECT count(*) FROM asset_maintenance WHERE ended_at IS NOT NULL AND ended_at<started_at","")>0){ok=0;}
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        -:  330: /* r25 凭据生命周期：已停用用户不得残留任何 API 令牌（停用/改密/重置密码时同事务吊销）。 */
+      11*:  331: if(db_num(d,"SELECT count(*) FROM api_tokens t JOIN users u ON u.id=t.user_id WHERE u.enabled=0","")>0){ok=0;}
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+      11*:  332: if(d->error){ok=0;}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+       11:  333: return ok;
+        -:  334:}
+function db_seed called 3 returned 100% blocks executed 84%
+        3:  335:int db_seed(DB *d,const char *password){
+       3*:  336: if(!password||strlen(password)<8||strlen(password)>128){fprintf(stderr,"LAB_SEED_PASSWORD must contain 8..128 bytes.\n");return 0;}
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 branch  2 taken 100% (fallthrough)
@@ -536,15 +904,15 @@ branch  4 taken 0% (fallthrough)
 branch  5 taken 100%
 call    6 never executed
 call    7 never executed
-       3*:  188: char hash[crypto_pwhash_STRBYTES];if(crypto_pwhash_str(hash,password,strlen(password),crypto_pwhash_OPSLIMIT_INTERACTIVE,crypto_pwhash_MEMLIMIT_INTERACTIVE))return 0;
+       3*:  337: char hash[crypto_pwhash_STRBYTES];if(crypto_pwhash_str(hash,password,strlen(password),crypto_pwhash_OPSLIMIT_INTERACTIVE,crypto_pwhash_MEMLIMIT_INTERACTIVE))return 0;
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-       3*:  189: if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+       3*:  338: if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-       66:  190: for(int i=0;i<=20;i++){char name[32];if(i)snprintf(name,sizeof name,"user%02d",i);else strcpy(name,"admin");db_run(d,"INSERT INTO users(username,password_hash,role) VALUES(?,?,?) ON CONFLICT(username) DO NOTHING","sss",name,hash,i?"USER":"ADMIN");}
+       66:  339: for(int i=0;i<=20;i++){char name[32];if(i)snprintf(name,sizeof name,"user%02d",i);else strcpy(name,"admin");db_run(d,"INSERT INTO users(username,password_hash,role) VALUES(?,?,?) ON CONFLICT(username) DO NOTHING","sss",name,hash,i?"USER":"ADMIN");}
 branch  0 taken 95% (fallthrough)
 branch  1 taken 5%
 branch  2 taken 95% (fallthrough)
@@ -552,100 +920,172 @@ branch  3 taken 5%
 call    4 returned 100%
 branch  5 taken 95%
 branch  6 taken 5% (fallthrough)
-        3:  191: const char *names[]={"软件工程实验室","计算机网络实验室","系统与数据实验室"};
-       12:  192: for(int i=0;i<3;i++)db_run(d,"INSERT INTO labs(name,location,description) VALUES(?,?,?) ON CONFLICT(name) DO NOTHING","sss",names[i],"信息楼","整间实验室 · 固定一小时场次");
+        3:  340: const char *names[]={"软件工程实验室","计算机网络实验室","系统与数据实验室"};
+       12:  341: for(int i=0;i<3;i++)db_run(d,"INSERT INTO labs(name,location,description) VALUES(?,?,?) ON CONFLICT(name) DO NOTHING","sss",names[i],"信息楼","整间实验室 · 固定一小时场次");
 call    0 returned 100%
 branch  1 taken 75%
 branch  2 taken 25% (fallthrough)
-        3:  193: Id today=(now_sec()+28800)/86400*86400-28800;
+        -:  342: /* r13 资源清单种子：随实验室名关联（重跑幂等），让「资源管理」开箱即用 */
+        3:  343: db_run(d,"INSERT OR IGNORE INTO assets(lab_id,name,spec,total,status,created_at) SELECT id,'高性能图形工作站','32 核 / 128 GB / RTX 级 GPU',20,'AVAILABLE',strftime('%s','now') FROM labs WHERE name='软件工程实验室'","");
 call    0 returned 100%
-       12:  194: for(int i=0;i<3;i++){Id lab=db_num(d,"SELECT id FROM labs WHERE name=?","s",names[i]);publish_slots(d,lab,today,today+13*86400,1);}
+        3:  344: db_run(d,"INSERT OR IGNORE INTO assets(lab_id,name,spec,total,status,created_at) SELECT id,'软件开发套件终端','双屏开发机',24,'AVAILABLE',strftime('%s','now') FROM labs WHERE name='软件工程实验室'","");
+call    0 returned 100%
+        3:  345: db_run(d,"INSERT OR IGNORE INTO assets(lab_id,name,spec,total,status,created_at) SELECT id,'网络协议分析套件','抓包网卡 + 分析平台',16,'AVAILABLE',strftime('%s','now') FROM labs WHERE name='计算机网络实验室'","");
+call    0 returned 100%
+        3:  346: db_run(d,"INSERT OR IGNORE INTO assets(lab_id,name,spec,total,status,created_at) SELECT id,'路由交换实验台','三层交换机 × 4',6,'MAINTENANCE',strftime('%s','now') FROM labs WHERE name='计算机网络实验室'","");
+call    0 returned 100%
+        3:  347: db_run(d,"INSERT OR IGNORE INTO assets(lab_id,name,spec,total,status,created_at) SELECT id,'数据服务器机架','分布式存储节点',8,'AVAILABLE',strftime('%s','now') FROM labs WHERE name='系统与数据实验室'","");
+call    0 returned 100%
+        3:  348: Id today=(now_sec()+28800)/86400*86400-28800;
+call    0 returned 100%
+       12:  349: for(int i=0;i<3;i++){Id lab=db_num(d,"SELECT id FROM labs WHERE name=?","s",names[i]);publish_slots(d,lab,today,today+13*86400,1);}
 call    0 returned 100%
 call    1 returned 100%
 branch  2 taken 75%
 branch  3 taken 25% (fallthrough)
-        3:  195: sodium_memzero(hash,sizeof hash);
+        3:  350: sodium_memzero(hash,sizeof hash);
 call    0 returned 100%
-       3*:  196: if(d->error){db_run(d,"ROLLBACK","");return 0;}
+       3*:  351: if(d->error){db_run(d,"ROLLBACK","");return 0;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-        3:  197: return db_run(d,"COMMIT","");
+        3:  352: return db_run(d,"COMMIT","");
 call    0 returned 100%
-        -:  198:}
-        -:  199:/* r6 线程级连接复用：每个 HTTP 工作线程持有自己的连接（含语句缓存），
-        -:  200:   首次使用时打开；请求结束后 db_thread_bad 回收未结事务，致命错误时丢弃重建。
-        -:  201:   工作线程随进程存活，缓存随线程生命周期有界。 */
-        -:  202:static _Thread_local DB tls_db;
-        -:  203:static _Thread_local int tls_alive;
-function db_thread_get called 52 returned 100% blocks executed 86%
-       52:  204:DB *db_thread_get(const char *path){
-       52:  205: if(tls_alive){tls_db.error=0;return &tls_db;}
-branch  0 taken 92% (fallthrough)
-branch  1 taken 8%
-        4:  206: if(db_open(&tls_db,path)){tls_alive=1;return &tls_db;}
+        -:  353:}
+        -:  354:/* r6 线程级连接复用：每个 HTTP 工作线程持有自己的连接（含语句缓存），
+        -:  355:   首次使用时打开；请求结束后 db_thread_bad 回收未结事务，致命错误时丢弃重建。
+        -:  356:   工作线程随进程存活，缓存随线程生命周期有界。 */
+        -:  357:static _Thread_local DB tls_db;
+        -:  358:static _Thread_local int tls_alive;
+function db_thread_get called 113 returned 100% blocks executed 86%
+      113:  359:DB *db_thread_get(const char *path){
+      113:  360: if(tls_alive){tls_db.error=0;return &tls_db;}
+branch  0 taken 96% (fallthrough)
+branch  1 taken 4%
+        5:  361: if(db_open(&tls_db,path)){tls_alive=1;return &tls_db;}
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
-    #####:  207: memset(&tls_db,0,sizeof tls_db);return NULL;
-        -:  208:}
-function db_thread_bad called 51 returned 100% blocks executed 85%
-       51:  209:void db_thread_bad(DB *d){
-      51*:  210: if(!d||!d->sql)return;
+    #####:  362: memset(&tls_db,0,sizeof tls_db);return NULL;
+        -:  363:}
+function db_thread_bad called 112 returned 100% blocks executed 85%
+      112:  364:void db_thread_bad(DB *d){
+     112*:  365: if(!d||!d->sql)return;
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 branch  2 taken 0% (fallthrough)
 branch  3 taken 100%
-      51*:  211: if(!sqlite3_get_autocommit(d->sql))sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);
+     112*:  366: if(!sqlite3_get_autocommit(d->sql))sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
 call    3 never executed
-       51:  212: int e=d->error&255;
-       51:  213: if(e==SQLITE_CORRUPT||e==SQLITE_IOERR||e==SQLITE_CANTOPEN||e==SQLITE_NOMEM){db_close(d);memset(d,0,sizeof *d);tls_alive=0;}
+      112:  367: int e=d->error&255;
+      112:  368: if(e==SQLITE_CORRUPT||e==SQLITE_IOERR||e==SQLITE_CANTOPEN||e==SQLITE_NOMEM){db_close(d);memset(d,0,sizeof *d);tls_alive=0;}
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
-branch  2 taken 96% (fallthrough)
-branch  3 taken 4%
+branch  2 taken 98% (fallthrough)
+branch  3 taken 2%
 branch  4 taken 100% (fallthrough)
 branch  5 taken 0%
 branch  6 taken 0% (fallthrough)
 branch  7 taken 100%
 call    8 returned 100%
-        -:  214:}
-        -:  215:/* r6/L5 在线备份：SQLite Backup API，不阻塞业务连接 */
-function db_backup called 0 returned 0% blocks executed 0%
-    #####:  216:int db_backup(const char *src,const char *dest){
-    #####:  217: sqlite3 *s=NULL,*d=NULL;
-    #####:  218: if(sqlite3_open_v2(src,&s,SQLITE_OPEN_READONLY,NULL)!=SQLITE_OK){if(s)sqlite3_close(s);return 0;}
+        -:  369:}
+        -:  370:/* r6/L5 在线备份：SQLite Backup API，不阻塞业务连接 */
+function db_backup called 2 returned 100% blocks executed 62%
+        2:  371:int db_backup(const char *src,const char *dest){
+        2:  372: sqlite3 *s=NULL,*d=NULL;
+       2*:  373: if(sqlite3_open_v2(src,&s,SQLITE_OPEN_READONLY,NULL)!=SQLITE_OK){if(s)sqlite3_close(s);return 0;}
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+branch  3 never executed (fallthrough)
+branch  4 never executed
+call    5 never executed
+       2*:  374: if(sqlite3_open(dest,&d)!=SQLITE_OK){sqlite3_close(s);if(d)sqlite3_close(d);return 0;}
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+branch  4 never executed (fallthrough)
+branch  5 never executed
+call    6 never executed
+        2:  375: int rc=1;sqlite3_backup *b=sqlite3_backup_init(d,"main",s,"main");
+call    0 returned 100%
+       2*:  376: if(!b)rc=0;
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+       2*:  377: else if(sqlite3_backup_step(b,-1)!=SQLITE_DONE)rc=0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+        2:  378: if(b)sqlite3_backup_finish(b);
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+call    2 returned 100%
+        2:  379: sqlite3_close(s);sqlite3_close(d);return rc;
+call    0 returned 100%
+call    1 returned 100%
+        -:  380:}
+        -:  381:/* 定时备份 + 轮转：写 dir/lab-backup-YYYYMMDD-HHMMSS.db，保留最近 keep 份。 */
+function backup_rotate called 0 returned 0% blocks executed 0%
+    #####:  382:int backup_rotate(const char *src,const char *dir,int keep){
+    #####:  383: if(!src||!dir||keep<1)return 0;
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+branch  4 never executed (fallthrough)
+branch  5 never executed
+    #####:  384: time_t t=time(NULL);struct tm lt;localtime_s(&lt,&t);
+call    0 never executed
+call    1 never executed
+        -:  385: char dest[MAX_PATH],pattern[MAX_PATH];
+    #####:  386: if(snprintf(dest,sizeof dest,"%s\\lab-backup-%04d%02d%02d-%02d%02d%02d.db",dir,lt.tm_year+1900,lt.tm_mon+1,lt.tm_mday,lt.tm_hour,lt.tm_min,lt.tm_sec)>=(int)sizeof dest)return 0;
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  387: if(!db_backup(src,dest))return 0;
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+    #####:  388: if(snprintf(pattern,sizeof pattern,"%s\\lab-backup-*.db",dir)>=(int)sizeof pattern)return 1; /* 备份已成功，轮转失败不回退 */
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  389: for(int guard=0;guard<1000;guard++){ /* 反复删最旧一份直到数量<=keep；防御性上限防死循环 */
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  390:  WIN32_FIND_DATAA fd;int count=0;char oldest[MAX_PATH]="";FILETIME ft;ft.dwHighDateTime=MAXDWORD;ft.dwLowDateTime=MAXDWORD;
+    #####:  391:  HANDLE h=FindFirstFileA(pattern,&fd);if(h==INVALID_HANDLE_VALUE)break;
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+        -:  392:  do{
+    #####:  393:   if(fd.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)continue;
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  394:   count++;
+    #####:  395:   if(CompareFileTime(&fd.ftCreationTime,&ft)<0){ft=fd.ftCreationTime;int k=snprintf(oldest,sizeof oldest,"%s\\%s",dir,fd.cFileName);if(k>0&&(size_t)k>=sizeof oldest)oldest[0]=0;}
 call    0 never executed
 branch  1 never executed (fallthrough)
 branch  2 never executed
 branch  3 never executed (fallthrough)
 branch  4 never executed
-call    5 never executed
-    #####:  219: if(sqlite3_open(dest,&d)!=SQLITE_OK){sqlite3_close(s);if(d)sqlite3_close(d);return 0;}
+branch  5 never executed (fallthrough)
+branch  6 never executed
+    #####:  396:  }while(FindNextFileA(h,&fd));
 call    0 never executed
-branch  1 never executed (fallthrough)
-branch  2 never executed
-call    3 never executed
-branch  4 never executed (fallthrough)
-branch  5 never executed
-call    6 never executed
-    #####:  220: int rc=1;sqlite3_backup *b=sqlite3_backup_init(d,"main",s,"main");
+branch  1 never executed
+branch  2 never executed (fallthrough)
+    #####:  397:  FindClose(h);
 call    0 never executed
-    #####:  221: if(!b)rc=0;
+    #####:  398:  if(count<=keep||!oldest[0])break;
 branch  0 never executed (fallthrough)
 branch  1 never executed
-    #####:  222: else if(sqlite3_backup_step(b,-1)!=SQLITE_DONE)rc=0;
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####:  399:  DeleteFileA(oldest);
 call    0 never executed
-branch  1 never executed (fallthrough)
-branch  2 never executed
-    #####:  223: if(b)sqlite3_backup_finish(b);
-branch  0 never executed (fallthrough)
-branch  1 never executed
-call    2 never executed
-    #####:  224: sqlite3_close(s);sqlite3_close(d);return rc;
-call    0 never executed
-call    1 never executed
-        -:  225:}
+        -:  400: }
+    #####:  401: return 1;
+        -:  402:}

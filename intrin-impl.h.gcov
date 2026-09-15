@@ -1,7 +1,7 @@
         -:    0:Source:C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/psdk_inc/intrin-impl.h
         -:    0:Graph:C:\Users\admin\Desktop\毕业设计\build\cov_sqlite3.gcno
         -:    0:Data:C:\Users\admin\Desktop\毕业设计\build\cov_sqlite3.gcda
-        -:    0:Runs:3
+        -:    0:Runs:7
         -:    1:/**
         -:    2: * This file has no copyright assigned and is placed in the Public Domain.
         -:    3: * This file is part of the mingw-w64 runtime package.
@@ -1684,7 +1684,7 @@
         -: 1680:#if !__has_builtin(_InterlockedCompareExchange)
         -: 1681:__INTRINSICS_USEINLINE 
         -: 1682:__LONG32 _InterlockedCompareExchange(__LONG32 volatile *Destination, __LONG32 ExChange, __LONG32 Comperand) {
-      24*: 1683:    return __sync_val_compare_and_swap(Destination, Comperand, ExChange);
+      56*: 1683:    return __sync_val_compare_and_swap(Destination, Comperand, ExChange);
         -: 1684:}
         -: 1685:#endif
         -: 1686:#define __INTRINSIC_DEFINED__InterlockedCompareExchange

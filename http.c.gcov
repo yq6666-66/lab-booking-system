@@ -1,7 +1,7 @@
         -:    0:Source:src/http.c
         -:    0:Graph:C:\Users\admin\Desktop\��ҵ���\build\cov_http.gcno
         -:    0:Data:C:\Users\admin\Desktop\��ҵ���\build\cov_http.gcda
-        -:    0:Runs:3
+        -:    0:Runs:7
         -:    1:#include "app.h"
         -:    2:#include "civetweb.h"
         -:    3:#include <sodium.h>
@@ -17,10 +17,10 @@ function on_stop called 1 returned 100% blocks executed 100%
 function invalid called 0 returned 0% blocks executed 0%
     #####:   12:static Result invalid(void){return result(400,"INVALID_INPUT","请求参数不正确",NULL);}
 call    0 never executed
-function origin_ok called 21 returned 100% blocks executed 67%
-       21:   13:static int origin_ok(struct mg_connection *c,const Config *cfg){
-       21:   14: char one[80],two[80];snprintf(one,sizeof one,"http://127.0.0.1:%d",cfg->port);snprintf(two,sizeof two,"http://localhost:%d",cfg->port);
-      21*:   15: const char *o=mg_get_header(c,"Origin");return !o||!strcmp(o,one)||!strcmp(o,two);
+function origin_ok called 50 returned 100% blocks executed 67%
+       50:   13:static int origin_ok(struct mg_connection *c,const Config *cfg){
+       50:   14: char one[80],two[80];snprintf(one,sizeof one,"http://127.0.0.1:%d",cfg->port);snprintf(two,sizeof two,"http://localhost:%d",cfg->port);
+      50*:   15: const char *o=mg_get_header(c,"Origin");return !o||!strcmp(o,one)||!strcmp(o,two);
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
@@ -29,10 +29,10 @@ branch  4 never executed
 branch  5 never executed (fallthrough)
 branch  6 never executed
         -:   16:}
-function host_ok called 49 returned 100% blocks executed 78%
-       49:   17:static int host_ok(struct mg_connection *c,const Config *cfg){
-       49:   18: char one[80],two[80];snprintf(one,sizeof one,"127.0.0.1:%d",cfg->port);snprintf(two,sizeof two,"localhost:%d",cfg->port);
-      49*:   19: const char *h=mg_get_header(c,"Host");return h&&(!strcmp(h,one)||!strcmp(h,two));
+function host_ok called 110 returned 100% blocks executed 78%
+      110:   17:static int host_ok(struct mg_connection *c,const Config *cfg){
+      110:   18: char one[80],two[80];snprintf(one,sizeof one,"127.0.0.1:%d",cfg->port);snprintf(two,sizeof two,"localhost:%d",cfg->port);
+     110*:   19: const char *h=mg_get_header(c,"Host");return h&&(!strcmp(h,one)||!strcmp(h,two));
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
@@ -41,20 +41,20 @@ branch  4 taken 100%
 branch  5 never executed (fallthrough)
 branch  6 never executed
         -:   20:}
-function user_data called 10 returned 100% blocks executed 100%
-       10:   21:static cJSON *user_data(const User *u){cJSON *j=cJSON_CreateObject(),*v=cJSON_CreateObject();jid(v,"id",u->id);cJSON_AddStringToObject(v,"username",u->username);cJSON_AddStringToObject(v,"role",u->admin?"ADMIN":"USER");cJSON_AddItemToObject(j,"user",v);cJSON_AddStringToObject(j,"csrf_token",u->csrf);return j;}
+function user_data called 16 returned 100% blocks executed 100%
+       16:   21:static cJSON *user_data(const User *u){cJSON *j=cJSON_CreateObject(),*v=cJSON_CreateObject();jid(v,"id",u->id);cJSON_AddStringToObject(v,"username",u->username);cJSON_AddStringToObject(v,"role",u->admin?"ADMIN":"USER");cJSON_AddItemToObject(j,"user",v);cJSON_AddStringToObject(j,"csrf_token",u->csrf);return j;}
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
 call    3 returned 100%
-branch  4 taken 20% (fallthrough)
-branch  5 taken 80%
+branch  4 taken 12% (fallthrough)
+branch  5 taken 88%
 call    6 returned 100%
 call    7 returned 100%
 call    8 returned 100%
-function authenticated called 42 returned 100% blocks executed 89%
-       42:   22:static int authenticated(DB *d,struct mg_connection *c,User *u,char hash[65]){
-      42*:   23: char token[65];const char *cookie=mg_get_header(c,"Cookie");if(!cookie||mg_get_cookie(cookie,"lab_session",token,sizeof token)!=64)return 0;hash_text(token,hash);
+function authenticated called 102 returned 100% blocks executed 89%
+      102:   22:static int authenticated(DB *d,struct mg_connection *c,User *u,char hash[65]){
+     102*:   23: char token[65];const char *cookie=mg_get_header(c,"Cookie");if(!cookie||mg_get_cookie(cookie,"lab_session",token,sizeof token)!=64)return 0;hash_text(token,hash);
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
@@ -62,13 +62,13 @@ call    3 returned 100%
 branch  4 taken 0% (fallthrough)
 branch  5 taken 100%
 call    6 returned 100%
-       42:   24: cJSON *r=db_first(d,"SELECT u.id,u.username,u.role,s.csrf_token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.enabled=1","si",hash,now_sec());
+      102:   24: cJSON *r=db_first(d,"SELECT u.id,u.username,u.role,s.csrf_token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.enabled=1","si",hash,now_sec());
 call    0 returned 100%
 call    1 returned 100%
-      42*:   25: if(!r)return 0;
+     102*:   25: if(!r)return 0;
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
-       42:   26: memset(u,0,sizeof *u);parse_id(jstr(r,"id"),&u->id);u->admin=!strcmp(jstr(r,"role"),"ADMIN");snprintf(u->username,sizeof u->username,"%s",jstr(r,"username"));snprintf(u->csrf,sizeof u->csrf,"%s",jstr(r,"csrf_token"));cJSON_Delete(r);return 1;
+      102:   26: memset(u,0,sizeof *u);parse_id(jstr(r,"id"),&u->id);u->admin=!strcmp(jstr(r,"role"),"ADMIN");snprintf(u->username,sizeof u->username,"%s",jstr(r,"username"));snprintf(u->csrf,sizeof u->csrf,"%s",jstr(r,"csrf_token"));cJSON_Delete(r);return 1;
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
@@ -76,19 +76,139 @@ call    3 returned 100%
 call    4 returned 100%
 call    5 returned 100%
         -:   27:}
-function text_ok called 16 returned 100% blocks executed 88%
-      16*:   28:static int text_ok(const char *s,size_t max,int empty){return s&&strlen(s)<=max&&(empty||strlen(s)>0);}
+function text_ok called 21 returned 100% blocks executed 88%
+      21*:   28:static int text_ok(const char *s,size_t max,int empty){return s&&strlen(s)<=max&&(empty||strlen(s)>0);}
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 branch  2 taken 100% (fallthrough)
 branch  3 taken 0%
-branch  4 taken 88% (fallthrough)
-branch  5 taken 12%
+branch  4 taken 86% (fallthrough)
+branch  5 taken 14%
 branch  6 taken 100% (fallthrough)
 branch  7 taken 0%
-function login called 5 returned 100% blocks executed 63%
-        5:   29:static Result login(DB *d,const cJSON *body,char cookie[256]){
-       5*:   30: const char *name=jstr(body,"username"),*pw=jstr(body,"password");if(!text_ok(name,64,0)||!text_ok(pw,128,0))return invalid();
+function name_ok called 1 returned 100% blocks executed 79%
+        1:   29:static int name_ok(const char *s){ /* 用户名 2..64 字节，仅限可见字符（中文/字母/数字/符号均可，禁空白与控制符） */
+       1*:   30: size_t n=s?strlen(s):0;if(n<2||n>64)return 0;
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+      12*:   31: for(const char *p=s;*p;p++)if((unsigned char)*p<0x21||(unsigned char)*p==0x7f)return 0;
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+branch  4 taken 92%
+branch  5 taken 8% (fallthrough)
+        1:   32: return 1;}
+        -:   33:/* r7 自助注册：创建 USER 角色账号并直接登录（返回与会话、登录同构的响应） */
+function do_register called 1 returned 100% blocks executed 65%
+        1:   34:static Result do_register(DB *d,const cJSON *body,char cookie[256]){
+        1:   35: const char *name=jstr(body,"username"),*pw=jstr(body,"password");
+call    0 returned 100%
+call    1 returned 100%
+       1*:   36: if(!text_ok(name,64,0)||!text_ok(pw,128,0))return invalid();
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+call    6 never executed
+       1*:   37: if(!rl_register_gate())return result(429,"RATE_LIMITED","注册尝试过于频繁，请稍后再试",NULL);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   38: if(!name_ok(name))return result(400,"INVALID_INPUT","用户名需为 2..64 个可见字符（不允许空格）",NULL);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   39: if(!pw||strlen(pw)<8||strlen(pw)>128)return result(400,"INVALID_INPUT","密码长度需为 8..128 位",NULL);
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+call    6 never executed
+        1:   40: cJSON *dup=db_first(d,"SELECT 1 FROM users WHERE username=?","s",name);
+call    0 returned 100%
+       1*:   41: if(d->error)return db_failure(d);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       1*:   42: if(dup){cJSON_Delete(dup);return result(409,"USERNAME_TAKEN","该用户名已被注册",NULL);}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+call    3 never executed
+        -:   43: char hash[crypto_pwhash_STRBYTES];
+        1:   44: log_write(1,"REG A gate-ok %s",name);
+call    0 returned 100%
+       1*:   45: if(crypto_pwhash_str(hash,pw,strlen(pw),crypto_pwhash_OPSLIMIT_INTERACTIVE,crypto_pwhash_MEMLIMIT_INTERACTIVE))return result(500,"INTERNAL_ERROR","密码处理失败",NULL);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       1*:   46: if(!db_run(d,"INSERT INTO users(username,password_hash,role) VALUES(?,?,?)","sss",name,hash,"USER")){d->error=0;
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+    #####:   47:   cJSON *chk=db_first(d,"SELECT 1 FROM users WHERE username=?","s",name);
+call    0 never executed
+    #####:   48:  if(chk){cJSON_Delete(chk);return result(409,"USERNAME_TAKEN","该用户名已被注册",NULL);}
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+call    3 never executed
+    #####:   49:  return db_failure(d);}
+call    0 never executed
+        1:   50: Id uid=db_num(d,"SELECT id FROM users WHERE username=?","s",name);
+call    0 returned 100%
+        1:   51: db_run(d,"INSERT INTO operation_events(actor_id,action,entity_id,created_at) VALUES(?,?,?,?)","isii",uid,"REGISTER",uid,now_sec());
+call    0 returned 100%
+call    1 returned 100%
+        1:   52: db_run(d,"DELETE FROM sessions WHERE expires_at<?","i",now_sec());
+call    0 returned 100%
+call    1 returned 100%
+        1:   53: char token[65],thash[65],csrf[65];random_hex(token);hash_text(token,thash);random_hex(csrf);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+       1*:   54: if(!db_run(d,"DELETE FROM sessions WHERE token_hash=?","s",thash)){d->error=0;}
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+       1*:   55: if(!db_run(d,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,created_at) VALUES(?,?,?,?,?)","sisii",thash,uid,csrf,now_sec()+7200,now_sec()))return db_failure(d);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+call    5 never executed
+        1:   56: snprintf(cookie,256,"Set-Cookie: lab_session=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=7200\r\n",token);sodium_memzero(token,sizeof token);
+call    0 returned 100%
+        1:   57: User u={0};u.id=uid;snprintf(u.username,sizeof u.username,"%s",name);
+        1:   58: cJSON *j=cJSON_CreateObject(),*v=cJSON_CreateObject();
+call    0 returned 100%
+call    1 returned 100%
+        1:   59: jid(v,"id",uid);cJSON_AddStringToObject(v,"username",name);cJSON_AddStringToObject(v,"role","USER");
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+        1:   60: cJSON_AddItemToObject(j,"user",v);cJSON_AddStringToObject(j,"csrf_token",csrf);
+call    0 returned 100%
+call    1 returned 100%
+        1:   61: return result(200,"OK","注册成功，已自动登录",j);
+call    0 returned 100%
+        -:   62:}
+function login called 5 returned 100% blocks executed 54%
+        5:   63:static Result login(DB *d,const cJSON *body,char cookie[256]){
+       5*:   64: const char *name=jstr(body,"username"),*pw=jstr(body,"password");if(!text_ok(name,64,0)||!text_ok(pw,128,0))return invalid();
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
@@ -98,28 +218,59 @@ call    5 returned 100%
 branch  6 taken 0% (fallthrough)
 branch  7 taken 100%
 call    8 never executed
-       5*:   31: if(!rl_login_gate(name))return result(429,"LOGIN_LOCKED","登录尝试过于频繁，请稍后再试",NULL);
+       5*:   65: const char *hint=jstr(body,"role_hint");if(hint&&strcmp(hint,"ADMIN")&&strcmp(hint,"USER"))return invalid();
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+branch  3 never executed (fallthrough)
+branch  4 never executed
+branch  5 never executed (fallthrough)
+branch  6 never executed
+call    7 never executed
+       5*:   66: int want_admin=hint&&!strcmp(hint,"ADMIN");
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 never executed (fallthrough)
+branch  3 never executed
+       5*:   67: if(!rl_login_gate(name))return result(429,"LOGIN_LOCKED","登录尝试过于频繁，请稍后再试",NULL);
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
 call    3 never executed
-        5:   32: cJSON *r=db_first(d,"SELECT id,username,role,password_hash FROM users WHERE username=? AND enabled=1","s",name);
+        5:   68: cJSON *r=db_first(d,"SELECT id,username,role,password_hash FROM users WHERE username=? AND enabled=1","s",name);
 call    0 returned 100%
-       5*:   33: if(d->error)return db_failure(d);
+       5*:   69: if(d->error)return db_failure(d);
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-        5:   34: if(!r||crypto_pwhash_str_verify(jstr(r,"password_hash"),pw,strlen(pw))){
+        -:   70: /* 时序侧信道防护：无论用户是否存在都执行一次 Argon2id 验证，
+        -:   71:    防止通过响应时间枚举用户名（未命中时对首次生成的 dummy hash 验证）。 */
+        -:   72: static char dummy_hash[crypto_pwhash_STRBYTES];static int dummy_ready;
+        5:   73: if(!dummy_ready){dummy_ready=(crypto_pwhash_str(dummy_hash,"lab-booking-dummy",17,crypto_pwhash_OPSLIMIT_INTERACTIVE,crypto_pwhash_MEMLIMIT_INTERACTIVE)==0);}
+branch  0 taken 20% (fallthrough)
+branch  1 taken 80%
+call    2 returned 100%
+        5:   74: int found=(r!=NULL);int vfail;
+        5:   75: if(found)vfail=(crypto_pwhash_str_verify(jstr(r,"password_hash"),pw,strlen(pw))!=0);
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 call    2 returned 100%
 call    3 returned 100%
-branch  4 taken 0% (fallthrough)
-branch  5 taken 100%
-    #####:   35:  rl_login_fail(name);
+    #####:   76: else vfail=(dummy_ready==0)||(crypto_pwhash_str_verify(dummy_hash,pw,strlen(pw))!=0);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+branch  3 never executed (fallthrough)
+branch  4 never executed
+        5:   77: if(!found||vfail){
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+    #####:   78:  rl_login_fail(name);
 call    0 never executed
-    #####:   36:  Id uid=0;
-    #####:   37:  if(r&&parse_id(jstr(r,"id"),&uid))db_run(d,"INSERT INTO operation_events(actor_id,action,entity_id,created_at) VALUES(?,?,0,?)","isi",uid,"LOGIN_FAILED",now_sec());
+    #####:   79:  Id uid=0;
+    #####:   80:  if(r&&parse_id(jstr(r,"id"),&uid))db_run(d,"INSERT INTO operation_events(actor_id,action,entity_id,created_at) VALUES(?,?,0,?)","isi",uid,"LOGIN_FAILED",now_sec());
 branch  0 never executed (fallthrough)
 branch  1 never executed
 call    2 never executed
@@ -128,102 +279,111 @@ branch  4 never executed (fallthrough)
 branch  5 never executed
 call    6 never executed
 call    7 never executed
-    #####:   38:  cJSON_Delete(r);return result(401,"UNAUTHORIZED","用户名或密码不正确",NULL);
+    #####:   81:  cJSON_Delete(r);return result(401,"UNAUTHORIZED","用户名或密码不正确",NULL);
 call    0 never executed
 call    1 never executed
-        -:   39: }
-        5:   40: rl_login_ok(name);
+        -:   82: }
+        5:   83: rl_login_ok(name);
 call    0 returned 100%
-        5:   41: User u={0};parse_id(jstr(r,"id"),&u.id);u.admin=!strcmp(jstr(r,"role"),"ADMIN");snprintf(u.username,sizeof u.username,"%s",name);cJSON_Delete(r);
+        -:   84: /* 口令通过后再校验登录入口：仅"管理员入口"要求账号确为管理员。这不是口令错误，故不计入登录失败，也不建立会话。 */
+       5*:   85: if(want_admin&&strcmp(jstr(r,"role"),"ADMIN")){cJSON_Delete(r);return result(403,"ROLE_MISMATCH","该账号不是管理员，请使用用户入口登录",NULL);}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+branch  3 never executed (fallthrough)
+branch  4 never executed
+call    5 never executed
+call    6 never executed
+        5:   86: User u={0};parse_id(jstr(r,"id"),&u.id);u.admin=!strcmp(jstr(r,"role"),"ADMIN");snprintf(u.username,sizeof u.username,"%s",name);cJSON_Delete(r);
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
 call    3 returned 100%
-        5:   42: char token[65],hash[65];random_hex(token);hash_text(token,hash);random_hex(u.csrf);
+        5:   87: char token[65],hash[65];random_hex(token);hash_text(token,hash);random_hex(u.csrf);
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
-        5:   43: db_run(d,"DELETE FROM sessions WHERE expires_at<?","i",now_sec());
+        5:   88: db_run(d,"DELETE FROM sessions WHERE expires_at<?","i",now_sec());
 call    0 returned 100%
 call    1 returned 100%
-       5*:   44: if(!db_run(d,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES(?,?,?,?)","sisi",hash,u.id,u.csrf,now_sec()+7200))return db_failure(d);
+       5*:   89: if(!db_run(d,"INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES(?,?,?,?)","sisi",hash,u.id,u.csrf,now_sec()+7200))return db_failure(d);
 call    0 returned 100%
 call    1 returned 100%
 branch  2 taken 0% (fallthrough)
 branch  3 taken 100%
 call    4 never executed
-        5:   45: snprintf(cookie,256,"Set-Cookie: lab_session=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=7200\r\n",token);sodium_memzero(token,sizeof token);
+        5:   90: snprintf(cookie,256,"Set-Cookie: lab_session=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=7200\r\n",token);sodium_memzero(token,sizeof token);
 call    0 returned 100%
-        5:   46: metrics_inc_login();
+        5:   91: metrics_inc_login();
 call    0 returned 100%
-        5:   47: return result(200,"OK","登录成功",user_data(&u));
+        5:   92: return result(200,"OK","登录成功",user_data(&u));
 call    0 returned 100%
 call    1 returned 100%
-        -:   48:}
-function path_id called 2 returned 100% blocks executed 78%
-        2:   49:static int path_id(const char *path,const char *prefix,const char *suffix,Id *id){
-       2*:   50: size_t a=strlen(prefix),b=strlen(suffix),n=strlen(path);if(n<=a+b||strncmp(path,prefix,a)||strcmp(path+n-b,suffix))return 0;
-branch  0 taken 100% (fallthrough)
-branch  1 taken 0%
-branch  2 taken 100% (fallthrough)
-branch  3 taken 0%
-branch  4 taken 0% (fallthrough)
-branch  5 taken 100%
-       2*:   51: size_t len=n-a-b;if(len>18)return 0;char tmp[32];memcpy(tmp,path+a,len);tmp[len]=0;return parse_id(tmp,id);
+        -:   93:}
+function path_id called 215 returned 100% blocks executed 89%
+      215:   94:static int path_id(const char *path,const char *prefix,const char *suffix,Id *id){
+      215:   95: size_t a=strlen(prefix),b=strlen(suffix),n=strlen(path);if(n<=a+b||strncmp(path,prefix,a)||strcmp(path+n-b,suffix))return 0;
+branch  0 taken 64% (fallthrough)
+branch  1 taken 36%
+branch  2 taken 53% (fallthrough)
+branch  3 taken 47%
+branch  4 taken 62% (fallthrough)
+branch  5 taken 38%
+      27*:   96: size_t len=n-a-b;if(len>18)return 0;char tmp[32];memcpy(tmp,path+a,len);tmp[len]=0;return parse_id(tmp,id);
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 returned 100%
-        -:   52:}
-function path_hex called 10 returned 100% blocks executed 44%
-       10:   53:static int path_hex(const char *path,const char *prefix,const char *suffix,char *out,size_t n){
-      10*:   54: size_t a=strlen(prefix),b=strlen(suffix),len=strlen(path);if(len<=a+b||strncmp(path,prefix,a)||strcmp(path+len-b,suffix))return 0;
-branch  0 taken 10% (fallthrough)
-branch  1 taken 90%
+        -:   97:}
+function path_hex called 37 returned 100% blocks executed 44%
+       37:   98:static int path_hex(const char *path,const char *prefix,const char *suffix,char *out,size_t n){
+      37*:   99: size_t a=strlen(prefix),b=strlen(suffix),len=strlen(path);if(len<=a+b||strncmp(path,prefix,a)||strcmp(path+len-b,suffix))return 0;
+branch  0 taken 51% (fallthrough)
+branch  1 taken 49%
 branch  2 taken 0% (fallthrough)
 branch  3 taken 100%
 branch  4 never executed (fallthrough)
 branch  5 never executed
-    #####:   55: size_t need=len-a-b;if(need!=64||need+1>n)return 0;
+    #####:  100: size_t need=len-a-b;if(need!=64||need+1>n)return 0;
 branch  0 never executed (fallthrough)
 branch  1 never executed
 branch  2 never executed (fallthrough)
 branch  3 never executed
-    #####:   56: memcpy(out,path+a,need);out[need]=0;return 1;
-        -:   57:}
-function query called 28 returned 100% blocks executed 100%
-       28:   58:static int query(const struct mg_request_info *ri,const char *key,char *out,size_t n){if(!ri->query_string){out[0]=0;return 0;}return mg_get_var(ri->query_string,strlen(ri->query_string),key,out,n)>0;}
-branch  0 taken 7% (fallthrough)
-branch  1 taken 93%
+    #####:  101: memcpy(out,path+a,need);out[need]=0;return 1;
+        -:  102:}
+function query called 82 returned 100% blocks executed 100%
+       82:  103:static int query(const struct mg_request_info *ri,const char *key,char *out,size_t n){if(!ri->query_string){out[0]=0;return 0;}return mg_get_var(ri->query_string,strlen(ri->query_string),key,out,n)>0;}
+branch  0 taken 4% (fallthrough)
+branch  1 taken 96%
 call    2 returned 100%
-function pager called 8 returned 100% blocks executed 90%
-        8:   59:static int pager(const struct mg_request_info *ri,int *page,int *size){
-        8:   60: char a[16]={0},b[16]={0};query(ri,"page",a,sizeof a);query(ri,"page_size",b,sizeof b);
+function pager called 16 returned 100% blocks executed 90%
+       16:  104:static int pager(const struct mg_request_info *ri,int *page,int *size){
+       16:  105: char a[16]={0},b[16]={0};query(ri,"page",a,sizeof a);query(ri,"page_size",b,sizeof b);
 call    0 returned 100%
 call    1 returned 100%
-       8*:   61: int p=page_arg(a,1,1,1000000),s=page_arg(b,20,1,200);if(p<0||s<0)return 0;*page=p;*size=s;return 1;
+      16*:  106: int p=page_arg(a,1,1,1000000),s=page_arg(b,20,1,200);if(p<0||s<0)return 0;*page=p;*size=s;return 1;
 call    0 returned 100%
 call    1 returned 100%
 branch  2 taken 100% (fallthrough)
 branch  3 taken 0%
 branch  4 taken 0% (fallthrough)
 branch  5 taken 100%
-        -:   62:}
-function admin called 4 returned 100% blocks executed 72%
-        4:   63:static Result admin(DB *d,const char *path,const cJSON *body){
-        4:   64: Id target=0;
-        4:   65: if(!strcmp(path,"/api/admin/slots/publish")){
-branch  0 taken 50% (fallthrough)
-branch  1 taken 50%
-        2:   66:  Id lab=0,start=date_start(jstr(body,"start_date")),end=date_start(jstr(body,"end_date")),capacity=1;
+        -:  107:}
+function admin called 21 returned 100% blocks executed 72%
+       21:  108:static Result admin(DB *d,const User *u,const char *path,const cJSON *body){
+       21:  109: Id target=0;
+       21:  110: if(!strcmp(path,"/api/admin/slots/publish")){
+branch  0 taken 14% (fallthrough)
+branch  1 taken 86%
+        3:  111:  Id lab=0,start=date_start(jstr(body,"start_date")),end=date_start(jstr(body,"end_date")),capacity=1;
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
 call    3 returned 100%
-        2:   67:  cJSON *cap=cJSON_GetObjectItemCaseSensitive(body,"capacity");
+        3:  112:  cJSON *cap=cJSON_GetObjectItemCaseSensitive(body,"capacity");
 call    0 returned 100%
-       2*:   68:  if(cap&&cJSON_IsString(cap)&&!parse_id(cap->valuestring,&capacity))return invalid();
-branch  0 taken 50% (fallthrough)
-branch  1 taken 50%
+       3*:  113:  if(cap&&cJSON_IsString(cap)&&!parse_id(cap->valuestring,&capacity))return invalid();
+branch  0 taken 67% (fallthrough)
+branch  1 taken 33%
 call    2 returned 100%
 branch  3 taken 100% (fallthrough)
 branch  4 taken 0%
@@ -231,19 +391,42 @@ call    5 returned 100%
 branch  6 taken 0% (fallthrough)
 branch  7 taken 100%
 call    8 never executed
-       2*:   69:  if(cap&&cJSON_IsNumber(cap))capacity=(Id)cap->valuedouble;
-branch  0 taken 50% (fallthrough)
-branch  1 taken 50%
+       3*:  114:  if(cap&&cJSON_IsNumber(cap))capacity=(Id)cap->valuedouble;
+branch  0 taken 67% (fallthrough)
+branch  1 taken 33%
 call    2 returned 100%
 branch  3 taken 0% (fallthrough)
 branch  4 taken 100%
-       2*:   70:  if(capacity<1||capacity>200)return invalid();
+       3*:  115:  if(capacity<1||capacity>200)return invalid();
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 branch  2 taken 0% (fallthrough)
 branch  3 taken 100%
 call    4 never executed
-       2*:   71:  if(!parse_id(jstr(body,"lab_id"),&lab)||start<0||end<start||end-start>13*86400)return invalid();
+        3:  116:  int mask=0;const char *wd=jstr(body,"weekdays");
+call    0 returned 100%
+       3*:  117:  if(wd&&wd[0]){
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####:  118:   if(strlen(wd)!=7||strspn(wd,"01")!=7)return invalid();
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+call    4 never executed
+    #####:  119:   for(int k=0;k<7;k++)if(wd[k]=='1')mask|=1<<k;
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed
+branch  3 never executed (fallthrough)
+    #####:  120:   if(!mask)return invalid();
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+        -:  121:  }
+       3*:  122:  if(!parse_id(jstr(body,"lab_id"),&lab)||start<0||end<start||end-start>13*86400)return invalid();
 call    0 returned 100%
 call    1 returned 100%
 branch  2 taken 100% (fallthrough)
@@ -255,12 +438,12 @@ branch  7 taken 0%
 branch  8 taken 0% (fallthrough)
 branch  9 taken 100%
 call   10 never executed
-       2*:   72:  if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
+       3*:  123:  if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
 call    3 never executed
-       2*:   73:  if(!db_num(d,"SELECT count(*) FROM labs WHERE id=? AND enabled=1","i",lab)){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return d->error?db_failure(d):result(409,"STATE_CONFLICT","实验室不存在或已停用",NULL);}
+       3*:  124:  if(!db_num(d,"SELECT count(*) FROM labs WHERE id=? AND enabled=1","i",lab)){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return d->error?db_failure(d):result(409,"STATE_CONFLICT","实验室不存在或已停用",NULL);}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
@@ -269,9 +452,9 @@ branch  4 never executed (fallthrough)
 branch  5 never executed
 call    6 never executed
 call    7 never executed
-        2:   74:  int n=publish_slots(d,lab,start,end,capacity);
+        3:  125:  int n=publish_slots_week(d,lab,start,end,capacity,mask);
 call    0 returned 100%
-       2*:   75:  if(d->error||!db_run(d,"COMMIT","")){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
+       3*:  126:  if(d->error||!db_run(d,"COMMIT","")){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return db_failure(d);}
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 call    2 returned 100%
@@ -279,23 +462,78 @@ branch  3 taken 0% (fallthrough)
 branch  4 taken 100%
 call    5 never executed
 call    6 never executed
-        2:   76:  cJSON *j=cJSON_CreateObject();cJSON_AddNumberToObject(j,"created",n);return result(200,"OK","场次发布完成",j);
+        3:  127:  cJSON *j=cJSON_CreateObject();cJSON_AddNumberToObject(j,"created",n);return result(200,"OK","场次发布完成",j);
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
-        -:   77: }
-        2:   78: if(!strcmp(path,"/api/admin/labs")||path_id(path,"/api/admin/labs/","/update",&target)){
-branch  0 taken 50% (fallthrough)
-branch  1 taken 50%
+        -:  128: }
+       18:  129: if(path_id(path,"/api/admin/slots/","/update",&target))return slot_update(d,u,target,body);
+call    0 returned 100%
+branch  1 taken 6% (fallthrough)
+branch  2 taken 94%
+call    3 returned 100%
+       17:  130: if(path_id(path,"/api/admin/labs/","/assets",&target))return asset_admin(d,u,target,0,body);
+call    0 returned 100%
+branch  1 taken 12% (fallthrough)
+branch  2 taken 88%
+call    3 returned 100%
+      15*:  131: if(path_id(path,"/api/admin/assets/","/update",&target))return asset_admin(d,u,0,target,body);
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       15:  132: if(path_id(path,"/api/admin/assets/","/windows",&target))return asset_window_admin(d,u,target,body);
+call    0 returned 100%
+branch  1 taken 7% (fallthrough)
+branch  2 taken 93%
+call    3 returned 100%
+       14:  133: if(path_id(path,"/api/admin/assets/","/maintenance",&target))return asset_maintenance_admin(d,u,target,body);
+call    0 returned 100%
+branch  1 taken 14% (fallthrough)
+branch  2 taken 86%
+call    3 returned 100%
+       12:  134: if(path_id(path,"/api/admin/assets/","/qualifications",&target))return asset_qual_admin(d,u,target,body);
+call    0 returned 100%
+branch  1 taken 33% (fallthrough)
+branch  2 taken 67%
+call    3 returned 100%
+        8:  135: if(path_id(path,"/api/admin/users/","/credit",&target))return admin_credit_grant(d,u,target,body);
+call    0 returned 100%
+branch  1 taken 12% (fallthrough)
+branch  2 taken 88%
+call    3 returned 100%
+        7:  136: if(!strcmp(path,"/api/admin/notifications"))return admin_notify(d,u,body);
+branch  0 taken 14% (fallthrough)
+branch  1 taken 86%
+call    2 returned 100%
+        6:  137: if(path_id(path,"/api/admin/users/","/disable",&target))return user_admin(d,u,target,"disable");
+call    0 returned 100%
+branch  1 taken 17% (fallthrough)
+branch  2 taken 83%
+call    3 returned 100%
+        5:  138: if(path_id(path,"/api/admin/users/","/enable",&target))return user_admin(d,u,target,"enable");
+call    0 returned 100%
+branch  1 taken 20% (fallthrough)
+branch  2 taken 80%
+call    3 returned 100%
+        4:  139: if(path_id(path,"/api/admin/users/","/reset-password",&target))return user_admin(d,u,target,"reset-password");
+call    0 returned 100%
+branch  1 taken 25% (fallthrough)
+branch  2 taken 75%
+call    3 returned 100%
+        3:  140: if(!strcmp(path,"/api/admin/labs")||path_id(path,"/api/admin/labs/","/update",&target)){
+branch  0 taken 33% (fallthrough)
+branch  1 taken 67%
 call    2 returned 100%
 branch  3 taken 100% (fallthrough)
 branch  4 taken 0%
-        2:   79:  const char *name=jstr(body,"name"),*loc=jstr(body,"location"),*desc=jstr(body,"description");cJSON *enabled=cJSON_GetObjectItemCaseSensitive(body,"enabled");
+        3:  141:  const char *name=jstr(body,"name"),*loc=jstr(body,"location"),*desc=jstr(body,"description");cJSON *enabled=cJSON_GetObjectItemCaseSensitive(body,"enabled");cJSON *appr=cJSON_GetObjectItemCaseSensitive(body,"require_approval");
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
 call    3 returned 100%
-       2*:   80:  if(!text_ok(name,180,0)||!text_ok(loc,180,0)||!text_ok(desc,1000,1)||(target&&!cJSON_IsBool(enabled)))return invalid();
+call    4 returned 100%
+       3*:  142:  if(!text_ok(name,180,0)||!text_ok(loc,180,0)||!text_ok(desc,1000,1)||(target&&!cJSON_IsBool(enabled))||(appr&&!cJSON_IsBool(appr)))return invalid();
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
@@ -305,66 +543,119 @@ branch  5 taken 0%
 call    6 returned 100%
 branch  7 taken 100% (fallthrough)
 branch  8 taken 0%
-branch  9 taken 50% (fallthrough)
-branch 10 taken 50%
+branch  9 taken 33% (fallthrough)
+branch 10 taken 67%
 call   11 returned 100%
-branch 12 taken 0% (fallthrough)
-branch 13 taken 100%
-call   14 never executed
-        2:   81:  int ok;if(target)ok=db_run(d,"UPDATE labs SET name=?,location=?,description=?,enabled=? WHERE id=?","sssii",name,loc,desc,(Id)cJSON_IsTrue(enabled),target);
-branch  0 taken 50% (fallthrough)
-branch  1 taken 50%
-call    2 returned 100%
-call    3 returned 100%
-        1:   82:  else ok=db_run(d,"INSERT INTO labs(name,location,description) VALUES(?,?,?)","sss",name,loc,desc);
+branch 12 taken 100% (fallthrough)
+branch 13 taken 0%
+branch 14 taken 33% (fallthrough)
+branch 15 taken 67%
+call   16 returned 100%
+branch 17 taken 0% (fallthrough)
+branch 18 taken 100%
+call   19 never executed
+        -:  143:  int ok;
+        3:  144:  if(target){
+branch  0 taken 33% (fallthrough)
+branch  1 taken 67%
+       1*:  145:   if(appr)ok=db_run(d,"UPDATE labs SET name=?,location=?,description=?,enabled=?,require_approval=? WHERE id=?","sssiii",name,loc,desc,(Id)cJSON_IsTrue(enabled),(Id)cJSON_IsTrue(appr),target);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+call    3 never executed
+call    4 never executed
+        1:  146:   else ok=db_run(d,"UPDATE labs SET name=?,location=?,description=?,enabled=? WHERE id=?","sssii",name,loc,desc,(Id)cJSON_IsTrue(enabled),target);
 call    0 returned 100%
-       2*:   83:  if(!ok){if((d->error&255)==SQLITE_CONSTRAINT){d->error=0;return result(409,"STATE_CONFLICT","实验室名称已存在",NULL);}return db_failure(d);}
+call    1 returned 100%
+        2:  147:  } else ok=db_run(d,"INSERT INTO labs(name,location,description,require_approval) VALUES(?,?,?,?)","sssi",name,loc,desc,(Id)cJSON_IsTrue(appr));
+call    0 returned 100%
+call    1 returned 100%
+       3*:  148:  if(!ok){if((d->error&255)==SQLITE_CONSTRAINT){d->error=0;return result(409,"STATE_CONFLICT","实验室名称已存在",NULL);}return db_failure(d);}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 branch  2 never executed (fallthrough)
 branch  3 never executed
 call    4 never executed
 call    5 never executed
-       2*:   84:  if(target&&!sqlite3_changes(d->sql))return result(404,"NOT_FOUND","实验室不存在",NULL);
-branch  0 taken 50% (fallthrough)
-branch  1 taken 50%
+       3*:  149:  if(target&&!sqlite3_changes(d->sql))return result(404,"NOT_FOUND","实验室不存在",NULL);
+branch  0 taken 33% (fallthrough)
+branch  1 taken 67%
 call    2 returned 100%
 branch  3 taken 0% (fallthrough)
 branch  4 taken 100%
 call    5 never executed
-        2:   85:  cJSON *j=cJSON_CreateObject();jid(j,"lab_id",target?target:sqlite3_last_insert_rowid(d->sql));return result(200,"OK","实验室已保存",j);
+        3:  150:  cJSON *j=cJSON_CreateObject();jid(j,"lab_id",target?target:sqlite3_last_insert_rowid(d->sql));return result(200,"OK","实验室已保存",j);
 call    0 returned 100%
-branch  1 taken 50% (fallthrough)
-branch  2 taken 50%
+branch  1 taken 67% (fallthrough)
+branch  2 taken 33%
 call    3 returned 100%
 call    4 returned 100%
 call    5 returned 100%
-        -:   86: }
-    #####:   87: return result(404,"NOT_FOUND","接口不存在",NULL);
+        -:  151: }
+    #####:  152: return result(404,"NOT_FOUND","接口不存在",NULL);
 call    0 never executed
-        -:   88:}
-function dispatch called 47 returned 100% blocks executed 70%
-       47:   89:static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJSON *body,char cookie[256]){
-       47:   90: const struct mg_request_info *ri=mg_get_request_info(c);const char *path=ri->local_uri;int post=!strcmp(ri->request_method,"POST");
+        -:  153:}
+function dispatch called 108 returned 100% blocks executed 68%
+      108:  154:static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJSON *body,char cookie[256]){
+      108:  155: const struct mg_request_info *ri=mg_get_request_info(c);const char *path=ri->local_uri;int post=!strcmp(ri->request_method,"POST");
 call    0 returned 100%
-      47*:   91: if(!strcmp(path,"/api/login"))return post?login(d,body,cookie):result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);
-branch  0 taken 11% (fallthrough)
-branch  1 taken 89%
+     108*:  156: if(!strcmp(path,"/api/login"))return post?login(d,body,cookie):result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);
+branch  0 taken 5% (fallthrough)
+branch  1 taken 95%
 branch  2 taken 100% (fallthrough)
 branch  3 taken 0%
 call    4 returned 100%
 call    5 never executed
-      42*:   92: User u={0};char tokenhash[65];if(!authenticated(d,c,&u,tokenhash))return d->error?db_failure(d):result(401,"UNAUTHORIZED","请先登录",NULL);
+     103*:  157: if(!strcmp(path,"/api/register"))return post?do_register(d,body,cookie):result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);
+branch  0 taken 1% (fallthrough)
+branch  1 taken 99%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+call    4 returned 100%
+call    5 never executed
+      102:  158: Id aid_target=0;
+      102:  159: User u={0};char tokenhash[65];
+      102:  160: if(!authenticated(d,c,&u,tokenhash)){
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
-branch  3 never executed (fallthrough)
-branch  4 never executed
-call    5 never executed
+    #####:  161:  if(d->error)return db_failure(d);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+        -:  162:  /* r22 X-API-Token 只读访问：仅在没有有效会话且请求为 GET 时尝试；写操作仍必须走会话 + CSRF。 */
+    #####:  163:  const char *apitok=post?NULL:mg_get_header(c,"X-API-Token");
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+    #####:  164:  if(!apitok)return result(401,"UNAUTHORIZED","请先登录",NULL);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+    #####:  165:  Result tr=token_auth(d,apitok,&u);
+call    0 never executed
+    #####:  166:  if(tr.status!=200)return tr;
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  167:  if(d->error)return db_failure(d);
+branch  0 never executed (fallthrough)
+branch  1 never executed
+call    2 never executed
+        -:  168:  /* /api/me/tokens/{id}/revoke 虽挂在 GET 分支下，实为写操作；令牌访问一律拒绝，保持"只读"承诺。 */
+    #####:  169:  {size_t pn=strlen(path);
+    #####:  170:   if(pn>16&&!strncmp(path,"/api/me/tokens/",15)&&!strcmp(path+pn-7,"/revoke"))return result(403,"FORBIDDEN","令牌访问不支持该操作",NULL);}
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+branch  4 never executed (fallthrough)
+branch  5 never executed
 call    6 never executed
-      42*:   93: if(post){const char *csrf=mg_get_header(c,"X-CSRF-Token");if(!csrf||strlen(csrf)!=64||sodium_memcmp(csrf,u.csrf,64))return result(403,"CSRF","请求校验失败，请刷新后重试",NULL);
-branch  0 taken 38% (fallthrough)
-branch  1 taken 62%
+    #####:  171:  tokenhash[0]=0;
+        -:  172: }
+     102*:  173: if(post){const char *csrf=mg_get_header(c,"X-CSRF-Token");if(!csrf||strlen(csrf)!=64||sodium_memcmp(csrf,u.csrf,64))return result(403,"CSRF","请求校验失败，请刷新后重试",NULL);
+branch  0 taken 43% (fallthrough)
+branch  1 taken 57%
 call    2 returned 100%
 branch  3 taken 100% (fallthrough)
 branch  4 taken 0%
@@ -374,30 +665,55 @@ call    7 returned 100%
 branch  8 taken 0% (fallthrough)
 branch  9 taken 100%
 call   10 never executed
-      16*:   94:  if(!rl_consume(u.id))return result(429,"RATE_LIMITED","操作过于频繁，请稍后再试",NULL);}
+      44*:  174:  if(!rl_consume(u.id))return result(429,"RATE_LIMITED","操作过于频繁，请稍后再试",NULL);}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
 call    3 never executed
-       42:   95: if(!post){
-branch  0 taken 62% (fallthrough)
-branch  1 taken 38%
-       26:   96:  if(!strcmp(path,"/api/me"))return result(200,"OK","查询成功",user_data(&u));
+      102:  175: if(!post){
+branch  0 taken 57% (fallthrough)
+branch  1 taken 43%
+       58:  176:  if(!strcmp(path,"/api/me"))return result(200,"OK","查询成功",user_data(&u));
 branch  0 taken 19% (fallthrough)
 branch  1 taken 81%
 call    2 returned 100%
 call    3 returned 100%
-       21:   97:  if(!strcmp(path,"/api/labs")){cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"labs",db_rows(d,"SELECT id,name,location,description,enabled FROM labs ORDER BY id",""));return result(200,"OK","查询成功",j);}
-branch  0 taken 24% (fallthrough)
-branch  1 taken 76%
+       47:  177:  if(!strcmp(path,"/api/labs")){cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"labs",db_rows(d,"SELECT id,name,location,description,enabled FROM labs ORDER BY id",""));return result(200,"OK","查询成功",j);}
+branch  0 taken 11% (fallthrough)
+branch  1 taken 89%
 call    2 returned 100%
 call    3 returned 100%
 call    4 returned 100%
 call    5 returned 100%
-       16:   98:  if(!strcmp(path,"/api/slots")){
-branch  0 taken 19% (fallthrough)
-branch  1 taken 81%
-       3*:   99:   char a[40],dt[32];Id lab=0;query(ri,"lab_id",a,sizeof a);query(ri,"date",dt,sizeof dt);Id start=date_start(dt);if(!parse_id(a,&lab)||start<0)return invalid();
+        -:  178:  { /* /api/labs/{id}/assets：登录用户查看实验室资源清单（不含已停用资源） */
+       42:  179:   size_t n=strlen(path);
+       42:  180:   if(n>17&&!strncmp(path,"/api/labs/",10)&&!strcmp(path+n-7,"/assets")){
+branch  0 taken 40% (fallthrough)
+branch  1 taken 60%
+branch  2 taken 6% (fallthrough)
+branch  3 taken 94%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+       1*:  181:    char mid[24];size_t len=n-10-7;if(len>=sizeof mid)return invalid();
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+        1:  182:    memcpy(mid,path+10,len);mid[len]=0;Id lab=0;
+       1*:  183:    if(!parse_id(mid,&lab)||lab<1)return invalid();
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+call    5 never executed
+        1:  184:    return assets_list(d,lab);
+call    0 returned 100%
+        -:  185:   }
+        -:  186:  }
+       41:  187:  if(!strcmp(path,"/api/slots")){
+branch  0 taken 12% (fallthrough)
+branch  1 taken 88%
+       5*:  188:   char a[40],dt[32];Id lab=0;query(ri,"lab_id",a,sizeof a);query(ri,"date",dt,sizeof dt);Id start=date_start(dt);if(!parse_id(a,&lab)||start<0)return invalid();
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
@@ -407,27 +723,59 @@ branch  5 taken 0%
 branch  6 taken 0% (fallthrough)
 branch  7 taken 100%
 call    8 never executed
-        3:  100:   cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"slots",db_rows(d,
+        5:  189:   cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"slots",db_rows(d,
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
-        -:  101:    "SELECT s.id,s.lab_id,s.start_at,s.end_at,s.enabled,s.capacity,l.enabled AS lab_enabled,(SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') AS confirmed_count,(SELECT count(*) FROM waitlist w JOIN users wu ON wu.id=w.user_id WHERE w.slot_id=s.id AND w.status='WAITING' AND wu.enabled=1) AS waiting_count,(SELECT id FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_reservation_id,(SELECT checked_in_at FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_checked_in_at,(SELECT id FROM waitlist w WHERE w.slot_id=s.id AND w.status='WAITING' AND w.user_id=?) AS my_waitlist_id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.lab_id=? AND s.start_at>=? AND s.start_at<? ORDER BY s.start_at",
-        -:  102:    "iiiiii",u.id,u.id,u.id,lab,start,start+86400));
-        3:  103:   cJSON_AddNumberToObject(j,"checkin_window",(double)cfg->checkin_window);return result(200,"OK","查询成功",j);
+        -:  190:    "SELECT s.id,s.lab_id,s.start_at,s.end_at,s.enabled,s.capacity,l.enabled AS lab_enabled,(SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') AS confirmed_count,(SELECT count(*) FROM waitlist w JOIN users wu ON wu.id=w.user_id WHERE w.slot_id=s.id AND w.status='WAITING' AND wu.enabled=1) AS waiting_count,(SELECT id FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_reservation_id,(SELECT checked_in_at FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_checked_in_at,(SELECT id FROM waitlist w WHERE w.slot_id=s.id AND w.status='WAITING' AND w.user_id=?) AS my_waitlist_id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.lab_id=? AND s.start_at>=? AND s.start_at<? ORDER BY s.start_at",
+        -:  191:    "iiiiii",u.id,u.id,u.id,lab,start,start+86400));
+        5:  192:   cJSON_AddNumberToObject(j,"checkin_window",(double)cfg->checkin_window);return result(200,"OK","查询成功",j);
 call    0 returned 100%
 call    1 returned 100%
-        -:  104:  }
-      13*:  105:  if(!strcmp(path,"/api/me/records")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();return records(d,&u,0,0,pg,ps);}
-branch  0 taken 46% (fallthrough)
-branch  1 taken 54%
+        -:  193:  }
+       36:  194:  if(!strcmp(path,"/api/suggestions")){ /* r25 创新方向 1：约束感知替代建议（只读） */
+branch  0 taken 3% (fallthrough)
+branch  1 taken 97%
+        1:  195:   char a[40],dt[32];Id lab=0;query(ri,"lab_id",a,sizeof a);query(ri,"date",dt,sizeof dt);Id start=date_start(dt);
+call    0 returned 100%
+call    1 returned 100%
+call    2 returned 100%
+       1*:  196:   if(!parse_id(a,&lab)||start<0)return invalid();
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+call    5 never executed
+        1:  197:   return suggestion_list(d,&u,cfg,lab,start);
+call    0 returned 100%
+        -:  198:  }
+      35*:  199:  if(!strcmp(path,"/api/me/records")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char st[24]={0};query(ri,"status",st,sizeof st);
+branch  0 taken 29% (fallthrough)
+branch  1 taken 71%
 call    2 returned 100%
 branch  3 taken 0% (fallthrough)
 branch  4 taken 100%
 call    5 never executed
 call    6 returned 100%
-       7*:  106:  if(!strcmp(path,"/api/me/notifications")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char uf[8]={0};query(ri,"unread",uf,sizeof uf);return notifications(d,&u,!strcmp(uf,"1")||!strcmp(uf,"true"),pg,ps);}
-branch  0 taken 14% (fallthrough)
-branch  1 taken 86%
+       10:  200:   const char *status=NULL;
+      10*:  201:   if(st[0]){if(strcmp(st,"CONFIRMED")&&strcmp(st,"CANCELLED")&&strcmp(st,"NO_SHOW")&&strcmp(st,"PENDING"))return invalid();status=st;}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 never executed (fallthrough)
+branch  3 never executed
+branch  4 never executed (fallthrough)
+branch  5 never executed
+branch  6 never executed (fallthrough)
+branch  7 never executed
+branch  8 never executed (fallthrough)
+branch  9 never executed
+call   10 never executed
+       10:  202:   return records(d,&u,0,0,pg,ps,status,NULL,NULL);}
+call    0 returned 100%
+      25*:  203:  if(!strcmp(path,"/api/me/notifications")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char uf[8]={0};query(ri,"unread",uf,sizeof uf);return notifications(d,&u,!strcmp(uf,"1")||!strcmp(uf,"true"),pg,ps);}
+branch  0 taken 4% (fallthrough)
+branch  1 taken 96%
 call    2 returned 100%
 branch  3 taken 0% (fallthrough)
 branch  4 taken 100%
@@ -438,19 +786,40 @@ branch  8 taken 0%
 branch  9 taken 0% (fallthrough)
 branch 10 taken 100%
 call   11 returned 100%
-        6:  107:  if(!strcmp(path,"/api/me/sessions"))return sessions_list(d,&u,tokenhash);
-branch  0 taken 33% (fallthrough)
-branch  1 taken 67%
+       24:  204:  if(!strcmp(path,"/api/me/sessions"))return sessions_list(d,&u,tokenhash);
+branch  0 taken 8% (fallthrough)
+branch  1 taken 92%
 call    2 returned 100%
-       4*:  108:  if(!strcmp(path,"/api/admin/records")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);char dt[32];Id date=0;if(query(ri,"date",dt,sizeof dt)){date=date_start(dt);if(date<0)return invalid();}int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();return records(d,&u,1,date,pg,ps);}
-branch  0 taken 25% (fallthrough)
-branch  1 taken 75%
+       22:  205:  if(!strcmp(path,"/api/me/calendar/export"))return calendar_export(d,&u);
+branch  0 taken 5% (fallthrough)
+branch  1 taken 95%
+call    2 returned 100%
+       21:  206:  if(!strcmp(path,"/api/me/tokens"))return token_list(d,&u);
+branch  0 taken 10% (fallthrough)
+branch  1 taken 90%
+call    2 returned 100%
+      19*:  207:  if(!strcmp(path,"/api/me/credits")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();return credit_history(d,&u,pg,ps);}
+branch  0 taken 5% (fallthrough)
+branch  1 taken 95%
+call    2 returned 100%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+call    5 never executed
+call    6 returned 100%
+       18:  208:  if(!strcmp(path,"/api/me/calendar.ics"))return calendar_ics(d,&u);
+branch  0 taken 6% (fallthrough)
+branch  1 taken 94%
+call    2 returned 100%
+        -:  209:  /* r22：令牌吊销已移至下方 POST 分支，与本文件遵循"写操作走 POST"的既有约定一致。 */
+      17*:  210:  if(!strcmp(path,"/api/admin/records")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);char dt[32],ea[36],eu[68],st2[24]={0};Id date=0;if(query(ri,"date",dt,sizeof dt)){date=date_start(dt);if(date<0)return invalid();}int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();
+branch  0 taken 12% (fallthrough)
+branch  1 taken 88%
 branch  2 taken 0% (fallthrough)
 branch  3 taken 100%
 call    4 never executed
 call    5 returned 100%
-branch  6 taken 100% (fallthrough)
-branch  7 taken 0%
+branch  6 taken 50% (fallthrough)
+branch  7 taken 50%
 call    8 returned 100%
 branch  9 taken 0% (fallthrough)
 branch 10 taken 100%
@@ -459,43 +828,49 @@ call   12 returned 100%
 branch 13 taken 0% (fallthrough)
 branch 14 taken 100%
 call   15 never executed
-call   16 returned 100%
-        3:  109:  if(!strcmp(path,"/api/admin/stats/export")){
-branch  0 taken 33% (fallthrough)
-branch  1 taken 67%
-       1*:  110:   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
-branch  0 taken 0% (fallthrough)
-branch  1 taken 100%
-call    2 never executed
-       1*:  111:   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
-call    0 returned 100%
-branch  1 taken 100% (fallthrough)
-branch  2 taken 0%
-call    3 returned 100%
-branch  4 taken 0% (fallthrough)
-branch  5 taken 100%
-call    6 never executed
-       1*:  112:   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+        2:  211:   ea[0]=eu[0]=0;query(ri,"action",ea,sizeof ea);query(ri,"user",eu,sizeof eu);query(ri,"status",st2,sizeof st2);
 call    0 returned 100%
 call    1 returned 100%
-branch  2 taken 100% (fallthrough)
-branch  3 taken 0%
-branch  4 taken 100% (fallthrough)
-branch  5 taken 0%
-branch  6 taken 0% (fallthrough)
-branch  7 taken 100%
-call    8 never executed
-        1:  113:   return stats_export(d,a,b);
-call    0 returned 100%
-        -:  114:  }
-        2:  115:  if(!strcmp(path,"/api/admin/stats")){
+call    2 returned 100%
+       2*:  212:   if(ea[0]&&strlen(ea)>32)return invalid();
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 never executed (fallthrough)
+branch  3 never executed
+call    4 never executed
+       2*:  213:   if(eu[0]&&strlen(eu)>64)return invalid();
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 never executed (fallthrough)
+branch  3 never executed
+call    4 never executed
+        2:  214:   const char *status=NULL;
+       2*:  215:   if(st2[0]){if(strcmp(st2,"CONFIRMED")&&strcmp(st2,"CANCELLED")&&strcmp(st2,"NO_SHOW")&&strcmp(st2,"PENDING"))return invalid();status=st2;}
 branch  0 taken 50% (fallthrough)
 branch  1 taken 50%
-       1*:  116:   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+branch  6 taken 100% (fallthrough)
+branch  7 taken 0%
+branch  8 taken 0% (fallthrough)
+branch  9 taken 100%
+call   10 never executed
+       2*:  216:   return records(d,&u,1,date,pg,ps,status,ea[0]?ea:NULL,eu[0]?eu:NULL);}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 returned 100%
+       15:  217:  if(!strcmp(path,"/api/admin/stats/export")){
+branch  0 taken 7% (fallthrough)
+branch  1 taken 93%
+       1*:  218:   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-       1*:  117:   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
+       1*:  219:   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
@@ -503,7 +878,7 @@ call    3 returned 100%
 branch  4 taken 0% (fallthrough)
 branch  5 taken 100%
 call    6 never executed
-       1*:  118:   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+       1*:  220:   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
 call    0 returned 100%
 call    1 returned 100%
 branch  2 taken 100% (fallthrough)
@@ -513,30 +888,265 @@ branch  5 taken 0%
 branch  6 taken 0% (fallthrough)
 branch  7 taken 100%
 call    8 never executed
-        1:  119:   return stats(d,a,b);
+        1:  221:   return stats_export(d,a,b);
 call    0 returned 100%
-        -:  120:  }
-       1*:  121:  if(!strcmp(path,"/api/admin/metrics")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return result(200,"OK","查询成功",metrics_snapshot());}
-branch  0 taken 100% (fallthrough)
-branch  1 taken 0%
+        -:  222:  }
+       14:  223:  if(!strcmp(path,"/api/admin/stats")){
+branch  0 taken 7% (fallthrough)
+branch  1 taken 93%
+       1*:  224:   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       1*:  225:   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+call    6 never executed
+       1*:  226:   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+branch  6 taken 0% (fallthrough)
+branch  7 taken 100%
+call    8 never executed
+        1:  227:   return stats(d,a,b);
+call    0 returned 100%
+        -:  228:  }
+      13*:  229:  if(!strcmp(path,"/api/admin/metrics")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return result(200,"OK","查询成功",metrics_snapshot());}
+branch  0 taken 8% (fallthrough)
+branch  1 taken 92%
 branch  2 taken 0% (fallthrough)
 branch  3 taken 100%
 call    4 never executed
 call    5 returned 100%
 call    6 returned 100%
-    #####:  122:  return result(404,"NOT_FOUND","接口不存在",NULL);
-call    0 never executed
-        -:  123: }
-       16:  124: if(!strcmp(path,"/api/logout")){db_run(d,"DELETE FROM sessions WHERE token_hash=?","s",tokenhash);strcpy(cookie,"Set-Cookie: lab_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n");return result(200,"OK","已退出",NULL);}
-branch  0 taken 19% (fallthrough)
-branch  1 taken 81%
+       12:  230:  if(!strcmp(path,"/api/admin/asset-claims/export")){
+branch  0 taken 8% (fallthrough)
+branch  1 taken 92%
+       1*:  231:   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       1*:  232:   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+call    6 never executed
+       1*:  233:   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+branch  6 taken 0% (fallthrough)
+branch  7 taken 100%
+call    8 never executed
+        1:  234:   return asset_claim_export(d,a,b);
+call    0 returned 100%
+        -:  235:  }
+       11:  236:  if(!strcmp(path,"/api/admin/asset-claims")){
+branch  0 taken 9% (fallthrough)
+branch  1 taken 91%
+       1*:  237:   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       1*:  238:   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+call    6 never executed
+       1*:  239:   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+branch  6 taken 0% (fallthrough)
+branch  7 taken 100%
+call    8 never executed
+        1:  240:   return asset_claim_report(d,a,b);
+call    0 returned 100%
+        -:  241:  }
+       10:  242:  if(path_id(path,"/api/admin/assets/","/windows",&aid_target)){
+call    0 returned 100%
+branch  1 taken 10% (fallthrough)
+branch  2 taken 90%
+       1*:  243:   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+        1:  244:   return asset_windows_list(d,aid_target);
+call    0 returned 100%
+        -:  245:  }
+        9:  246:  if(path_id(path,"/api/admin/assets/","/maintenance",&aid_target)){
+call    0 returned 100%
+branch  1 taken 11% (fallthrough)
+branch  2 taken 89%
+       1*:  247:   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+        1:  248:   return asset_maintenance_list(d,aid_target);
+call    0 returned 100%
+        -:  249:  }
+        8:  250:  if(path_id(path,"/api/admin/assets/","/qualifications",&aid_target)){
+call    0 returned 100%
+branch  1 taken 12% (fallthrough)
+branch  2 taken 88%
+       1*:  251:   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+        1:  252:   return asset_quals_list(d,aid_target);
+call    0 returned 100%
+        -:  253:  }
+        7:  254:  if(path_id(path,"/api/admin/assets/","/usage",&aid_target)){
+call    0 returned 100%
+branch  1 taken 14% (fallthrough)
+branch  2 taken 86%
+       1*:  255:   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       1*:  256:   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+call    6 never executed
+       1*:  257:   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+branch  6 taken 0% (fallthrough)
+branch  7 taken 100%
+call    8 never executed
+        1:  258:   return asset_usage(d,aid_target,a,b);
+call    0 returned 100%
+        -:  259:  }
+        6:  260:  if(!strcmp(path,"/api/admin/labs/utilization")||!strcmp(path,"/api/admin/stats/utilization/export")){
+branch  0 taken 83% (fallthrough)
+branch  1 taken 17%
+branch  2 taken 20% (fallthrough)
+branch  3 taken 80%
+       2*:  261:   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+       2*:  262:   char s1[32],s2[32];if(!query(ri,"start_date",s1,sizeof s1)||!query(ri,"end_date",s2,sizeof s2))return invalid();
+call    0 returned 100%
+branch  1 taken 100% (fallthrough)
+branch  2 taken 0%
+call    3 returned 100%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+call    6 never executed
+       2*:  263:   Id a=date_start(s1),b=date_start(s2);if(a<0||b<a||b-a>30*86400)return invalid();
+call    0 returned 100%
+call    1 returned 100%
+branch  2 taken 100% (fallthrough)
+branch  3 taken 0%
+branch  4 taken 100% (fallthrough)
+branch  5 taken 0%
+branch  6 taken 0% (fallthrough)
+branch  7 taken 100%
+call    8 never executed
+        2:  264:   return !strcmp(path,"/api/admin/labs/utilization")?lab_utilization(d,a,b):utilization_export(d,a,b);
+branch  0 taken 50% (fallthrough)
+branch  1 taken 50%
 call    2 returned 100%
 call    3 returned 100%
-       13:  125: {char sh[65];const char *k=jstr(body,"request_id");
+        -:  265:  }
+       4*:  266:  if(!strcmp(path,"/api/admin/users")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char q[68]={0};query(ri,"q",q,sizeof q);if(q[0]&&strlen(q)>64)return invalid();return users_list(d,pg,ps,q[0]?q:NULL);}
+branch  0 taken 25% (fallthrough)
+branch  1 taken 75%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 never executed
+call    5 returned 100%
+branch  6 taken 0% (fallthrough)
+branch  7 taken 100%
+call    8 never executed
+call    9 returned 100%
+branch 10 taken 100% (fallthrough)
+branch 11 taken 0%
+branch 12 taken 0% (fallthrough)
+branch 13 taken 100%
+call   14 never executed
+branch 15 taken 100% (fallthrough)
+branch 16 taken 0%
+call   17 returned 100%
+       3*:  267:  if(!strcmp(path,"/api/admin/notifications/sent")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();return notifications_sent(d,pg,ps);}
+branch  0 taken 33% (fallthrough)
+branch  1 taken 67%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 never executed
+call    5 returned 100%
+branch  6 taken 0% (fallthrough)
+branch  7 taken 100%
+call    8 never executed
+call    9 returned 100%
+       2*:  268:  if(!strcmp(path,"/api/admin/logs")){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+branch  0 taken 100% (fallthrough)
+branch  1 taken 0%
+branch  2 taken 0% (fallthrough)
+branch  3 taken 100%
+call    4 never executed
+        2:  269:   char ln[16],lv[8]={0};query(ri,"lines",ln,sizeof ln);query(ri,"level",lv,sizeof lv);
 call    0 returned 100%
-      14*:  126:  if(!strcmp(path,"/api/me/password")){if(!uuid_valid(k))return invalid();return password_change(d,&u,jstr(body,"old_password"),jstr(body,"new_password"),tokenhash,k);}
-branch  0 taken 15% (fallthrough)
-branch  1 taken 85%
+call    1 returned 100%
+       2*:  270:   int n=page_arg(ln,100,1,500);if(n<0)return invalid();
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+       2*:  271:   int level=0;if(lv[0]){level=page_arg(lv,0,1,3);if(level<0)return invalid();if(level==0)return invalid();}
+branch  0 taken 50% (fallthrough)
+branch  1 taken 50%
+call    2 returned 100%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+call    5 never executed
+branch  6 taken 0% (fallthrough)
+branch  7 taken 100%
+call    8 never executed
+        2:  272:   return logs_tail(n,level);}
+call    0 returned 100%
+    #####:  273:  return result(404,"NOT_FOUND","接口不存在",NULL);
+call    0 never executed
+        -:  274: }
+       44:  275: if(!strcmp(path,"/api/logout")){db_run(d,"DELETE FROM sessions WHERE token_hash=?","s",tokenhash);strcpy(cookie,"Set-Cookie: lab_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n");return result(200,"OK","已退出",NULL);}
+branch  0 taken 7% (fallthrough)
+branch  1 taken 93%
+call    2 returned 100%
+call    3 returned 100%
+       41:  276: {char sh[65];Id tok_id=0;const char *k=jstr(body,"request_id");
+call    0 returned 100%
+      43*:  277:  if(!strcmp(path,"/api/me/password")){if(!uuid_valid(k))return invalid();return password_change(d,&u,jstr(body,"old_password"),jstr(body,"new_password"),tokenhash,k);}
+branch  0 taken 5% (fallthrough)
+branch  1 taken 95%
 call    2 returned 100%
 branch  3 taken 0% (fallthrough)
 branch  4 taken 100%
@@ -544,15 +1154,26 @@ call    5 never executed
 call    6 returned 100%
 call    7 returned 100%
 call    8 returned 100%
-      11*:  127:  if(!strcmp(path,"/api/me/notifications/read")){if(!uuid_valid(k))return invalid();return notifications_read(d,&u,body,k);}
-branch  0 taken 9% (fallthrough)
-branch  1 taken 91%
+      39*:  278:  if(!strcmp(path,"/api/me/notifications/read")){if(!uuid_valid(k))return invalid();return notifications_read(d,&u,body,k);}
+branch  0 taken 3% (fallthrough)
+branch  1 taken 97%
 call    2 returned 100%
 branch  3 taken 0% (fallthrough)
 branch  4 taken 100%
 call    5 never executed
 call    6 returned 100%
-      10*:  128:  if(path_hex(path,"/api/me/sessions/","/revoke",sh,sizeof sh)){if(!uuid_valid(k))return invalid();return session_revoke(d,&u,sh,k);}
+        -:  279:  /* r22 修正：令牌吊销原误置于 GET 分支——GET 请求体不会被解析，request_id 恒缺失导致该端点恒返回 400；
+        -:  280:     契约（CONTRACT.md）声明的是 POST，此处按契约移入 POST 分支。 */
+      38*:  281:  if(path_id(path,"/api/me/tokens/","/revoke",&tok_id)){if(!uuid_valid(k))return invalid();return token_revoke(d,&u,tok_id,k);}
+call    0 returned 100%
+branch  1 taken 3% (fallthrough)
+branch  2 taken 97%
+call    3 returned 100%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+call    6 never executed
+call    7 returned 100%
+      37*:  282:  if(path_hex(path,"/api/me/sessions/","/revoke",sh,sizeof sh)){if(!uuid_valid(k))return invalid();return session_revoke(d,&u,sh,k);}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
@@ -561,40 +1182,116 @@ branch  4 never executed (fallthrough)
 branch  5 never executed
 call    6 never executed
 call    7 never executed
-        -:  129: }
-      10*:  130: if(!strncmp(path,"/api/admin/",11)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return admin(d,path,body);}
-branch  0 taken 40%
-branch  1 taken 60%
+        -:  283: }
+      37*:  284: if(!strncmp(path,"/api/admin/",11)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return admin(d,&u,path,body);}
+branch  0 taken 57%
+branch  1 taken 43%
 branch  2 taken 0% (fallthrough)
 branch  3 taken 100%
 call    4 never executed
 call    5 returned 100%
-        6:  131: const char *action=NULL;Id target=0;
-        6:  132: if(!strcmp(path,"/api/reservations")){action="reserve";parse_id(jstr(body,"slot_id"),&target);}
-branch  0 taken 67% (fallthrough)
-branch  1 taken 33%
+       16:  285: const char *action=NULL;Id target=0;
+       16:  286: if(!strcmp(path,"/api/me/tokens"))return token_create(d,&u,body);
+branch  0 taken 6% (fallthrough)
+branch  1 taken 94%
+call    2 returned 100%
+      15*:  287: if(!strcmp(path,"/api/reservations/batch")){const char *k2=jstr(body,"request_id");if(!uuid_valid(k2))return invalid();return reservation_batch(d,cfg,&u,body,k2);}
+branch  0 taken 7% (fallthrough)
+branch  1 taken 93%
 call    2 returned 100%
 call    3 returned 100%
-        2:  133: else if(!strcmp(path,"/api/waitlist")){action="wait";parse_id(jstr(body,"slot_id"),&target);}
-branch  0 taken 50% (fallthrough)
-branch  1 taken 50%
+branch  4 taken 0% (fallthrough)
+branch  5 taken 100%
+call    6 never executed
+call    7 returned 100%
+       14:  288: if(!strcmp(path,"/api/reservations")){action="reserve";parse_id(jstr(body,"slot_id"),&target);}
+branch  0 taken 43% (fallthrough)
+branch  1 taken 57%
 call    2 returned 100%
 call    3 returned 100%
-        1:  134: else if(path_id(path,"/api/reservations/","/cancel",&target))action="cancel";
+        8:  289: else if(!strcmp(path,"/api/waitlist")){action="wait";parse_id(jstr(body,"slot_id"),&target);}
+branch  0 taken 12% (fallthrough)
+branch  1 taken 88%
+call    2 returned 100%
+call    3 returned 100%
+        7:  290: else if(path_id(path,"/api/reservations/","/cancel",&target))action="cancel";
+call    0 returned 100%
+branch  1 taken 14% (fallthrough)
+branch  2 taken 86%
+       6*:  291: else if(path_id(path,"/api/reservations/","/confirm",&target)){const char *kc=jstr(body,"request_id");if(!uuid_valid(kc))return invalid();return reservation_confirm(d,&u,target,kc);}
+call    0 returned 100%
+branch  1 taken 17% (fallthrough)
+branch  2 taken 83%
+call    3 returned 100%
+call    4 returned 100%
+branch  5 taken 0% (fallthrough)
+branch  6 taken 100%
+call    7 never executed
+call    8 returned 100%
+        5:  292: else if(path_id(path,"/api/reservations/","/checkin",&target))action="checkin";
+call    0 returned 100%
+branch  1 taken 20% (fallthrough)
+branch  2 taken 80%
+       4*:  293: else if(path_id(path,"/api/reservations/","/checkout",&target)){const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_checkout(d,cfg,&u,target,key2);}
+call    0 returned 100%
+branch  1 taken 25% (fallthrough)
+branch  2 taken 75%
+call    3 returned 100%
+call    4 returned 100%
+branch  5 taken 0% (fallthrough)
+branch  6 taken 100%
+call    7 never executed
+call    8 returned 100%
+       3*:  294: else if(path_id(path,"/api/reservations/","/reschedule",&target)){Id ns=0;if(!parse_id(jstr(body,"slot_id"),&ns)||ns<1)return invalid();const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_reschedule(d,cfg,&u,target,ns,key2);}
+call    0 returned 100%
+branch  1 taken 33% (fallthrough)
+branch  2 taken 67%
+call    3 returned 100%
+call    4 returned 100%
+branch  5 taken 100% (fallthrough)
+branch  6 taken 0%
+branch  7 taken 0% (fallthrough)
+branch  8 taken 100%
+call    9 never executed
+call   10 returned 100%
+call   11 returned 100%
+branch 12 taken 0% (fallthrough)
+branch 13 taken 100%
+call   14 never executed
+call   15 returned 100%
+       2*:  295: else if(path_id(path,"/api/reservations/","/approve",&target)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_approval(d,&u,target,1,key2);}
+call    0 returned 100%
+branch  1 taken 50% (fallthrough)
+branch  2 taken 50%
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+call    5 never executed
+call    6 returned 100%
+call    7 returned 100%
+branch  8 taken 0% (fallthrough)
+branch  9 taken 100%
+call   10 never executed
+call   11 returned 100%
+       1*:  296: else if(path_id(path,"/api/reservations/","/reject",&target)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);const char *key2=jstr(body,"request_id");if(!uuid_valid(key2))return invalid();return reservation_approval(d,&u,target,0,key2);}
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
-    #####:  135: else if(path_id(path,"/api/reservations/","/checkin",&target))action="checkin";
+branch  3 taken 0% (fallthrough)
+branch  4 taken 100%
+call    5 never executed
+call    6 returned 100%
+call    7 returned 100%
+branch  8 taken 0% (fallthrough)
+branch  9 taken 100%
+call   10 never executed
+call   11 returned 100%
+    #####:  297: else if(path_id(path,"/api/waitlist/","/withdraw",&target))action="withdraw";
 call    0 never executed
 branch  1 never executed (fallthrough)
 branch  2 never executed
-    #####:  136: else if(path_id(path,"/api/waitlist/","/withdraw",&target))action="withdraw";
+    #####:  298: else return result(404,"NOT_FOUND","接口不存在",NULL);
 call    0 never executed
-branch  1 never executed (fallthrough)
-branch  2 never executed
-    #####:  137: else return result(404,"NOT_FOUND","接口不存在",NULL);
-call    0 never executed
-       6*:  138: const char *key=jstr(body,"request_id");if(!target||!uuid_valid(key))return invalid();
+       9*:  299: const char *key=jstr(body,"request_id");if(!target||!uuid_valid(key))return invalid();
 call    0 returned 100%
 branch  1 taken 100% (fallthrough)
 branch  2 taken 0%
@@ -602,59 +1299,76 @@ call    3 returned 100%
 branch  4 taken 0% (fallthrough)
 branch  5 taken 100%
 call    6 never executed
-        6:  139: return booking(d,cfg,&u,action,target,key);
+        9:  300: return booking(d,cfg,&u,action,target,body,key);
 call    0 returned 100%
-        -:  140:}
-function api called 49 returned 100% blocks executed 71%
-       49:  141:static int api(struct mg_connection *c,void *userdata){
-       49:  142: LARGE_INTEGER mfreq,mt0;QueryPerformanceFrequency(&mfreq);QueryPerformanceCounter(&mt0);
+        -:  301:}
+        -:  302:/* r17 Prometheus 抓取端点：标准文本格式 0.0.4，仅回环监听故不对外暴露。 */
+function metrics_handler called 1 returned 100% blocks executed 75%
+        1:  303:static int metrics_handler(struct mg_connection *c,void *userdata){
+        -:  304: (void)userdata;
+        1:  305: char *text=metrics_prometheus();
+call    0 returned 100%
+       1*:  306: if(!text){mg_printf(c,"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");return 200;}
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+call    2 never executed
+        1:  307: mg_printf(c,"HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",(int)strlen(text));
+call    0 returned 100%
+        1:  308: mg_write(c,text,(unsigned)strlen(text));
+call    0 returned 100%
+        1:  309: free(text);
+        1:  310: return 200;
+        -:  311:}
+function api called 110 returned 100% blocks executed 71%
+      110:  312:static int api(struct mg_connection *c,void *userdata){
+      110:  313: LARGE_INTEGER mfreq,mt0;QueryPerformanceFrequency(&mfreq);QueryPerformanceCounter(&mt0);
 call    0 returned 100%
 call    1 returned 100%
-       49:  143: const Config *cfg=userdata;const struct mg_request_info *ri=mg_get_request_info(c);Result r={0,NULL};cJSON *body=NULL;char cookie[256]={0};char *raw=NULL,*serialized=NULL;
+      110:  314: const Config *cfg=userdata;const struct mg_request_info *ri=mg_get_request_info(c);Result r={0,NULL};cJSON *body=NULL;char cookie[256]={0};char *raw=NULL,*serialized=NULL;
 call    0 returned 100%
-      49*:  144: DB *pd=db_thread_get(cfg->db_path);if(!pd){r=result(503,"DATABASE_BUSY","数据库不可用，请稍后重试",NULL);goto send;}
-call    0 returned 100%
-branch  1 taken 0% (fallthrough)
-branch  2 taken 100%
-call    3 never executed
-      49*:  145: if(!host_ok(c,cfg)){r=result(403,"FORBIDDEN","Host 不被允许",NULL);goto send;}
+     110*:  315: DB *pd=db_thread_get(cfg->db_path);if(!pd){r=result(503,"DATABASE_BUSY","数据库不可用，请稍后重试",NULL);goto send;}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
 call    3 never executed
-       49:  146: int post=!strcmp(ri->request_method,"POST");
-      49*:  147: if(!post&&strcmp(ri->request_method,"GET")){r=result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);goto send;}
-branch  0 taken 57% (fallthrough)
-branch  1 taken 43%
+     110*:  316: if(!host_ok(c,cfg)){r=result(403,"FORBIDDEN","Host 不被允许",NULL);goto send;}
+call    0 returned 100%
+branch  1 taken 0% (fallthrough)
+branch  2 taken 100%
+call    3 never executed
+      110:  317: int post=!strcmp(ri->request_method,"POST");
+     110*:  318: if(!post&&strcmp(ri->request_method,"GET")){r=result(405,"METHOD_NOT_ALLOWED","请求方法不支持",NULL);goto send;}
+branch  0 taken 55% (fallthrough)
+branch  1 taken 45%
 branch  2 taken 0% (fallthrough)
 branch  3 taken 100%
 call    4 never executed
-       49:  148: if(!post&&!strcmp(ri->local_uri,"/api/health")){cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"status","ok");cJSON_AddStringToObject(j,"version",LAB_VERSION);cJSON_AddNumberToObject(j,"uptime_s",(double)((GetTickCount64()-app_boot)/1000));r=result(200,"OK","服务运行中",j);goto send;}
-branch  0 taken 57% (fallthrough)
-branch  1 taken 43%
-branch  2 taken 7% (fallthrough)
-branch  3 taken 93%
+      110:  319: if(!post&&!strcmp(ri->local_uri,"/api/health")){cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"status","ok");cJSON_AddStringToObject(j,"version",LAB_VERSION);cJSON_AddNumberToObject(j,"uptime_s",(double)((GetTickCount64()-app_boot)/1000));r=result(200,"OK","服务运行中",j);goto send;}
+branch  0 taken 55% (fallthrough)
+branch  1 taken 45%
+branch  2 taken 3% (fallthrough)
+branch  3 taken 97%
 call    4 returned 100%
 call    5 returned 100%
 call    6 returned 100%
 call    7 returned 100%
 call    8 returned 100%
 call    9 returned 100%
-       47:  149: if(post){
-branch  0 taken 45% (fallthrough)
-branch  1 taken 55%
-      21*:  150:  if(!origin_ok(c,cfg)){r=result(403,"FORBIDDEN","来源不被允许",NULL);goto send;}
+      108:  320: if(post){
+branch  0 taken 46% (fallthrough)
+branch  1 taken 54%
+      50*:  321:  if(!origin_ok(c,cfg)){r=result(403,"FORBIDDEN","来源不被允许",NULL);goto send;}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
 call    3 never executed
-      21*:  151:  if(ri->content_length>16384){r=result(413,"TOO_LARGE","请求体过大",NULL);goto send;}
+      50*:  322:  if(ri->content_length>16384){r=result(413,"TOO_LARGE","请求体过大",NULL);goto send;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-       21:  152:  const char *ct=mg_get_header(c,"Content-Type");
+       50:  323:  const char *ct=mg_get_header(c,"Content-Type");
 call    0 returned 100%
-      21*:  153:  if(ri->content_length<=0||!ct||strncmp(ct,"application/json",16)||(ct[16]&&ct[16]!=';'&&ct[16]!=' ')){r=invalid();goto send;}
+      50*:  324:  if(ri->content_length<=0||!ct||strncmp(ct,"application/json",16)||(ct[16]&&ct[16]!=';'&&ct[16]!=' ')){r=invalid();goto send;}
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 branch  2 taken 100% (fallthrough)
@@ -668,136 +1382,171 @@ branch  9 never executed
 branch 10 never executed (fallthrough)
 branch 11 never executed
 call   12 never executed
-      21*:  154:  size_t n=(size_t)ri->content_length;raw=malloc(n+1);if(!raw){r=result(500,"INTERNAL_ERROR","内存不足",NULL);goto send;}
+      50*:  325:  size_t n=(size_t)ri->content_length;raw=malloc(n+1);if(!raw){r=result(500,"INTERNAL_ERROR","内存不足",NULL);goto send;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-      42*:  155:  size_t got=0;while(got<n){int k=mg_read(c,raw+got,n-got);if(k<=0)break;got+=(size_t)k;}raw[got]=0;
+     100*:  326:  size_t got=0;while(got<n){int k=mg_read(c,raw+got,n-got);if(k<=0)break;got+=(size_t)k;}raw[got]=0;
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
 branch  3 taken 50%
 branch  4 taken 50% (fallthrough)
-       21:  156:  const char *end=NULL;body=cJSON_ParseWithLengthOpts(raw,got+1,&end,1);
+       50:  327:  const char *end=NULL;body=cJSON_ParseWithLengthOpts(raw,got+1,&end,1);
 call    0 returned 100%
-      21*:  157:  if(got!=n||!cJSON_IsObject(body)){r=invalid();goto send;}
+      50*:  328:  if(got!=n||!cJSON_IsObject(body)){r=invalid();goto send;}
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 call    2 returned 100%
 branch  3 taken 0% (fallthrough)
 branch  4 taken 100%
 call    5 never executed
-      99*:  158:  for(cJSON *a=body->child;a;a=a->next)for(cJSON *b=a->next;b;b=b->next)if(!strcmp(a->string,b->string)){r=invalid();goto send;}
+     243*:  329:  for(cJSON *a=body->child;a;a=a->next)for(cJSON *b=a->next;b;b=b->next)if(!strcmp(a->string,b->string)){r=invalid();goto send;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
 branch  3 taken 45%
 branch  4 taken 55% (fallthrough)
-branch  5 taken 67%
-branch  6 taken 33% (fallthrough)
-        -:  159: }
-       47:  160: r=dispatch(pd,c,cfg,body,cookie);
+branch  5 taken 68%
+branch  6 taken 32% (fallthrough)
+        -:  330: }
+      108:  331: r=dispatch(pd,c,cfg,body,cookie);
 call    0 returned 100%
-      47*:  161: if(pd->error){cJSON_Delete(r.body);r=db_failure(pd);cookie[0]=0;}
+     108*:  332: if(pd->error){cJSON_Delete(r.body);r=db_failure(pd);cookie[0]=0;}
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 call    2 never executed
 call    3 never executed
-       47:  162:send:
-       49:  163: db_thread_bad(pd);if(raw){sodium_memzero(raw,strlen(raw));free(raw);}cJSON_Delete(body);
+      108:  333:send:
+      110:  334: db_thread_bad(pd);if(raw){sodium_memzero(raw,strlen(raw));free(raw);}cJSON_Delete(body);
 call    0 returned 100%
-branch  1 taken 43% (fallthrough)
-branch  2 taken 57%
+branch  1 taken 45% (fallthrough)
+branch  2 taken 55%
 call    3 returned 100%
 call    4 returned 100%
-      49*:  164: serialized=r.body?cJSON_PrintUnformatted(r.body):NULL;
+     110*:  335: serialized=r.body?cJSON_PrintUnformatted(r.body):NULL;
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
 call    2 returned 100%
-      49*:  165: if(!serialized){r.status=500;cookie[0]=0;}
+     110*:  336: if(!serialized){r.status=500;cookie[0]=0;}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
-      49*:  166: const char *out=serialized?serialized:"{\"code\":\"INTERNAL_ERROR\",\"message\":\"Memory error\",\"data\":{}}";
+     110*:  337: const char *out=serialized?serialized:"{\"code\":\"INTERNAL_ERROR\",\"message\":\"Memory error\",\"data\":{}}";
 branch  0 taken 100% (fallthrough)
 branch  1 taken 0%
-       49:  167: mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'self'\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
+        -:  338: /* 安全头（CSP/nosniff/XFO/Referrer-Policy）由 serve() 的 additional_header 全局下发，含静态页。 */
+      110:  339: mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
 branch  0 taken 98% (fallthrough)
 branch  1 taken 2%
 call    2 returned 100%
 call    3 returned 100%
 call    4 returned 100%
 call    5 returned 100%
-       49:  168: {LARGE_INTEGER mt1;QueryPerformanceCounter(&mt1);double ms=(double)(mt1.QuadPart-mt0.QuadPart)*1000.0/(double)mfreq.QuadPart;metrics_record_request(r.status,ms);
+      110:  340: {LARGE_INTEGER mt1;QueryPerformanceCounter(&mt1);double ms=(double)(mt1.QuadPart-mt0.QuadPart)*1000.0/(double)mfreq.QuadPart;metrics_record_request(r.status,ms);
 call    0 returned 100%
 call    1 returned 100%
-      49*:  169:  int lvl=ms>=(double)cfg->slow_ms?2:1;if(r.status>=500)lvl=3;
+     110*:  341:  int lvl=ms>=(double)cfg->slow_ms?2:1;if(r.status>=500)lvl=3;
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 branch  2 taken 0% (fallthrough)
 branch  3 taken 100%
-       49:  170:  log_write(lvl,"ACCESS %s %s %d %.1fms",ri->request_method,ri->local_uri,r.status,ms);}
+      110:  342:  log_write(lvl,"ACCESS %s %s %d %.1fms",ri->request_method,ri->local_uri,r.status,ms);}
 call    0 returned 100%
-       49:  171: return 1;
-        -:  172:}
-        -:  173:/* 后台扫描：定期释放超过签到时限仍未签到的预约，并按 FIFO 补位。 */
-function sweeper called 1 returned 0% blocks executed 71%
-        1:  174:static void *sweeper(void *arg){
-        1:  175: const Config *cfg=arg;int waited=0;
-        8:  176: while(!stopping){
+      110:  343: return 1;
+        -:  344:}
+        -:  345:/* 后台扫描：定期释放超过签到时限仍未签到的预约并按 FIFO 补位；顺带发送开场提醒。 */
+function sweeper called 1 returned 0% blocks executed 62%
+        1:  346:static void *sweeper(void *arg){
+        1:  347: const Config *cfg=arg;int waited=0;
+       13:  348: while(!stopping){
 branch  0 taken 100%
 branch  1 taken 0% (fallthrough)
-        8:  177:  Sleep(200);waited+=200;
-call    0 returned 88%
-       7*:  178:  if(waited>=cfg->sweep_interval*1000){waited=0;sweep_once(cfg);}
+       13:  349:  Sleep(200);waited+=200;
+call    0 returned 92%
+      12*:  350:  if(waited>=cfg->sweep_interval*1000){waited=0;sweep_once(cfg);remind_once(cfg);}
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
 call    2 never executed
-        -:  179: }
-    #####:  180: return NULL;
-        -:  181:}
-function sweep_start called 1 returned 100% blocks executed 75%
-        1:  182:void sweep_start(const Config *config){
-       1*:  183: if(config->sweep_interval<=0)return;
+call    3 never executed
+        -:  351: }
+    #####:  352: return NULL;
+        -:  353:}
+        -:  354:/* 后台备份：每 backup_interval 秒对库做在线快照并轮转保留最近 7 份。 */
+function backupper called 1 returned 100% blocks executed 23%
+        1:  355:static void *backupper(void *arg){
+        1:  356: const Config *cfg=arg;int waited=0;
+       1*:  357: if(!cfg->backup_dest||cfg->backup_interval<=0)return NULL;
 branch  0 taken 0% (fallthrough)
 branch  1 taken 100%
-        1:  184: mg_start_thread(sweeper,(void*)config);
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####:  358: while(!stopping){
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:  359:  Sleep(200);waited+=200;
+call    0 never executed
+    #####:  360:  if(waited>=cfg->backup_interval*1000){waited=0;
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  361:   if(backup_rotate(cfg->db_path,cfg->backup_dest,7))log_write(1,"BACKUP rotated ok");
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed
+call    3 never executed
+    #####:  362:   else log_write(3,"BACKUP failed");
+call    0 never executed
+        -:  363:  }
+        -:  364: }
+    #####:  365: return NULL;
+        -:  366:}
+function sweep_start called 1 returned 100% blocks executed 80%
+        1:  367:void sweep_start(const Config *config){
+       1*:  368: if(config->sweep_interval<=0)return;
+branch  0 taken 0% (fallthrough)
+branch  1 taken 100%
+        1:  369: mg_start_thread(sweeper,(void*)config);
 call    0 returned 100%
-        -:  185:}
-function serve called 1 returned 100% blocks executed 85%
-        1:  186:int serve(const Config *cfg){
-        1:  187: char port[48];snprintf(port,sizeof port,"127.0.0.1:%d",cfg->port);
-        1:  188: const char *opts[]={"listening_ports",port,"document_root",cfg->web_path,"num_threads","8","enable_directory_listing","no","request_timeout_ms","5000","enable_keep_alive","no",NULL};
-        1:  189: struct mg_callbacks callbacks;memset(&callbacks,0,sizeof callbacks);mg_init_library(0);
+        1:  370: mg_start_thread(backupper,(void*)config);
 call    0 returned 100%
-        1:  190: rl_configure(cfg);log_init("data/logs/app.log",5*1024*1024);app_boot=GetTickCount64();
+        -:  371:}
+function serve called 1 returned 100% blocks executed 86%
+        1:  372:int serve(const Config *cfg){
+        1:  373: char port[48];snprintf(port,sizeof port,"127.0.0.1:%d",cfg->port);
+        1:  374: const char *opts[]={"listening_ports",port,"document_root",cfg->web_path,"num_threads","8","enable_directory_listing","no","request_timeout_ms","5000","enable_keep_alive","yes","keep_alive_timeout_ms","15000",
+        -:  375:  "static_file_cache_control","no-cache",
+        -:  376:  "additional_header","Content-Security-Policy: default-src 'self'\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer",NULL};
+        1:  377: struct mg_callbacks callbacks;memset(&callbacks,0,sizeof callbacks);mg_init_library(0);
+call    0 returned 100%
+        1:  378: rl_configure(cfg);log_init("data/logs/app.log",5*1024*1024);app_boot=GetTickCount64();
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
-        1:  191: rl_configure(cfg);
+        1:  379: rl_configure(cfg);
 call    0 returned 100%
-       1*:  192: struct mg_context *ctx=mg_start(&callbacks,NULL,opts);if(!ctx){fprintf(stderr,"HTTP server startup failed. Check port and web directory.\n");mg_exit_library();return 1;}
+       1*:  380: struct mg_context *ctx=mg_start(&callbacks,NULL,opts);if(!ctx){fprintf(stderr,"HTTP server startup failed. Check port and web directory.\n");mg_exit_library();return 1;}
 call    0 returned 100%
 branch  1 taken 0% (fallthrough)
 branch  2 taken 100%
 call    3 never executed
 call    4 never executed
 call    5 never executed
-        1:  193: mg_set_request_handler(ctx,"/api",api,(void*)cfg);signal(SIGINT,on_stop);signal(SIGTERM,on_stop);signal(SIGBREAK,on_stop); /* CTRL_BREAK 用于优雅停机（覆盖率数据落盘依赖正常退出） */
+        1:  381: mg_set_request_handler(ctx,"/api",api,(void*)cfg);mg_set_request_handler(ctx,"/metrics",metrics_handler,NULL);signal(SIGINT,on_stop);signal(SIGTERM,on_stop);signal(SIGBREAK,on_stop); /* CTRL_BREAK 用于优雅停机（覆盖率数据落盘依赖正常退出） */
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
 call    3 returned 100%
-        1:  194: sweep_start(cfg);
+call    4 returned 100%
+        1:  382: sweep_start(cfg);
 call    0 returned 100%
-        1:  195: printf("Lab Booking ready: http://127.0.0.1:%d\n",cfg->port);fflush(stdout);
+        1:  383: printf("Lab Booking ready: http://127.0.0.1:%d\n",cfg->port);fflush(stdout);
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
-       16:  196: while(!stopping)Sleep(100);
+       26:  384: while(!stopping)Sleep(100);
 call    0 returned 100%
-branch  1 taken 94%
-branch  2 taken 6% (fallthrough)
-        1:  197: mg_stop(ctx);mg_exit_library();return 0;
+branch  1 taken 96%
+branch  2 taken 4% (fallthrough)
+        1:  385: mg_stop(ctx);mg_exit_library();return 0;
 call    0 returned 100%
 call    1 returned 100%
-        -:  198:}
+        -:  386:}

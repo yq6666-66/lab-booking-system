@@ -64,6 +64,88 @@ def main():
     a.request("GET",f"/api/labs/{lab}/assets")
     a.request("GET","/api/admin/labs/utilization?start_date=2026-09-20&end_date=2026-09-26")
     a.request("GET","/api/admin/stats/utilization/export?start_date=2026-09-20&end_date=2026-09-26")
+    # -- r14-r25 端点走查（改期/签到签退/批量/审批/信用/令牌/维护工单/时段窗/资格/建议/日历/声明视图/用户列表） --
+    uid_of=lambda c:int(c.request("GET","/api/me")[1]["data"]["user"]["id"])
+    u1_id,u2_id,u3_id,u4_id=uid_of(u),uid_of(u2),uid_of(u3),uid_of(u4)
+    rid=lambda:str(uuid.uuid4())
+    day2="2026-09-21"
+    # 资源域：时段窗/资格/维护工单/用量
+    aid=a.post(f"/api/admin/labs/{lab}/assets",{"name":"覆盖率万用表","spec":"6 位半","total":"2"})["data"]["asset_id"]
+    a.post(f"/api/admin/assets/{aid}/windows",{"weekday_mask":127,"start_minute":480,"end_minute":1020,"request_id":rid()})
+    a.request("GET",f"/api/admin/assets/{aid}/windows")
+    a.request("GET",f"/api/admin/assets/{aid}/usage?start_date=2026-09-20&end_date=2026-09-26")
+    a.post(f"/api/admin/assets/{aid}/qualifications",{"op":"grant","user_id":str(u4_id),"note":"cov"})
+    a.request("GET",f"/api/admin/assets/{aid}/qualifications")
+    a.post(f"/api/admin/assets/{aid}/qualifications",{"op":"require","required":True,"user_id":str(u4_id)})
+    a.post(f"/api/admin/assets/{aid}/qualifications",{"op":"revoke","user_id":str(u4_id)})
+    a.post(f"/api/admin/assets/{aid}/qualifications",{"op":"require","required":False,"user_id":str(u4_id)})
+    a.post(f"/api/admin/assets/{aid}/maintenance",{"op":"open","reason":"cov","request_id":rid()})
+    a.request("GET",f"/api/admin/assets/{aid}/maintenance")
+    a.post(f"/api/admin/assets/{aid}/maintenance",{"op":"close","request_id":rid()})
+    # 审批流：PENDING → 批准/拒绝
+    alab=a.post("/api/admin/labs",{"name":f"覆盖率审批{uuid.uuid4().hex[:6]}","location":"实验楼","description":"cov","require_approval":True})["data"]["lab_id"]
+    a.post("/api/admin/slots/publish",{"lab_id":alab,"start_date":day2,"end_date":day2,"capacity":"3"})
+    aslots=a.request("GET",f"/api/slots?lab_id={alab}&date={day2}")[1]["data"]["slots"]
+    if aslots:
+        aslot=aslots[0]["id"]
+        st,_=u.request("POST","/api/reservations",{"slot_id":aslot,"request_id":rid()})
+        st,_=u2.request("POST","/api/reservations",{"slot_id":aslot,"request_id":rid()})
+        a.request("GET","/api/admin/records?status=PENDING&page=1&page_size=10")
+        pr=u.request("GET","/api/me/records?page=1&page_size=5")[1]["data"]["reservations"]
+        pend=[x for x in pr if x.get("status")=="PENDING"]
+        if pend:
+            a.post(f"/api/reservations/{pend[0]['id']}/approve",{"request_id":rid()})
+        pend2=u2.request("GET","/api/me/records?page=1&page_size=5")[1]["data"]["reservations"]
+        pend2=[x for x in pend2 if x.get("status")=="PENDING"]
+        if pend2:
+            a.post(f"/api/reservations/{pend2[0]['id']}/reject",{"request_id":rid()})
+    # HELD 确认：直插一条未过期的 HELD 再走 confirm 分支
+    with _sq.connect("artifacts/coverage-run/cov.db") as conn:
+        fslot=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at>strftime('%s','now') ORDER BY start_at LIMIT 1",(int(lab),)).fetchone()
+        if fslot:
+            conn.execute("INSERT INTO reservations(user_id,slot_id,status,source,created_at,hold_deadline) VALUES(?,?,'HELD','WAITLIST',strftime('%s','now'),strftime('%s','now')+3600)",(u3_id,int(fslot[0]),))
+        hid=conn.execute("SELECT id FROM reservations WHERE user_id=? AND status='HELD' ORDER BY id DESC LIMIT 1",(u3_id,)).fetchone()
+    if hid:
+        u3.request("POST",f"/api/reservations/{hid[0]}/confirm",{"request_id":rid()})
+    # 改期 / 签到 / 签退 / 批量连场
+    recs3=u3.request("GET","/api/me/records?page=1&page_size=10")[1]["data"]["reservations"]
+    conf=[x for x in recs3 if x.get("status")=="CONFIRMED"]
+    if len(slots)>1 and conf:
+        u3.request("POST",f"/api/reservations/{conf[0]['id']}/reschedule",{"slot_id":slots[1]["id"],"request_id":rid()})
+    mine=u4.request("GET","/api/me/records?page=1&page_size=10")[1]["data"]["reservations"]
+    mine_c=[x for x in mine if x.get("status")=="CONFIRMED"]
+    if mine_c:
+        with _sq.connect("artifacts/coverage-run/cov.db") as conn:
+            conn.execute("UPDATE slots SET start_at=strftime('%s','now')-30,end_at=strftime('%s','now')+3570 WHERE id=?",(int(mine_c[0]["slot_id"]),))
+        st,_=u4.request("POST",f"/api/reservations/{mine_c[0]['id']}/checkin",{"request_id":rid()})
+        u4.request("POST",f"/api/reservations/{mine_c[0]['id']}/checkout",{"request_id":rid()})
+    bslots=a.request("GET",f"/api/slots?lab_id={lab}&date=2026-09-25")[1]["data"]["slots"]
+    if len(bslots)>=2:
+        u4.request("POST","/api/reservations/batch",{"slot_ids":[str(bslots[0]["id"]),str(bslots[1]["id"])],"request_id":rid()})
+    # 信用 / 令牌 / 建议 / 日历 / 声明视图 / 用户列表
+    u.request("GET","/api/me/credits?page=1&page_size=10")
+    a.post(f"/api/admin/users/{u4_id}/credit",{"delta":"1","request_id":rid()})
+    tk=u.post("/api/me/tokens",{"name":"cov-token","request_id":rid()}).get("data",{}).get("token")
+    u.request("GET","/api/me/tokens")
+    if tk:
+        u.request("GET","/api/me",headers={"X-API-Token":tk})
+        tid=u.request("GET","/api/me/tokens")[1]["data"]["tokens"][0]["id"]
+        u.post(f"/api/me/tokens/{tid}/revoke",{"request_id":rid()})
+    u2.request("GET",f"/api/suggestions?lab_id={lab}&date=2026-09-20")
+    u.request("GET","/api/me/calendar/export")
+    u.request("GET","/api/me/calendar.ics")
+    a.request("GET","/api/admin/asset-claims?start_date=2026-09-20&end_date=2026-09-26")
+    a.request("GET","/api/admin/asset-claims/export?start_date=2026-09-20&end_date=2026-09-26")
+    a.request("GET","/api/admin/users?page=1&page_size=5&q=user")
+    import http.client as _hc  # /metrics 返回 Prometheus 纯文本，不走 JSON 客户端
+    _c=_hc.HTTPConnection("127.0.0.1",port,timeout=5)
+    _c.request("GET","/metrics");_r=_c.getresponse();_r.read();_c.close()
+    # CLI 分支（--check/--backup）走 main.c；用同一 cov 二进制保证 gcda 归属
+    import os as _os, subprocess as _sp2
+    _exe="build/lab-booking-cov.exe" if __import__("pathlib").Path("build/lab-booking-cov.exe").exists() else "build/lab-booking.exe"
+    _env2=dict(_os.environ); _env2["LAB_SEED_PASSWORD"]=PASSWORD
+    _sp2.run([_exe,"--db","artifacts/coverage-run/cov.db","--check"],env=_env2,capture_output=True,timeout=60)
+    _sp2.run([_exe,"--db","artifacts/coverage-run/cov.db","--backup","artifacts/coverage-run/cov-backup.db"],env=_env2,capture_output=True,timeout=60)
     a.post("/api/logout",{});u.post("/api/logout",{});u2.post("/api/logout",{})
     print("exercise 完成：全部接口路径已走遍")
 

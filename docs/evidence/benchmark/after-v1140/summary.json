@@ -1,0 +1,98 @@
+{
+  "timestamp_utc": "2026-09-15T20:31:47.210639+00:00",
+  "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
+  "clients": [
+    10,
+    20
+  ],
+  "requests_per_client_e1": 20,
+  "rounds_e2": 16,
+  "available_slots": 336,
+  "raw_evidence_directory": "C:\\Users\\admin\\Desktop\\毕业设计\\artifacts\\benchmark-runs\\bench-dne2sgys",
+  "rows": [
+    {
+      "experiment": "E1",
+      "scenario": "read",
+      "concurrency": 10,
+      "rounds": 20,
+      "requests": 200,
+      "throughput_rps": 1355.488,
+      "p50_ms": 4.608,
+      "p95_ms": 12.694,
+      "p99_ms": 23.317,
+      "count_200": 200,
+      "count_409": 0,
+      "count_503": 0
+    },
+    {
+      "experiment": "E1",
+      "scenario": "read",
+      "concurrency": 20,
+      "rounds": 20,
+      "requests": 400,
+      "throughput_rps": 1947.782,
+      "p50_ms": 8.247,
+      "p95_ms": 11.664,
+      "p99_ms": 13.869,
+      "count_200": 400,
+      "count_409": 0,
+      "count_503": 0
+    },
+    {
+      "experiment": "E2",
+      "scenario": "same-slot",
+      "concurrency": 10,
+      "rounds": 16,
+      "requests": 160,
+      "throughput_rps": 141.76,
+      "p50_ms": 18.715,
+      "p95_ms": 150.903,
+      "p99_ms": 624.104,
+      "count_200": 16,
+      "count_409": 144,
+      "count_503": 0
+    },
+    {
+      "experiment": "E2",
+      "scenario": "diff-slot",
+      "concurrency": 10,
+      "rounds": 16,
+      "requests": 160,
+      "throughput_rps": 138.472,
+      "p50_ms": 15.905,
+      "p95_ms": 92.358,
+      "p99_ms": 727.719,
+      "count_200": 160,
+      "count_409": 0,
+      "count_503": 0
+    },
+    {
+      "experiment": "E2",
+      "scenario": "same-slot",
+      "concurrency": 20,
+      "rounds": 16,
+      "requests": 320,
+      "throughput_rps": 202.969,
+      "p50_ms": 51.809,
+      "p95_ms": 87.089,
+      "p99_ms": 1136.81,
+      "count_200": 16,
+      "count_409": 304,
+      "count_503": 0
+    },
+    {
+      "experiment": "E2",
+      "scenario": "diff-slot",
+      "concurrency": 20,
+      "rounds": 16,
+      "requests": 320,
+      "throughput_rps": 209.017,
+      "p50_ms": 37.488,
+      "p95_ms": 82.868,
+      "p99_ms": 771.367,
+      "count_200": 320,
+      "count_409": 0,
+      "count_503": 0
+    }
+  ]
+}
