@@ -1,7 +1,7 @@
         -:    0:Source:C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/stdlib.h
         -:    0:Graph:C:\Users\admin\Desktop\毕业设计\build\cov_cJSON.gcno
         -:    0:Data:C:\Users\admin\Desktop\毕业设计\build\cov_cJSON.gcda
-        -:    0:Runs:3
+        -:    0:Runs:7
         -:    1:/**
         -:    2: * This file has no copyright assigned and is placed in the Public Domain.
         -:    3: * This file is part of the mingw-w64 runtime package.
@@ -371,11 +371,11 @@
         -:  367:
         -:  368:#if defined(__USE_MINGW_STRTOX)
         -:  369:__mingw_ovr
-function strtod called 6 returned 100% blocks executed 100%
-        6:  370:double __cdecl __MINGW_NOTHROW strtod(const char * __restrict__ _Str,char ** __restrict__ _EndPtr)
+function strtod called 9 returned 100% blocks executed 100%
+        9:  370:double __cdecl __MINGW_NOTHROW strtod(const char * __restrict__ _Str,char ** __restrict__ _EndPtr)
         -:  371:{
         -:  372:  double __cdecl __mingw_strtod (const char * __restrict__, char ** __restrict__);
-        6:  373:  return __mingw_strtod( _Str, _EndPtr);
+        9:  373:  return __mingw_strtod( _Str, _EndPtr);
 call    0 returned 100%
         -:  374:}
         -:  375:

@@ -1,8 +1,8 @@
 ﻿File 'vendor/civetweb/src/civetweb.c'
-Lines executed:28.18% of 5227
-Branches executed:32.44% of 3625
-Taken at least once:19.48% of 3625
-Calls executed:24.09% of 1403
+Lines executed:28.41% of 5227
+Branches executed:32.83% of 3625
+Taken at least once:19.78% of 3625
+Calls executed:24.16% of 1403
 Creating 'civetweb.c.gcov'
 
 File 'C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/pthread_time.h'
@@ -58,11 +58,11 @@ No branches
 Calls executed:100.00% of 1
 Creating 'stdlib.h.gcov'
 
-Lines executed:24.56% of 6026
+Lines executed:24.76% of 6026
 File 'vendor/cjson/cJSON.c'
-Lines executed:44.59% of 1404
+Lines executed:45.09% of 1404
 Branches executed:59.49% of 938
-Taken at least once:35.71% of 938
+Taken at least once:36.25% of 938
 Calls executed:45.16% of 217
 Creating 'cJSON.c.gcov'
 
@@ -72,23 +72,23 @@ No branches
 Calls executed:100.00% of 1
 Creating 'stdlib.h.gcov'
 
-Lines executed:44.67% of 1406
+Lines executed:45.16% of 1406
 File 'src/db.c'
-Lines executed:86.57% of 201
-Branches executed:85.62% of 306
-Taken at least once:59.15% of 306
-Calls executed:71.36% of 199
+Lines executed:86.55% of 275
+Branches executed:86.27% of 408
+Taken at least once:56.86% of 408
+Calls executed:77.20% of 250
 Creating 'db.c.gcov'
 
-Lines executed:86.57% of 201
+Lines executed:86.55% of 275
 File 'src/http.c'
-Lines executed:90.95% of 243
-Branches executed:84.90% of 490
-Taken at least once:54.90% of 490
-Calls executed:69.17% of 373
+Lines executed:89.17% of 314
+Branches executed:86.24% of 654
+Taken at least once:56.57% of 654
+Calls executed:69.96% of 486
 Creating 'http.c.gcov'
 
-Lines executed:90.95% of 243
+Lines executed:89.17% of 314
 File 'src/log.c'
 Lines executed:84.62% of 26
 Branches executed:100.00% of 22
@@ -98,17 +98,17 @@ Creating 'log.c.gcov'
 
 Lines executed:84.62% of 26
 File 'src/main.c'
-Lines executed:98.57% of 70
-Branches executed:65.09% of 212
-Taken at least once:42.45% of 212
-Calls executed:41.86% of 86
+Lines executed:83.53% of 85
+Branches executed:50.72% of 276
+Taken at least once:34.06% of 276
+Calls executed:31.36% of 118
 Creating 'main.c.gcov'
 
-Lines executed:98.57% of 70
+Lines executed:83.53% of 85
 File 'src/metrics.c'
-Lines executed:93.10% of 29
-Branches executed:92.86% of 28
-Taken at least once:60.71% of 28
+Lines executed:95.24% of 42
+Branches executed:85.71% of 42
+Taken at least once:57.14% of 42
 Calls executed:85.71% of 21
 Creating 'metrics.c.gcov'
 
@@ -118,7 +118,7 @@ No branches
 No calls
 Creating 'intrin-impl.h.gcov'
 
-Lines executed:93.75% of 32
+Lines executed:95.56% of 45
 File 'src/ratelimit.c'
 Lines executed:86.76% of 68
 Branches executed:93.33% of 60
@@ -128,18 +128,18 @@ Creating 'ratelimit.c.gcov'
 
 Lines executed:86.76% of 68
 File 'src/service.c'
-Lines executed:83.84% of 557
-Branches executed:80.62% of 712
-Taken at least once:48.88% of 712
-Calls executed:63.05% of 682
+Lines executed:82.95% of 1220
+Branches executed:81.49% of 1480
+Taken at least once:47.03% of 1480
+Calls executed:62.33% of 1383
 Creating 'service.c.gcov'
 
-Lines executed:83.84% of 557
+Lines executed:82.95% of 1220
 File 'vendor/sqlite/sqlite3.c'
-Lines executed:43.15% of 49552
-Branches executed:47.75% of 33349
-Taken at least once:32.26% of 33349
-Calls executed:34.42% of 13162
+Lines executed:45.23% of 49552
+Branches executed:50.07% of 33349
+Taken at least once:34.28% of 33349
+Calls executed:36.79% of 13162
 Creating 'sqlite3.c.gcov'
 
 File 'C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/psdk_inc/intrin-impl.h'
@@ -148,7 +148,7 @@ No branches
 No calls
 Creating 'intrin-impl.h.gcov'
 
-Lines executed:43.16% of 49553
+Lines executed:45.23% of 49553
 File 'tests/unit.c'
 Lines executed:100.00% of 460
 Branches executed:100.00% of 290
@@ -158,11 +158,11 @@ Creating 'unit.c.gcov'
 
 Lines executed:100.00% of 460
 File 'src/util.c'
-Lines executed:98.00% of 50
-Branches executed:88.46% of 156
-Taken at least once:79.49% of 156
-Calls executed:89.47% of 19
+Lines executed:98.08% of 52
+Branches executed:88.75% of 160
+Taken at least once:78.75% of 160
+Calls executed:90.00% of 20
 Creating 'util.c.gcov'
 
-Lines executed:98.00% of 50
+Lines executed:98.08% of 52
 

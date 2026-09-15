@@ -1,7 +1,7 @@
         -:    0:Source:C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/pthread_time.h
         -:    0:Graph:C:\Users\admin\Desktop\毕业设计\build\cov_civetweb.gcno
         -:    0:Data:C:\Users\admin\Desktop\毕业设计\build\cov_civetweb.gcda
-        -:    0:Runs:3
+        -:    0:Runs:7
         -:    1:/*
         -:    2:   Copyright (c) 2011-2016  mingw-w64 project
         -:    3:
@@ -118,7 +118,7 @@
         -:  114:#if WINPTHREADS_TIME_BITS == 32
         -:  115:  return clock_gettime32 (clock_id, (struct _timespec32 *)tp);
         -:  116:#else
-      220:  117:  return clock_gettime64 (clock_id, (struct _timespec64 *)tp);
+      607:  117:  return clock_gettime64 (clock_id, (struct _timespec64 *)tp);
 call    0 returned 100%
 call    1 returned 100%
 call    2 returned 100%
