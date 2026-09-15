@@ -1,12 +1,15 @@
 {
-  "timestamp_utc": "2026-09-15T15:01:37.653160+00:00",
+  "timestamp_utc": "2026-09-15T18:22:16.463121+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
-  "endpoints_total": 47,
-  "endpoints_passed": 47,
+  "endpoints_total": 48,
+  "endpoints_passed": 48,
   "error_cases_total": 14,
   "error_cases_passed": 14,
   "all_passed": true,
-  "contract_drift": [],
+  "contract_drift": [
+    "GET /api/admin/records?date={today}&page=1&page_size=5.data.reservations[]: 实现多返回契约未记录的字段 ['hold_deadline']",
+    "GET /api/me/records?page=1&page_size=5.data.reservations[]: 实现多返回契约未记录的字段 ['hold_deadline']"
+  ],
   "results": [
     {
       "name": "GET /api/health",
@@ -39,6 +42,11 @@
       "detail": "data 字段 ['checkin_window', 'slots']"
     },
     {
+      "name": "GET /api/suggestions?lab_id={lid}&date={today}",
+      "passed": true,
+      "detail": "data 字段 ['suggestions']"
+    },
+    {
       "name": "GET /api/me/records?page=1&page_size=5",
       "passed": true,
       "detail": "data 字段 ['events', 'has_more', 'page', 'page_size', 'reservations', 'waitlist']"
@@ -61,7 +69,7 @@
     {
       "name": "POST /api/me/password",
       "passed": true,
-      "detail": "data 字段 ['revoked_sessions']"
+      "detail": "data 字段 ['revoked_sessions', 'revoked_tokens']"
     },
     {
       "name": "POST /api/reservations",

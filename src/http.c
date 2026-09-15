@@ -191,6 +191,11 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
     "iiiiii",u.id,u.id,u.id,lab,start,start+86400));
    cJSON_AddNumberToObject(j,"checkin_window",(double)cfg->checkin_window);return result(200,"OK","查询成功",j);
   }
+  if(!strcmp(path,"/api/suggestions")){ /* r25 创新方向 1：约束感知替代建议（只读） */
+   char a[40],dt[32];Id lab=0;query(ri,"lab_id",a,sizeof a);query(ri,"date",dt,sizeof dt);Id start=date_start(dt);
+   if(!parse_id(a,&lab)||start<0)return invalid();
+   return suggestion_list(d,&u,cfg,lab,start);
+  }
   if(!strcmp(path,"/api/me/records")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char st[24]={0};query(ri,"status",st,sizeof st);
    const char *status=NULL;
    if(st[0]){if(strcmp(st,"CONFIRMED")&&strcmp(st,"CANCELLED")&&strcmp(st,"NO_SHOW")&&strcmp(st,"PENDING"))return invalid();status=st;}

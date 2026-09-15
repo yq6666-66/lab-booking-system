@@ -131,6 +131,9 @@ CLAIM_ROW = {"asset_id": T_ID, "asset_name": T_STR, "claims": T_INT, "last_start
 LEDGER_ROW = {"id": T_ID, "delta": T_INT, "reason": T_STR, "reservation_id": nb(T_ID), "created_at": T_INT}
 WINDOW_ROW = {"id": T_ID, "asset_id": T_ID, "weekday_mask": T_INT, "start_minute": T_INT, "end_minute": T_INT, "reason": T_STR}
 MAINT_ROW = {"id": T_ID, "asset_id": T_ID, "started_at": T_INT, "ended_at": nb(T_INT), "reason": T_STR, "operator": nb(T_STR)}
+SUG_REASON = {"code": T_STR, "message": T_STR}
+SUG_ROW = {"slot_id": T_ID, "start_at": T_INT, "end_at": T_INT, "capacity": T_INT, "taken": T_INT, "waiting_count": T_INT,
+           "bookable": T_BOOL, "joinable": T_BOOL, "reasons": arr(SUG_REASON)}
 TOKEN_ROW = {"id": T_ID, "name": T_STR, "created_at": T_INT, "last_used_at": nb(T_INT)}
 TOTALS_OBJ = {"slots": T_INT, "confirmed": T_INT, "cancelled": T_INT, "no_show": T_INT,
               "checked_in": T_INT, "waiting": T_INT}
@@ -152,12 +155,13 @@ SCHEMAS = [
     ("POST", "/api/logout",                    "empty-or-obj"),
     ("GET",  "/api/labs",                      {"labs": arr(LAB_OBJ)}),
     ("GET",  "/api/slots?lab_id=1&date={today}", {"slots": arr(SLOT_OBJ), "checkin_window": T_INT}),
+    ("GET",  "/api/suggestions?lab_id={lid}&date={today}", {"suggestions": arr(SUG_ROW)}),
     ("GET",  "/api/me/records?page=1&page_size=5", ME_RECORDS),
     ("GET",  "/api/me/notifications?page=1&page_size=5",
              {"notifications": arr(NOTIFY_ROW), "unread_count": T_INT, **PAGED}),
     ("POST", "/api/me/notifications/read",     {"updated": T_INT}),
     ("GET",  "/api/me/sessions",               {"sessions": arr(SESSION_ROW)}),
-    ("POST", "/api/me/password",               {"revoked_sessions": T_INT}),
+    ("POST", "/api/me/password",               {"revoked_sessions": T_INT, "revoked_tokens": T_INT}),
     ("POST", "/api/reservations",              {"reservation_id": T_ID}),
     ("POST", "/api/reservations/{rid}/cancel", {"reservation_id": T_ID, "promoted_reservation_id": nb(T_ID)}),
     ("POST", "/api/waitlist",                  {"waitlist_id": T_ID}),

@@ -327,6 +327,8 @@ int db_check(DB *d){
  if(db_num(d,"SELECT count(*) FROM credit_ledger WHERE delta=0","")>0){ok=0;}
  if(db_num(d,"SELECT count(*) FROM asset_windows WHERE end_minute<=start_minute OR weekday_mask<0 OR weekday_mask>127","")>0){ok=0;}
  if(db_num(d,"SELECT count(*) FROM asset_maintenance WHERE ended_at IS NOT NULL AND ended_at<started_at","")>0){ok=0;}
+ /* r25 凭据生命周期：已停用用户不得残留任何 API 令牌（停用/改密/重置密码时同事务吊销）。 */
+ if(db_num(d,"SELECT count(*) FROM api_tokens t JOIN users u ON u.id=t.user_id WHERE u.enabled=0","")>0){ok=0;}
  if(d->error){ok=0;}
  return ok;
 }

@@ -1518,6 +1518,106 @@ def feature_checks(s):
             require(st==409 and b["code"]=="WEEKLY_QUOTA",f"改期不放水仍 409: {st} {b}")
         return {"quota_invariant":True}
     record("T67 reschedule x weekly quota invariant",t67) # -- r25/reschedule-quota
+    def t68(): # -- r25/credential-lifecycle
+        """凭据生命周期（P1-7）：停用/重置密码/改密均同事务吊销 API 令牌；令牌随后 401。结束恢复 user16 原状。"""
+        import sqlite3 as _sq
+        adm=Client(s.port).login("admin")
+        time.sleep(1.2)
+        u=Client(s.port).login("user16")
+        t1=u.post("/api/me/tokens",{"name":"r25-lifecycle","request_id":uid()})["data"]["token"]
+        st,_=Client(s.port).request("GET","/api/me",headers={"X-API-Token":t1})
+        require(st==200,f"token works before: {st}")
+        uid16=int(s.sql("SELECT id FROM users WHERE username='user16'")[0][0])
+        # ① 停用 → 令牌吊销
+        st,b=adm.request("POST",f"/api/admin/users/{uid16}/disable",{})
+        require(st==200,f"disable user16: {st} {b}")
+        require(s.sql("SELECT count(*) FROM api_tokens t JOIN users x ON x.id=t.user_id WHERE x.username='user16'")[0][0]==0,"停用后令牌清空")
+        st,_=Client(s.port).request("GET","/api/me",headers={"X-API-Token":t1})
+        require(st==401,f"token dead after disable: {st}")
+        # ② 启用并重建令牌 → 重置密码 → 令牌吊销
+        st,_=adm.request("POST",f"/api/admin/users/{uid16}/enable",{})
+        require(st==200,f"enable user16: {st}")
+        time.sleep(1.2)
+        u=Client(s.port).login("user16")
+        t2=u.post("/api/me/tokens",{"name":"r25-lifecycle-2","request_id":uid()})["data"]["token"]
+        rp=adm.post(f"/api/admin/users/{uid16}/reset-password",{})
+        newpw=rp["data"]["password"]
+        require(s.sql("SELECT count(*) FROM api_tokens t JOIN users x ON x.id=t.user_id WHERE x.username='user16'")[0][0]==0,"重置后令牌清空")
+        st,_=Client(s.port).request("GET","/api/me",headers={"X-API-Token":t2})
+        require(st==401,f"token dead after reset: {st}")
+        # ③ 改密（重置口令改回原口令）→ revoked_tokens 计数如实返回
+        time.sleep(1.2)
+        u=Client(s.port)
+        st,bb=u.request("POST","/api/login",{"username":"user16","password":newpw})
+        require(st==200,f"login with reset password: {st} {bb}")
+        u.csrf=bb["data"]["csrf_token"]
+        data=u.post("/api/me/password",{"old_password":newpw,"new_password":PASSWORD,"request_id":uid()})["data"]
+        require(data["revoked_tokens"]==0,f"无令牌时改密计数为 0: {data}")
+        time.sleep(1.2)
+        u=Client(s.port).login("user16")
+        t3=u.post("/api/me/tokens",{"name":"r25-lifecycle-3","request_id":uid()})["data"]["token"]
+        time.sleep(1.2)
+        data=u.post("/api/me/password",{"old_password":PASSWORD,"new_password":PASSWORD+"-r25","request_id":uid()})["data"]
+        require(data["revoked_tokens"]==1,f"改密吊销 1 枚令牌: {data}")
+        st,_=Client(s.port).request("GET","/api/me",headers={"X-API-Token":t3})
+        require(st==401,f"token dead after password change: {st}")
+        # 恢复 user16 口令，不影响其他用例（当前口令为 PASSWORD+"-r25"，需以它登录）
+        time.sleep(1.2)
+        u=Client(s.port)
+        st,bb=u.request("POST","/api/login",{"username":"user16","password":PASSWORD+"-r25"})
+        require(st==200,f"login with rotated password: {st} {bb}")
+        u.csrf=bb["data"]["csrf_token"]
+        u.post("/api/me/password",{"old_password":PASSWORD+"-r25","new_password":PASSWORD,"request_id":uid()})
+        require(s.sql("SELECT count(*) FROM api_tokens t JOIN users x ON x.id=t.user_id WHERE x.username='user16'")[0][0]==0,"结束态无残留令牌")
+        return {"lifecycle":True}
+    record("T68 credential lifecycle revokes api tokens",t68) # -- r25/credential-lifecycle
+    def t69(): # -- r25/suggestions
+        """约束感知建议（创新方向 1 最小版）：逐场次评估 bookable/joinable 并给出原因——
+        满员→可候补不可预约（SLOT_FULL）；配额满→不可预约但候补不受阻（BR13）；信用为零→全部阻塞。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="sugg-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"sg.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"sg.db",extra=["--quota-weekly","1"]) as sq:
+            ad=Client(sq.port).login("admin")
+            lab=ad.post("/api/admin/labs",{"name":"建议实验室"+uid()[:6],"location":"实验楼","description":"sg"})["data"]["lab_id"]
+            ru=Client(sq.port);st,b=ru.request("POST","/api/register",{"username":"sg"+uid()[:6],"password":PASSWORD})
+            require(st==200,f"register: {st} {b}")
+            ru.csrf=b["data"]["csrf_token"]
+            ruid=int(b["data"]["user"]["id"])
+            now=int(time.time())
+            base=((now+86400+28800)//86400*86400-28800)+9*3600
+            with _sq.connect(sq.db,timeout=5) as conn:
+                for k in (0,3600):
+                    conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),base+k,base+k+3600,1))
+                s1=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base)).fetchone()[0]
+                s2=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base+3600)).fetchone()[0]
+            day=time.strftime("%Y-%m-%d",time.localtime(base))
+            def sug():
+                return ru.request("GET",f"/api/suggestions?lab_id={lab}&date={day}")[1]["data"]["suggestions"]
+            # 管理员占满 s1；评估者视角：s1 满员可候补，s2 可预约
+            require(ad.request("POST","/api/reservations",{"slot_id":str(s1),"request_id":uid()})[0]==200,"admin fills s1")
+            rows={str(x["slot_id"]):x for x in sug()}
+            require(rows[str(s1)]["bookable"] is False and rows[str(s1)]["joinable"] is True,f"s1 满员可候补: {rows[str(s1)]}")
+            require(any(r["code"]=="SLOT_FULL" for r in rows[str(s1)]["reasons"]),"s1 SLOT_FULL 原因")
+            require(rows[str(s2)]["bookable"] is True and not rows[str(s2)]["reasons"],f"s2 可预约: {rows[str(s2)]}")
+            # 评估者约下 s2（配额 1 已满）：s2 出 ALREADY_RESERVED+WEekly_QUOTA；s1 候补不受配额影响
+            st,b=ru.request("POST","/api/reservations",{"slot_id":str(s2),"request_id":uid()})
+            require(st==200,f"ru books s2: {st} {b}")
+            rows={str(x["slot_id"]):x for x in sug()}
+            codes2={r["code"] for r in rows[str(s2)]["reasons"]}
+            require(rows[str(s2)]["bookable"] is False,f"s2 不可再约: {rows[str(s2)]}")
+            require("ALREADY_RESERVED" in codes2 and "WEEKLY_QUOTA" in codes2,f"s2 原因: {codes2}")
+            require(rows[str(s1)]["joinable"] is True,f"配额不阻塞候补（BR13）: {rows[str(s1)]}")
+            # 信用清零 → 全部阻塞
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("UPDATE users SET credit=0 WHERE id=?",(ruid,))
+            rows={str(x["slot_id"]):x for x in sug()}
+            require(all("CREDIT_EXHAUSTED" in {r["code"] for r in rows[k]["reasons"]} for k in (str(s1),str(s2))),"信用为零全部阻塞")
+            require(rows[str(s1)]["joinable"] is False and rows[str(s1)]["bookable"] is False,"信用为零不可候补")
+        return {"suggestions":True}
+    record("T69 constraint-aware suggestions",t69) # -- r25/suggestions
 
 
 def account_checks(s):

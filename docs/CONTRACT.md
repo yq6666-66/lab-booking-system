@@ -120,6 +120,17 @@ slots 增加 capacity 列（1..200，默认 1），schema user_version=3；v2 �
 - 规则：用户名 2..64 字节可见字符（禁空白/控制符）；密码 8..128 位；角色恒为 USER。重名 409 USERNAME_TAKEN；弱口令/非法用户名 400。
 - 防刷：全局注册桶（突发 20、每 30 秒补 1）超限 429 RATE_LIMITED。注册成功写 REGISTER 审计事件。事件仅在登录/注册路径写入，本接口无需 CSRF（会话尚未建立）。
 
+## 凭据生命周期（r25/P1-7）
+- 用户停用（admin disable）、本人改密（POST /api/me/password）、管理员重置密码（reset-password）三者均在**同一事务内** `DELETE FROM api_tokens WHERE user_id=?`：会话与 API 访问令牌同时失效；改密响应含 `revoked_tokens` 计数。
+- 令牌校验链路本身要求用户 `enabled=1`（token_auth 与 users 表 JOIN），即使令牌行残留也不可用；本节不变量进一步保证停用后无残留行（db_check 校验「已停用用户无 api_tokens」）。
+- **恢复边界（运维须知）**：`--restore` 将数据库整体回到备份时点，会重新激活备份时仍存在的 API 令牌与口令——备份之后吊销的凭据会随恢复回来。应在恢复完成后立即重置相关账号口令或手动清理 `api_tokens` 表；这是整库快照备份的固有语义，记录为已知边界而非缺陷。
+- 敏感信息：运行日志仅含事件与访问行，不含口令/令牌明文；`api_tokens` 仅存 SHA-256 哈希；备份文件为整库快照（含口令哈希），应与主库同等权限保护。
+
+## 约束感知建议（r25/创新方向 1 最小版）
+- GET /api/suggestions?lab_id=&date=（需登录，只读）：对该实验室自 date 起 7 天内启用的场次逐项返回 `{slot_id,start_at,end_at,capacity,taken,waiting_count,bookable,joinable,reasons:[{code,message}]}`。评估维度与原因码：已开始（STARTED）、已持有预约/候补（ALREADY_RESERVED）、信用为零（CREDIT_EXHAUSTED）、周配额将满（WEEKLY_QUOTA——仅阻塞预约，不阻塞候补，BR13）、提前量不足（LEAD_TIME）、时间重叠（TIME_CONFLICT）、满员（SLOT_FULL——bookable=false，joinable 仍可为 true 引导候补）。
+- 评估与真实提交之间存在竞态，结果属**建议性质**；预约提交仍由 booking() 单写者事务内全量校验兜底（语义见「语义澄清」节）。
+- 前端预约页「约束感知建议」面板消费本端点；记录接口（/api/me/records、/api/admin/records）行内新增 `hold_deadline` 字段（HELD 的确认截止，其余状态为 null），支撑状态解释 UI（HELD 倒计时确认、PENDING 提示、取消原因四分展示）。
+
 ## 语义澄清（r25 组合验证基准）
 以下五条是规则组合语义的唯一正确答案，由集成测试 T63–T67 钉死；与既有 BR 条目的单条描述冲突时以本节为准。
 

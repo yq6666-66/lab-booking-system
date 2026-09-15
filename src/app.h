@@ -7,7 +7,7 @@
 typedef sqlite3_int64 Id;
 typedef struct { sqlite3 *sql; int error; void *cache; } DB;
 typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *restore_from; const char *fault; const char *fault_request; int remind_sec; int backup_interval; int quota_weekly; int lead_time; int hold_window; int waitlist_strict; long long fake_now; } Config;
-#define LAB_VERSION "1.13.0"
+#define LAB_VERSION "1.14.0"
 typedef struct { Id id; int admin; char username[65]; char csrf[65]; } User;
 typedef struct { int status; cJSON *body; } Result;
 int db_open(DB *db,const char *path);
@@ -55,6 +55,8 @@ Result token_auth(DB *db,const char *raw,User *u);
 /* r23：信用账户 / 资源时段 / 维护工单 / 日历订阅 */
 int credit_apply(DB *db,Id user,Id delta,const char *reason,Id reservation_id);
 Result credit_history(DB *db,const User *u,int page,int size);
+/* r25 创新方向 1：约束感知替代建议（只读评估，bookable/joinable + 原因解释） */
+Result suggestion_list(DB *db,const User *u,const Config *cfg,Id lab,Id start);
 Result admin_credit_grant(DB *db,const User *actor,Id target,const cJSON *body);
 Result asset_windows_list(DB *db,Id asset);
 Result asset_window_admin(DB *db,const User *actor,Id asset,const cJSON *body);
