@@ -131,6 +131,7 @@ static Result admin(DB *d,const User *u,const char *path,const cJSON *body){
  if(path_id(path,"/api/admin/assets/","/update",&target))return asset_admin(d,u,0,target,body);
  if(path_id(path,"/api/admin/assets/","/windows",&target))return asset_window_admin(d,u,target,body);
  if(path_id(path,"/api/admin/assets/","/maintenance",&target))return asset_maintenance_admin(d,u,target,body);
+ if(path_id(path,"/api/admin/assets/","/qualifications",&target))return asset_qual_admin(d,u,target,body);
  if(path_id(path,"/api/admin/users/","/credit",&target))return admin_credit_grant(d,u,target,body);
  if(!strcmp(path,"/api/admin/notifications"))return admin_notify(d,u,body);
  if(path_id(path,"/api/admin/users/","/disable",&target))return user_admin(d,u,target,"disable");
@@ -240,6 +241,10 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   if(path_id(path,"/api/admin/assets/","/maintenance",&aid_target)){
    if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
    return asset_maintenance_list(d,aid_target);
+  }
+  if(path_id(path,"/api/admin/assets/","/qualifications",&aid_target)){
+   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   return asset_quals_list(d,aid_target);
   }
   if(path_id(path,"/api/admin/assets/","/usage",&aid_target)){
    if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);

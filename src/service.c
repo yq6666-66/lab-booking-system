@@ -241,6 +241,13 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
     if(!sv||!parse_id(sv,&aid)||aid<1){r=result(400,"INVALID_INPUT","资源编号不合法",NULL);goto save;}
     if(!db_num(d,"SELECT count(*) FROM assets WHERE id=? AND lab_id=(SELECT lab_id FROM slots WHERE id=?) AND status='AVAILABLE'","ii",aid,sid)){
      r=result(409,"STATE_CONFLICT","所声明的资源不存在、已停用或不属于该实验室",NULL);goto save;}
+    /* r24 资格授权：仅对显式开启 requires_qualification 的资源校验（默认关闭，向后兼容） */
+    if(db_num(d,"SELECT requires_qualification FROM assets WHERE id=?","i",aid)){
+     if(d->error)goto failed;
+     if(!db_num(d,"SELECT count(*) FROM qualifications WHERE user_id=? AND asset_id=? AND (expires_at IS NULL OR expires_at=0 OR expires_at>?)","iii",u->id,aid,clock_now())){
+      if(d->error)goto failed;
+      r=result(409,"QUALIFICATION_REQUIRED","你尚未获得该资源的使用资格，请联系管理员授权",NULL);goto save;}
+    }
     /* r23 资源自身可用时段：与场次时段正交，未配置时段的资源视为全天可用 */
     if(!asset_window_ok(d,aid,start_at)){
      if(d->error)goto failed;
@@ -1210,6 +1217,48 @@ Result asset_maintenance_admin(DB *d,const User *u,Id asset,const cJSON *body){
 }
 /* -- r23 跨时段连续预约：同一事务内校验全部场次，全成或全败，避免"订到一半"。
       本路径只做容量/连续性/信用校验；资源声明与审批仍走单场次路径（见 CONTRACT 说明）。 -- */
+/* -- r24 资格授权：开启 requires_qualification 的资源，声明前须持有有效资格。
+      默认不要求（既有资源 requires_qualification=0），故完全向后兼容。 -- */
+Result asset_quals_list(DB *d,Id asset){
+ cJSON *rows=db_rows(d,"SELECT q.id,q.user_id,u.username,q.granted_at,q.expires_at,q.note FROM qualifications q JOIN users u ON u.id=q.user_id WHERE q.asset_id=? ORDER BY q.id DESC","i",asset);
+ if(d->error)return db_failure(d);
+ if(!rows)rows=cJSON_CreateArray();
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"qualifications",rows);
+ return result(200,"OK","查询成功",j);
+}
+Result asset_qual_admin(DB *d,const User *actor,Id asset,const cJSON *body){
+ cJSON *ar=db_first(d,"SELECT requires_qualification FROM assets WHERE id=?","i",asset);
+ if(d->error)return db_failure(d);
+ if(!ar)return result(404,"NOT_FOUND","资源不存在",NULL);
+ cJSON_Delete(ar);
+ Id uid=0;
+ if(!parse_id(jstr(body,"user_id"),&uid))return result(400,"INVALID_INPUT","user_id 不合法",NULL);
+ const char *op=jstr(body,"op");if(!op)op="grant";
+ if(!strcmp(op,"grant")){
+  if(!db_num(d,"SELECT count(*) FROM users WHERE id=?","i",uid))return result(404,"NOT_FOUND","用户不存在",NULL);
+  if(d->error)return db_failure(d);
+  Id exp=0;cJSON *ex=cJSON_GetObjectItemCaseSensitive(body,"expires_at");
+  if(ex&&cJSON_IsNumber(ex))exp=(Id)ex->valuedouble;
+  if(!db_run(d,"INSERT INTO qualifications(user_id,asset_id,granted_at,expires_at,note) VALUES(?,?,?,?,?) ON CONFLICT(user_id,asset_id) DO UPDATE SET granted_at=excluded.granted_at,expires_at=excluded.expires_at,note=excluded.note","iiiis",uid,asset,clock_now(),exp,jstr(body,"note")?jstr(body,"note"):""))return db_failure(d);
+  event(d,actor->id,"QUAL_GRANT",asset,NULL);
+  cJSON *j=cJSON_CreateObject();jid(j,"user_id",uid);return result(200,"OK","资格已授予",j);
+ }
+ if(!strcmp(op,"require")){
+  /* r24 开关：把该资源设为"需资格"或"不需资格" */
+  cJSON *rv=cJSON_GetObjectItemCaseSensitive(body,"required");
+  int on=(rv&&cJSON_IsBool(rv))?(cJSON_IsTrue(rv)?1:0):1;
+  if(!db_run(d,"UPDATE assets SET requires_qualification=? WHERE id=?","ii",(Id)on,asset))return db_failure(d);
+  event(d,actor->id,"QUAL_REQUIRE",asset,NULL);
+  cJSON *j=cJSON_CreateObject();cJSON_AddBoolToObject(j,"requires_qualification",on);return result(200,"OK","资格要求已更新",j);
+ }
+ if(!strcmp(op,"revoke")){
+  if(!db_run(d,"DELETE FROM qualifications WHERE user_id=? AND asset_id=?","ii",uid,asset))return db_failure(d);
+  if(!sqlite3_changes(d->sql))return result(404,"NOT_FOUND","该用户没有此资源的资格",NULL);
+  event(d,actor->id,"QUAL_REVOKE",asset,NULL);
+  cJSON *j=cJSON_CreateObject();jid(j,"user_id",uid);return result(200,"OK","资格已撤销",j);
+ }
+ return result(400,"INVALID_INPUT","op 需为 grant 或 revoke",NULL);
+}
 Result reservation_batch(DB *d,const Config *cfg,const User *u,const cJSON *body,const char *key){
  (void)cfg;
  cJSON *ids=cJSON_GetObjectItemCaseSensitive(body,"slot_ids");

@@ -63,6 +63,8 @@ Result asset_maintenance_admin(DB *db,const User *actor,Id asset,const cJSON *bo
 Result calendar_ics(DB *db,const User *u);
 Result reservation_batch(DB *db,const Config *cfg,const User *u,const cJSON *body,const char *request_id);
 Result reservation_confirm(DB *db,const User *u,Id target,const char *request_id);
+Result asset_quals_list(DB *db,Id asset);
+Result asset_qual_admin(DB *db,const User *actor,Id asset,const cJSON *body);
 Result reservation_checkout(DB *db,const Config *cfg,const User *u,Id target,const char *request_id);
 Result calendar_export(DB *db,const User *u);
 Result token_create(DB *db,const User *u,const cJSON *body);
