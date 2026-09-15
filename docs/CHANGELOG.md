@@ -2,6 +2,26 @@
 
 本项目遵循语义化版本。所有重要变更记录于此。
 
+## [1.12.0] - 2026-09-16
+
+第二十一轮：候补策略与资源生命周期（优先级/抢占、信用账户、资源时段与维护工单、连续预约、日历导出）。
+
+### 新增
+- **候补优先级与抢占（BR15）**：`waitlist.priority` / `reservations.priority` 由服务端按角色校准（管理员 10、普通用户 0），候补出队按 `priority DESC,id`——高优先级内仍保持 FIFO；管理员预约遇满员时可抢占"未签到的最低优先级确认预约"，被抢占者记 `cancel_reason='PREEMPTED'`（不计爽约）、获 1 点信用补偿并收到通知（T56）。
+- **信用账户（BR16）**：`users.credit`（钳制 0..5，基准 5）+ `credit_ledger` 流水；签到 +1、爽约 -1、被抢占 +1、每周一自动回补至基准；余额为 0 时禁止新预约与候补。**预约本身不消耗信用**，故不改变既有预约行为。新增 `GET /api/me/credits` 与 `POST /api/admin/users/{id}/credit`（T55）。
+- **资源自身可用时段（BR17）**：`asset_windows` 表与 `GET/POST /api/admin/assets/{id}/windows`；未配置的资源视为全天可用（向后兼容），配置后声明该资源的场次必须落在其开放窗口内，否则 409 WINDOW_CONFLICT（T57）。
+- **资源维护工单（BR18）**：`asset_maintenance` 表与 `GET/POST /api/admin/assets/{id}/maintenance`（`op=open|close`）；开启即置资源为维修中，关闭恢复可用，重复开启 409（T58）。
+- **跨时段连续预约**：`POST /api/reservations/batch {slot_ids[]}`（1..8 个同实验室、时间连续的场次），同一事务内全成或全败，消除"订到一半"（T59）。
+- **日历导出**：`GET /api/me/calendar.ics` 输出 ICS 文本，可直接导入日历客户端（T60）。
+
+### 变更
+- schema `user_version` 3 → 4（幂等迁移：新增列/新表，并把 `reservations.cancel_reason` 的 CHECK 扩展 `PREEMPTED`）。
+- 契约端点 39 → 47；集成断言 55 → 61；`LAB_VERSION` 1.11.0 → 1.12.0。
+
+### 本轮取舍
+- **时段模板（可配置节次时长）未实现**：`slots` 的 `CHECK(end_at=start_at+3600)` 是"固定一小时场次"的核心约束，放宽须重建表并改变既有语义与断言，故保留现状。
+- 通知渠道插件化、`service.c` 领域拆分未在本轮落地。
+
 ## [1.11.0] - 2026-09-15
 
 第二十轮：管理端待审批专页签、声明占用 CSV 导出与 API 令牌只读访问。

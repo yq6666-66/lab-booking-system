@@ -174,16 +174,16 @@ static int db_migrate(DB *d){
   if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
   if(!db_run(d,"COMMIT",""))return 0;
  }
- /* r19 审批状态：reservations 的 status/reason CHECK 扩展 PENDING/REJECTED——CHECK 无法原地修改，
-    且三张表引用本表，重建须临时关断外键并逐一重建索引。以是否含 'PENDING' 判定，幂等。 */
+/* r19 审批状态 + r23 抢占态：reservations 的 status/reason CHECK 需扩展 PENDING/REJECTED/PREEMPTED——
+    CHECK 无法原地修改，且三张表引用本表，重建须临时关断外键并逐一重建索引。以是否含对应枚举字面量判定，幂等。 */
  {cJSON *rz=db_first(d,"SELECT sql FROM sqlite_master WHERE type='table' AND name='reservations'","");
   if(!rz)return d->error?0:1;
   const char *rdl=jstr(rz,"sql");
-  if(rdl&&!strstr(rdl,"'PENDING'")){
+  if(rdl&&(!strstr(rdl,"'PENDING'")||!strstr(rdl,"'PREEMPTED'"))){
    cJSON_Delete(rz);
    db_run(d,"PRAGMA foreign_keys=OFF","");
    if(!db_run(d,"BEGIN IMMEDIATE","")){return 0;}
-   db_run(d,"CREATE TABLE reservations_new(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','PENDING','CANCELLED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,checked_out_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW','REJECTED')),note TEXT);","");
+   db_run(d,"CREATE TABLE reservations_new(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','PENDING','CANCELLED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,checked_out_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW','REJECTED','PREEMPTED')),note TEXT);","");
    db_run(d,"INSERT INTO reservations_new(id,user_id,slot_id,status,source,created_at,cancelled_at,checked_in_at,checked_out_at,cancel_reason,note) SELECT id,user_id,slot_id,status,source,created_at,cancelled_at,checked_in_at,checked_out_at,cancel_reason,note FROM reservations","");
    db_run(d,"DROP TABLE reservations","");
    db_run(d,"ALTER TABLE reservations_new RENAME TO reservations","");
@@ -208,19 +208,52 @@ static int db_migrate(DB *d){
   if(!db_run(d,"COMMIT","")){cJSON_Delete(nt);return 0;}
  }
  cJSON_Delete(nt);
+ /* r23 预约优先级列：抢占判定的依据（与 waitlist.priority 同源，均由服务端按角色校准）。 */
+ if(!has_column(d,"reservations","priority")){
+  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+  db_run(d,"ALTER TABLE reservations ADD COLUMN priority INTEGER NOT NULL DEFAULT 0","");
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(!db_run(d,"COMMIT",""))return 0;
+ }
+ /* r23 信用账户列：幂等追加；历史用户按默认额度补齐，并把既有"每周配额/爽约信用"语义统一到一本账。 */
+ if(!has_column(d,"users","credit")){
+  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+  db_run(d,"ALTER TABLE users ADD COLUMN credit INTEGER NOT NULL DEFAULT 5","");
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(!db_run(d,"COMMIT",""))return 0;
+ }
+ /* r23 候补优先级列：幂等追加（旧库 waitlist 原本没有该列）。 */
+ if(!has_column(d,"waitlist","priority")){
+  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+  db_run(d,"ALTER TABLE waitlist ADD COLUMN priority INTEGER NOT NULL DEFAULT 0","");
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(!db_run(d,"COMMIT",""))return 0;
+ }
+ /* r23 候补排序索引纳入 priority。这里按"索引定义是否含 priority"判定而不是按列判定，
+    以保证新库（schema 建的兼容索引）与迁移库最终一致；且必须在 priority 列存在之后执行。 */
+ {cJSON *wi=db_first(d,"SELECT sql FROM sqlite_master WHERE type='index' AND name='wait_order'","");
+  if(!wi)return d->error?0:1;
+  const char *isql=jstr(wi,"sql");
+  if(isql&&!strstr(isql,"priority")){
+   db_run(d,"DROP INDEX IF EXISTS wait_order","");
+   db_run(d,"CREATE INDEX IF NOT EXISTS wait_order ON waitlist(slot_id,status,priority DESC,id)","");
+   if(d->error){cJSON_Delete(wi);return 0;}
+  }
+  cJSON_Delete(wi);
+ }
  return 1;
 }
 int db_init(DB *d){
  const char *schema=
  "BEGIN IMMEDIATE;"
- "CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN('USER','ADMIN')),enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)));"
+ "CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN('USER','ADMIN')),enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)),credit INTEGER NOT NULL DEFAULT 5);"
  "CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),csrf_token TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER);"
  "CREATE TABLE IF NOT EXISTS labs(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,location TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)),require_approval INTEGER NOT NULL DEFAULT 0 CHECK(require_approval IN(0,1)));"
  "CREATE TABLE IF NOT EXISTS slots(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL REFERENCES labs(id),start_at INTEGER NOT NULL,end_at INTEGER NOT NULL,enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)),capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 200),reminded_at INTEGER,UNIQUE(lab_id,start_at),CHECK(end_at=start_at+3600));"
- "CREATE TABLE IF NOT EXISTS reservations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','PENDING','CANCELLED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW','REJECTED')),note TEXT);"
+ "CREATE TABLE IF NOT EXISTS reservations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','PENDING','CANCELLED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW','REJECTED','PREEMPTED')),note TEXT,priority INTEGER NOT NULL DEFAULT 0);"
  "CREATE INDEX IF NOT EXISTS bookings_slot ON reservations(slot_id,status);"
  "CREATE INDEX IF NOT EXISTS bookings_user ON reservations(user_id,created_at);"
- "CREATE TABLE IF NOT EXISTS waitlist(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('WAITING','WITHDRAWN','PROMOTED','SKIPPED')),created_at INTEGER NOT NULL,promoted_reservation_id INTEGER REFERENCES reservations(id));"
+ "CREATE TABLE IF NOT EXISTS waitlist(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('WAITING','WITHDRAWN','PROMOTED','SKIPPED')),created_at INTEGER NOT NULL,promoted_reservation_id INTEGER REFERENCES reservations(id),priority INTEGER NOT NULL DEFAULT 0);"
  "CREATE UNIQUE INDEX IF NOT EXISTS one_waiter ON waitlist(user_id,slot_id) WHERE status='WAITING';"
  "CREATE INDEX IF NOT EXISTS wait_order ON waitlist(slot_id,status,id);"
  "CREATE TABLE IF NOT EXISTS request_receipts(user_id INTEGER NOT NULL REFERENCES users(id),request_id TEXT NOT NULL,action TEXT NOT NULL,payload_digest TEXT NOT NULL,http_status INTEGER NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(user_id,request_id));"
@@ -233,7 +266,16 @@ int db_init(DB *d){
  "CREATE TABLE IF NOT EXISTS asset_claims(reservation_id INTEGER NOT NULL REFERENCES reservations(id),asset_id INTEGER NOT NULL REFERENCES assets(id),created_at INTEGER NOT NULL,PRIMARY KEY(reservation_id,asset_id));"
  "CREATE INDEX IF NOT EXISTS claims_asset ON asset_claims(asset_id);"
  "CREATE TABLE IF NOT EXISTS api_tokens(id INTEGER PRIMARY KEY,token_hash TEXT NOT NULL UNIQUE,user_id INTEGER NOT NULL REFERENCES users(id),name TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,last_used_at INTEGER);"
- "PRAGMA user_version=3;COMMIT;";
+ /* r23 信用账户：把"每周配额"与"爽约信用"统一为一本可追溯流水。 */
+ "CREATE TABLE IF NOT EXISTS credit_ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),delta INTEGER NOT NULL,reason TEXT NOT NULL,reservation_id INTEGER,created_at INTEGER NOT NULL);"
+ "CREATE INDEX IF NOT EXISTS credit_user ON credit_ledger(user_id,id);"
+ /* r23 资源自身的可用时段（对标 working plans）：与场次时段正交，用于表达"每周三下午检修"等。 */
+ "CREATE TABLE IF NOT EXISTS asset_windows(id INTEGER PRIMARY KEY AUTOINCREMENT,asset_id INTEGER NOT NULL REFERENCES assets(id),weekday_mask INTEGER NOT NULL DEFAULT 127 CHECK(weekday_mask BETWEEN 0 AND 127),start_minute INTEGER NOT NULL CHECK(start_minute BETWEEN 0 AND 1439),end_minute INTEGER NOT NULL CHECK(end_minute BETWEEN 1 AND 1440),reason TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,CHECK(end_minute>start_minute));"
+ "CREATE INDEX IF NOT EXISTS windows_asset ON asset_windows(asset_id);"
+ /* r23 资源维护工单：设备生命周期可追溯，与 assets.status 联动。 */
+ "CREATE TABLE IF NOT EXISTS asset_maintenance(id INTEGER PRIMARY KEY AUTOINCREMENT,asset_id INTEGER NOT NULL REFERENCES assets(id),started_at INTEGER NOT NULL,ended_at INTEGER,reason TEXT NOT NULL DEFAULT '',operator_id INTEGER REFERENCES users(id));"
+ "CREATE INDEX IF NOT EXISTS maint_asset ON asset_maintenance(asset_id,ended_at);"
+ "PRAGMA user_version=4;COMMIT;";
  cJSON *wal=db_first(d,"PRAGMA journal_mode=WAL","");int ok=wal&&jstr(wal,"journal_mode")&&!strcmp(jstr(wal,"journal_mode"),"wal");cJSON_Delete(wal);if(!ok)return 0;
  int rc=sqlite3_exec(d->sql,schema,NULL,NULL,NULL);if(rc!=SQLITE_OK){d->error=rc;}
  if(d->error)return 0;
@@ -265,6 +307,11 @@ int db_check(DB *d){
  if(db_num(d,"SELECT count(*) FROM reservations WHERE status='CANCELLED' AND cancelled_at IS NOT NULL AND cancel_reason IS NULL","")>0){ok=0;}
  if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_out_at IS NOT NULL AND checked_in_at IS NULL","")>0){ok=0;}
  if(db_num(d,"SELECT count(*) FROM reservations WHERE checked_out_at IS NOT NULL AND checked_out_at<checked_in_at","")>0){ok=0;}
+ /* r23 新增不变量：候补优先级非负、信用流水无零变动、资源时段区间合法、维护工单时间有序。 */
+ if(db_num(d,"SELECT count(*) FROM waitlist WHERE priority<0","")>0){ok=0;}
+ if(db_num(d,"SELECT count(*) FROM credit_ledger WHERE delta=0","")>0){ok=0;}
+ if(db_num(d,"SELECT count(*) FROM asset_windows WHERE end_minute<=start_minute OR weekday_mask<0 OR weekday_mask>127","")>0){ok=0;}
+ if(db_num(d,"SELECT count(*) FROM asset_maintenance WHERE ended_at IS NOT NULL AND ended_at<started_at","")>0){ok=0;}
  if(d->error){ok=0;}
  return ok;
 }

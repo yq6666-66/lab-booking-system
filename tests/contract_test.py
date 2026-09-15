@@ -128,6 +128,9 @@ ASSET_OBJ = {"id": T_ID, "name": T_STR, "spec": T_STR, "total": T_INT, "status":
 UTIL_ROW = {"lab_id": T_ID, "lab_name": T_STR, "slots": T_INT, "seats": T_INT, "confirmed": T_INT, "checked_in": T_INT, "no_show": T_INT, "utilization": T_NUM, "actual_minutes": T_NUM, "seat_minutes": T_NUM, "utilization_actual": T_NUM}
 STAT_DAY = {"date": T_STR, "claims": T_INT}
 CLAIM_ROW = {"asset_id": T_ID, "asset_name": T_STR, "claims": T_INT, "last_start": T_INT}
+LEDGER_ROW = {"id": T_ID, "delta": T_INT, "reason": T_STR, "reservation_id": nb(T_ID), "created_at": T_INT}
+WINDOW_ROW = {"id": T_ID, "asset_id": T_ID, "weekday_mask": T_INT, "start_minute": T_INT, "end_minute": T_INT, "reason": T_STR}
+MAINT_ROW = {"id": T_ID, "asset_id": T_ID, "started_at": T_INT, "ended_at": nb(T_INT), "reason": T_STR, "operator": nb(T_STR)}
 TOKEN_ROW = {"id": T_ID, "name": T_STR, "created_at": T_INT, "last_used_at": nb(T_INT)}
 TOTALS_OBJ = {"slots": T_INT, "confirmed": T_INT, "cancelled": T_INT, "no_show": T_INT,
               "checked_in": T_INT, "waiting": T_INT}
@@ -180,6 +183,14 @@ SCHEMAS = [
     ("GET",  "/api/admin/asset-claims?start_date={today}&end_date={today}", {"claims": arr(CLAIM_ROW)}),
     ("GET",  "/api/admin/asset-claims/export?start_date={today}&end_date={today}", {"filename": T_STR, "content": T_STR}),
     ("GET",  "/api/admin/records?status=PENDING&page=1&page_size=5", ADMIN_RECORDS),
+    ("GET",  "/api/me/credits?page=1&page_size=5", {"ledger": arr(LEDGER_ROW), "balance": T_INT, "base": T_INT, **PAGED}),
+    ("GET",  "/api/me/calendar.ics",           {"filename": T_STR, "content": T_STR}),
+    ("POST", "/api/reservations/batch",        {"created": T_INT}),
+    ("GET",  "/api/admin/assets/{aid}/windows", {"windows": arr(WINDOW_ROW)}),
+    ("POST", "/api/admin/assets/{aid}/windows", {"window_id": T_ID}),
+    ("GET",  "/api/admin/assets/{aid}/maintenance", {"maintenance": arr(MAINT_ROW)}),
+    ("POST", "/api/admin/assets/{aid}/maintenance", {"maintenance_id": T_ID}),
+    ("POST", "/api/admin/users/{uid1}/credit",  {"granted": T_INT}),
     ("POST", "/api/admin/slots/publish",       {"created": T_INT}),
     ("POST", "/api/register",                  LOGIN_DATA),
     ("POST", "/api/me/sessions/{sid}/revoke",  "empty-or-obj"),
@@ -257,6 +268,9 @@ def run_scenarios(server):
     now = int(time.time())  # 把第二个预约所在场次推到“已开始”，使其处于可签到状态
     server.sql("UPDATE slots SET start_at=?,end_at=? WHERE id=?", (now - 1, now + 3599, slot_pairs[1][0]))
     bind["lid"] = str(server.sql("SELECT id FROM labs WHERE enabled=1 ORDER BY id LIMIT 1")[0][0])
+    bind["uid1"] = str(server.sql("SELECT id FROM users WHERE username='user01'")[0][0])
+    # 批量预约需要一个未被其它场景占用的场次：取最晚的一个空闲场次，避免与 free_slot 冲突
+    bind["batch_slot"] = str(server.sql("SELECT s.id FROM slots s WHERE s.start_at>? AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') ORDER BY s.start_at DESC LIMIT 1", (int(time.time()) + 3600,))[0][0])
     st, body = admin.request("POST", f"/api/admin/labs/{bind['lid']}/assets", {"name": "契约资源", "spec": "contract", "total": "2"})
     require(st == 200, f"准备资源失败：{st} {body}")
     bind["aid"] = body["data"]["asset_id"]
@@ -293,6 +307,14 @@ def run_scenarios(server):
         if method == "POST":
             if path_tpl == "/api/login":
                 payload = {"username": "user03", "password": PASSWORD}
+            elif path_tpl == "/api/reservations/batch":
+                payload = {"slot_ids": [bind["batch_slot"]], "request_id": uid()}
+            elif path_tpl == "/api/admin/users/{uid1}/credit":
+                payload = {"delta": "1", "request_id": uid()}
+            elif path_tpl == "/api/admin/assets/{aid}/maintenance":
+                payload = {"op": "open", "reason": "contract", "request_id": uid()}
+            elif path_tpl == "/api/admin/assets/{aid}/windows":
+                payload = {"weekday_mask": 127, "start_minute": 480, "end_minute": 720, "request_id": uid()}
             elif path_tpl == "/api/register":
                 payload = {"username": f"cts{uid()[:8]}", "password": PASSWORD}
             elif path_tpl == "/api/admin/labs":
