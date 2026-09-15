@@ -114,8 +114,9 @@ LAB_OBJ = {"id": T_ID, "name": T_STR, "location": T_STR, "description": T_STR, "
 SLOT_OBJ = {"id": T_ID, "lab_id": T_ID, "start_at": T_INT, "end_at": T_INT, "enabled": T_BOOL, "lab_enabled": T_BOOL,
             "capacity": T_INT, "confirmed_count": T_INT, "waiting_count": T_INT, "my_reservation_id": nb(T_ID),
             "my_checked_in_at": nb(T_INT), "my_waitlist_id": nb(T_ID)}
-RES_ROW = {"id": T_ID, "slot_id": T_ID, "lab_name": T_STR, "start_at": T_INT, "end_at": T_INT,
-           "status": T_STR, "source": T_STR, "cancel_reason": nb(T_STR), "checked_in_at": nb(T_INT)}
+RES_ROW = {"id": T_ID, "slot_id": T_ID, "lab_id": T_ID, "lab_name": T_STR, "start_at": T_INT, "end_at": T_INT,
+           "status": T_STR, "source": T_STR, "cancel_reason": nb(T_STR), "checked_in_at": nb(T_INT),
+           "note": nb(T_STR)}
 WAIT_ROW = {"id": T_ID, "slot_id": T_ID, "lab_name": T_STR, "start_at": T_INT, "end_at": T_INT,
             "status": T_STR, "position": nb(T_INT)}
 NOTIFY_ROW = {"id": T_ID, "kind": T_STR, "title": T_STR, "body": T_STR, "slot_id": nb(T_ID),
@@ -158,6 +159,7 @@ SCHEMAS = [
     ("POST", "/api/waitlist/{wid2}/withdraw",  {"waitlist_id": T_ID}),
     ("POST", "/api/reservations/{rid2}/checkin", {"reservation_id": T_ID, "checked_in_at": T_INT}),
     ("POST", "/api/reservations/{rid2}/checkout", {"reservation_id": T_ID, "checked_out_at": nb(T_INT)}),
+    ("POST", "/api/reservations/{rid3}/reschedule", {"reservation_id": T_ID, "new_slot_id": T_ID, "old_slot_id": T_ID, "promoted_reservation_id": nb(T_ID)}),
     ("GET",  "/api/me/calendar/export", {"filename": T_STR, "content": T_STR}),
     ("GET",  "/api/admin/records?date={today}&page=1&page_size=5", ADMIN_RECORDS),
     ("GET",  "/api/admin/stats?start_date={today}&end_date={today}", {"stats": arr(STAT_ROW), "totals": TOTALS_OBJ}),
@@ -254,12 +256,24 @@ def run_scenarios(server):
     # 单独准备一条仍处于 WAITING 的候补（上面那条会在取消时被补位），用于校验 withdraw
     st, body = a.request("POST", "/api/reservations", {"slot_id": slot_pairs[3][0], "request_id": uid()})
     require(st == 200, f"准备第三预约失败：{st} {body}")
+    bind["rid3"] = body["data"]["reservation_id"]
+    bind["slot3"] = str(slot_pairs[3][0])
+    # 改期目标：同实验室、不同场次（发布明天的场次保证存在且未开始）
+    lab3 = server.sql("SELECT lab_id FROM slots WHERE id=?", (int(bind["slot3"]),))[0][0]
+    import datetime as _dt
+    tmr = (_dt.datetime.now(_dt.timezone(_dt.timedelta(hours=8))) + _dt.timedelta(days=1)).date().isoformat()
+    admin.request("POST", "/api/admin/slots/publish", {"lab_id": str(lab3), "start_date": tmr, "end_date": tmr, "capacity": "5"})
+    alt = server.sql("SELECT id FROM slots WHERE lab_id=? AND start_at>? AND id<>? AND (SELECT count(*) FROM reservations r WHERE r.slot_id=slots.id AND r.status='CONFIRMED')=0 AND NOT EXISTS(SELECT 1 FROM reservations r2 JOIN slots s2 ON s2.id=r2.slot_id WHERE r2.user_id=(SELECT id FROM users WHERE username='user01') AND r2.status='CONFIRMED' AND slots.start_at<s2.end_at AND s2.start_at<slots.end_at) ORDER BY start_at LIMIT 1", (lab3, int(time.time()) + 3600, int(bind["slot3"])))
+    require(alt, "no reschedule target slot")
+    bind["slot_alt"] = str(alt[0][0])
     st, body = b.request("POST", "/api/waitlist", {"slot_id": slot_pairs[3][0], "request_id": uid()})
     require(st == 200, f"准备独立候补失败：{st} {body}")
     bind["wid2"] = body["data"]["waitlist_id"]
     bind["free_slot"] = next(p[0] for p in slot_pairs[2:]
-        if p[2] not in {r[0] for r in server.sql(
-            "SELECT s2.start_at FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=(SELECT id FROM users WHERE username='user01') AND r.status='CONFIRMED'")})  # r12：须与 user01 已有时段错开，否则 TIME_CONFLICT
+        if p[0] != bind.get("slot_alt") and p[2] not in {r[0] for r in server.sql(
+            "SELECT s2.start_at FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE r.user_id=(SELECT id FROM users WHERE username='user01') AND r.status='CONFIRMED'")}
+        and not server.sql("SELECT 1 FROM slots sa JOIN slots sb ON sa.start_at<sb.end_at AND sb.start_at<sa.end_at WHERE sa.id=? AND sb.id=?",(int(p[0]),int(bind.get("slot_alt",0))))  # 不得与改期目标时段重叠（user01 之后还会预约 free_slot）
+    )  # r12：须与 user01 已有时段错开，否则 TIME_CONFLICT；并避开改期目标 slot_alt 及其同时段
     sessions = a.request("GET", "/api/me/sessions")[1]["data"]["sessions"]
     bind["sid"] = sessions[0]["id"]
     bind["lab"] = lab
@@ -278,6 +292,8 @@ def run_scenarios(server):
                 payload = {"name": f"契约实验室{uid()[:6]}", "location": "实验楼", "description": "contract"}
             elif path_tpl == "/api/admin/labs/{lid}/update":
                 payload = {"name": f"契约实验室{uid()[:6]}", "location": "实验楼", "description": "contract", "enabled": True}
+            elif path_tpl == "/api/reservations/{rid3}/reschedule":
+                payload = {"slot_id": bind["slot_alt"], "request_id": uid()}
             elif path_tpl == "/api/admin/labs/{lid}/assets":
                 payload = {"name": f"契约资源{uid()[:6]}", "spec": "contract", "total": "2"}
             elif path_tpl == "/api/admin/assets/{aid}/update":

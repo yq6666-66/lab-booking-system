@@ -150,7 +150,13 @@ static int db_migrate(DB *d){
   if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
   if(!db_run(d,"COMMIT",""))return 0;
  }
- if(!has_column(d,"slots","reminded_at")){ /* v3/v4→提醒列：幂等追加 */
+ if(!has_column(d,"reservations","note")){ /* r18 预约备注列：幂等追加 */
+  if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
+  db_run(d,"ALTER TABLE reservations ADD COLUMN note TEXT","");
+  if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
+  if(!db_run(d,"COMMIT",""))return 0;
+ }
+  if(!has_column(d,"slots","reminded_at")){ /* v3/v4→提醒列：幂等追加 */
   if(!db_run(d,"BEGIN IMMEDIATE",""))return 0;
   db_run(d,"ALTER TABLE slots ADD COLUMN reminded_at INTEGER","");
   if(d->error){sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);return 0;}
@@ -180,7 +186,7 @@ int db_init(DB *d){
  "CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),csrf_token TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER);"
  "CREATE TABLE IF NOT EXISTS labs(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,location TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)));"
  "CREATE TABLE IF NOT EXISTS slots(id INTEGER PRIMARY KEY,lab_id INTEGER NOT NULL REFERENCES labs(id),start_at INTEGER NOT NULL,end_at INTEGER NOT NULL,enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN(0,1)),capacity INTEGER NOT NULL DEFAULT 1 CHECK(capacity BETWEEN 1 AND 200),reminded_at INTEGER,UNIQUE(lab_id,start_at),CHECK(end_at=start_at+3600));"
- "CREATE TABLE IF NOT EXISTS reservations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','CANCELLED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW')));"
+ "CREATE TABLE IF NOT EXISTS reservations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('CONFIRMED','CANCELLED')),source TEXT NOT NULL CHECK(source IN('DIRECT','WAITLIST')),created_at INTEGER NOT NULL,cancelled_at INTEGER,checked_in_at INTEGER,cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN('USER','NO_SHOW')),note TEXT);"
  "CREATE INDEX IF NOT EXISTS bookings_slot ON reservations(slot_id,status);"
  "CREATE INDEX IF NOT EXISTS bookings_user ON reservations(user_id,created_at);"
  "CREATE TABLE IF NOT EXISTS waitlist(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),slot_id INTEGER NOT NULL REFERENCES slots(id),status TEXT NOT NULL CHECK(status IN('WAITING','WITHDRAWN','PROMOTED','SKIPPED')),created_at INTEGER NOT NULL,promoted_reservation_id INTEGER REFERENCES reservations(id));"

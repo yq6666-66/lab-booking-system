@@ -63,8 +63,10 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
  Result r={500,NULL};cJSON *old=NULL,*row=NULL,*slot=NULL;char canonical[224],digest[65];Id sid=target;
  snprintf(canonical,sizeof canonical,"%s:%lld",action,(long long)target);
  /* r14：预约可声明所需资源，资源列表纳入请求摘要（同编号异参数仍为冲突） */
- cJSON *claim_arr=NULL;
+ cJSON *claim_arr=NULL;const char *bnote=NULL;
  if(!strcmp(action,"reserve")&&body){
+  bnote=jstr(body,"note");
+  if(bnote&&strlen(bnote)>200)return result(400,"INVALID_INPUT","备注最多 200 字符",NULL);
   cJSON *arr=cJSON_GetObjectItemCaseSensitive(body,"assets");
   if(arr&&cJSON_IsArray(arr)&&cJSON_GetArraySize(arr)){
    if(cJSON_GetArraySize(arr)>5)return result(400,"INVALID_INPUT","最多声明 5 项资源",NULL);
@@ -173,7 +175,7 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
     if(used>=total){r=result(409,"ASSET_QUOTA","该时段所声明的资源已被约满，可减少资源或改约其他时段",NULL);goto save;}
    }
   }
-  if(!db_run(d,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?,'CONFIRMED','DIRECT',?)","iii",u->id,sid,now_sec()))goto failed;
+  if(!db_run(d,"INSERT INTO reservations(user_id,slot_id,status,source,created_at,note) VALUES(?,?,'CONFIRMED','DIRECT',?,?)","iiis",u->id,sid,now_sec(),(bnote&&bnote[0])?bnote:NULL))goto failed;
   Id rid=sqlite3_last_insert_rowid(d->sql);
   if(claim_arr){
    cJSON *it2;cJSON_ArrayForEach(it2,claim_arr){
@@ -241,7 +243,7 @@ Result records(DB *d,const User *u,int all,Id date,int page,int size,const char 
  const char *where=all?"(?=0 OR (s.start_at>=? AND s.start_at<?))":"r.user_id=?";
  char sql[1900];
  Id limit=(Id)size+1,offset=(Id)(page-1)*size;int more=0;
- snprintf(sql,sizeof sql,"SELECT r.id,r.slot_id,l.name AS lab_name,u.username,s.start_at,s.end_at,r.status,r.source,r.cancel_reason,r.checked_in_at FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id JOIN users u ON u.id=r.user_id WHERE %s%s ORDER BY r.id DESC LIMIT ? OFFSET ?",
+ snprintf(sql,sizeof sql,"SELECT r.id,r.slot_id,l.id AS lab_id,l.name AS lab_name,u.username,s.start_at,s.end_at,r.status,r.source,r.cancel_reason,r.checked_in_at,r.note FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id JOIN users u ON u.id=r.user_id WHERE %s%s ORDER BY r.id DESC LIMIT ? OFFSET ?",
   where,status?" AND r.status='?'":"");
  cJSON *a=all?db_rows(d,sql,"iiiii",date,date,date+86400,limit,offset):db_rows(d,sql,"iii",u->id,limit,offset);
  if(a&&cJSON_GetArraySize(a)>size){cJSON_DeleteItemFromArray(a,(int)size);more=1;}
@@ -685,6 +687,70 @@ save:
  if(!r.body){d->error=SQLITE_NOMEM;goto failed;}
  {char *serialized=cJSON_PrintUnformatted(r.body);if(!serialized){d->error=SQLITE_NOMEM;goto failed;}
   db_run(d,"INSERT INTO request_receipts(user_id,request_id,action,payload_digest,http_status,result_json,created_at) VALUES(?,?,?,?,?,?,?)","isssisi",u->id,key,"checkout","checkout",0,serialized,now_sec());cJSON_free(serialized);}
+ if(d->error)goto failed;
+ if(!db_run(d,"COMMIT",""))goto failed;
+ cJSON_Delete(row);
+ return r;
+failed:
+ sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cJSON_Delete(row);cJSON_Delete(r.body);return db_failure(d);
+}
+/* r18 改期：同实验室、CONFIRMED、原/新场次均未开始；事务内重校新槽容量/重叠(排除自身)/提前量/资源声明配额，
+   原子更新后旧槽触发 FIFO 补位；资源声明保留（按新时段计入配额）。对标 Cal.com 预约生命周期三件套。 */
+Result reservation_reschedule(DB *d,const Config *cfg,const User *u,Id target,Id new_slot,const char *key){
+ Result r={500,NULL};cJSON *row=NULL;
+ char canonical[128],digest[65];snprintf(canonical,sizeof canonical,"reschedule:%lld:%lld",(long long)target,(long long)new_slot);hash_text(canonical,digest);
+ if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
+ row=db_first(d,"SELECT r.user_id,r.status,r.slot_id,s.start_at,s.lab_id FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE r.id=?","i",target);
+ if(d->error)goto failed;
+ if(!row){r=result(404,"NOT_FOUND","记录不存在",NULL);goto save;}
+ {Id owner=0;parse_id(jstr(row,"user_id"),&owner);
+  if(owner!=u->id){r=result(403,"FORBIDDEN","只能操作自己的记录",NULL);goto save;}}
+ if(strcmp(jstr(row,"status"),"CONFIRMED")){r=result(409,"STATE_CONFLICT","该预约当前状态不能改期",NULL);goto save;}
+ {Id old_slot=0;parse_id(jstr(row,"slot_id"),&old_slot);
+  Id old_start=(Id)cJSON_GetObjectItemCaseSensitive(row,"start_at")->valuedouble;
+  Id lab=0;parse_id(jstr(row,"lab_id"),&lab);
+  if(old_start<=now_sec()){r=result(409,"STATE_CONFLICT","场次已开始，不能再改期",NULL);goto save;}
+  if(new_slot==old_slot){r=result(409,"STATE_CONFLICT","新场次与原场次相同",NULL);goto save;}
+  cJSON *ns=db_first(d,"SELECT s.id,s.start_at,s.enabled,s.capacity,s.lab_id,l.enabled AS lab_enabled FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.id=?","i",new_slot);
+  if(d->error)goto failed;
+  if(!ns){cJSON_Delete(ns);r=result(404,"NOT_FOUND","目标场次不存在",NULL);goto save;}
+  if(!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(ns,"enabled"))||!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(ns,"lab_enabled"))){
+   cJSON_Delete(ns);r=result(409,"STATE_CONFLICT","目标场次未开放",NULL);goto save;}
+  Id ns_start=(Id)cJSON_GetObjectItemCaseSensitive(ns,"start_at")->valuedouble;
+  Id ns_lab=0;parse_id(jstr(ns,"lab_id"),&ns_lab);
+  if(ns_lab!=lab){cJSON_Delete(ns);r=result(409,"STATE_CONFLICT","改期仅限同一实验室（资源声明随场次生效）",NULL);goto save;}
+  if(ns_start<=now_sec()){cJSON_Delete(ns);r=result(409,"STATE_CONFLICT","目标场次已开始",NULL);goto save;}
+  if(cfg&&cfg->lead_time>0&&ns_start-now_sec()<(Id)cfg->lead_time){
+   cJSON_Delete(ns);r=result(409,"LEAD_TIME","距目标场次开始不足提前量",NULL);goto save;}
+  Id ns_cap=(Id)cJSON_GetObjectItemCaseSensitive(ns,"capacity")->valuedouble;
+  Id ns_taken=db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND status='CONFIRMED' AND id<>?","ii",new_slot,target);
+  if(d->error){cJSON_Delete(ns);goto failed;}
+  if(ns_taken>=ns_cap){cJSON_Delete(ns);r=slot_full(d,new_slot,"目标场次已约满，可先取消原预约再排队");goto save;}
+  {Id overlap=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id JOIN slots s ON s.id=? WHERE r.user_id=? AND r.status='CONFIRMED' AND r.id<>? AND s.start_at<s2.end_at AND s2.start_at<s.end_at","iii",new_slot,u->id,target);
+   if(d->error){cJSON_Delete(ns);goto failed;}
+   if(overlap){cJSON_Delete(ns);r=result(409,"TIME_CONFLICT","与您已预约的场次时间重叠",NULL);goto save;}}
+  /* 资源声明按新时段重校配额（声明保留，同实验室已保证资源归属成立） */
+  {cJSON *cl=db_rows(d,"SELECT c.asset_id,a.total FROM asset_claims c JOIN assets a ON a.id=c.asset_id WHERE c.reservation_id=?","i",target);
+   if(!cl){cJSON_Delete(ns);goto failed;}
+   cJSON *cit;cJSON_ArrayForEach(cit,cl){
+    Id ca=0,total=0;parse_id(jstr(cit,"asset_id"),&ca);total=(Id)cJSON_GetObjectItemCaseSensitive(cit,"total")->valuedouble;
+    Id used=db_num(d,"SELECT count(*) FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id JOIN slots s2 ON s2.id=r.slot_id WHERE c.asset_id=? AND r.status='CONFIRMED' AND r.id<>? AND s2.start_at<? AND s2.end_at>?","iii",ca,target,ns_start+3600,ns_start);
+    if(d->error){cJSON_Delete(cl);cJSON_Delete(ns);goto failed;}
+    if(used>=total){cJSON_Delete(cl);cJSON_Delete(ns);r=result(409,"ASSET_QUOTA","目标时段所声明的资源已被约满",NULL);goto save;}}
+   cJSON_Delete(cl);}
+  cJSON_Delete(ns);
+  if(!db_run(d,"UPDATE reservations SET slot_id=? WHERE id=?","ii",new_slot,target))goto failed;
+  event(d,u->id,"RESCHEDULE",target,key);
+  Id promoted=promote_fill(d,old_slot,u->id,key); /* 旧槽释放 → FIFO 补位 */
+  cJSON *j=cJSON_CreateObject();jid(j,"reservation_id",target);jid(j,"new_slot_id",new_slot);
+  jid(j,"old_slot_id",old_slot);if(promoted)jid(j,"promoted_reservation_id",promoted);else cJSON_AddNullToObject(j,"promoted_reservation_id");
+  r=result(200,"OK","改期成功",j);goto save;
+ }
+save:
+ if(d->error)goto failed;
+ if(!r.body){d->error=SQLITE_NOMEM;goto failed;}
+ {char *serialized=cJSON_PrintUnformatted(r.body);if(!serialized){d->error=SQLITE_NOMEM;goto failed;}
+  db_run(d,"INSERT INTO request_receipts(user_id,request_id,action,payload_digest,http_status,result_json,created_at) VALUES(?,?,?,?,?,?,?)","isssisi",u->id,key,"reschedule",digest,0,serialized,now_sec());cJSON_free(serialized);}
  if(d->error)goto failed;
  if(!db_run(d,"COMMIT",""))goto failed;
  cJSON_Delete(row);

@@ -469,6 +469,12 @@ def _safe_past(t):
 def bj_today():
     return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).strftime("%Y-%m-%d")
 
+def sq_slot(server, lab_id, start_at):
+    import sqlite3 as _sq
+    with _sq.connect(server.db, timeout=5) as conn:
+        row=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab_id),int(start_at))).fetchone()
+    return row[0]
+
 def feature_checks(s):
     """T16-T19：签到、签到边界、记录分页、统计导出（使用较宽的签到窗口）。"""
     admin=s.user(0); a=s.user(1); b=s.user(2)
@@ -933,6 +939,47 @@ def feature_checks(s):
         require(after==0,f"tamper gone after restore: {after}")
         return {"restore_verified":True}
     record("T49 backup restore lifecycle",t49) # -- r17/restore
+    def t50(): # -- r18/reschedule
+        """改期：同实验室原子改期+旧槽 FIFO 补位+声明按新时段重校；容量满/异实验室/幂等。"""
+        import sqlite3 as _sq
+        now=int(time.time())
+        lab=admin.post("/api/admin/labs",{"name":"改期实验室"+uid()[:6],"location":"实验楼","description":"rs"})["data"]["lab_id"]
+        d1=((now+86400+28800)//86400*86400-28800)+9*3600
+        d2=((now+2*86400+28800)//86400*86400-28800)+9*3600
+        with _sq.connect(s.db,timeout=5) as conn:
+            for sd in (d1,d2):
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),sd,sd+3600,1))
+        rs=Client(s.port);st,b=rs.request("POST","/api/register",{"username":"rs1"+uid()[:6],"password":PASSWORD});rs.csrf=b["data"]["csrf_token"]
+        st,b=rs.request("POST","/api/reservations",{"slot_id":str(sq_slot(s,lab,d1)),"note":"改期测试预约","request_id":uid()})
+        require(st==200,f"reserve: {st} {b}")
+        rid=b["data"]["reservation_id"]
+        # 备注校验：记录含备注
+        recs=rs.request("GET","/api/me/records?page=1&page_size=10")[1]["data"]["reservations"]
+        mine=[x for x in recs if str(x["id"])==str(rid)][0]
+        require(mine.get("note")=="改期测试预约",f"note persisted: {mine}")
+        # 异实验室目标 → 409
+        lab2=admin.post("/api/admin/labs",{"name":"异室实验室"+uid()[:6],"location":"实验楼","description":"x"})["data"]["lab_id"]
+        d3=((now+3*86400+28800)//86400*86400-28800)+9*3600
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab2),d3,d3+3600,1))
+        other=sq_slot(s,lab2,d3)
+        st2,b2=rs.request("POST",f"/api/reservations/{rid}/reschedule",{"slot_id":str(other),"request_id":uid()})
+        require(st2==409 and b2["code"]=="STATE_CONFLICT",f"cross-lab: {st2} {b2}")
+        # 正常改期 → 旧槽候补自动补位
+        wl=Client(s.port);st,b=wl.request("POST","/api/register",{"username":"rs2"+uid()[:6],"password":PASSWORD});wl.csrf=b["data"]["csrf_token"]
+        wl.request("POST","/api/waitlist",{"slot_id":str(sq_slot(s,lab,d1)),"request_id":uid()})
+        new_slot=sq_slot(s,lab,d2)
+        st3,b3=rs.request("POST",f"/api/reservations/{rid}/reschedule",{"slot_id":str(new_slot),"request_id":uid()})
+        require(st3==200 and str(b3["data"]["new_slot_id"])==str(new_slot),f"reschedule: {st3} {b3}")
+        promoted=b3["data"].get("promoted_reservation_id")
+        require(promoted,f"old slot promoted: {b3}")
+        # 改到容量已满的目标 → 409
+        st4,_=rs.request("POST","/api/reservations",{"slot_id":str(new_slot),"request_id":uid()})
+        require(st4==409,f"re-reserve new slot: {st4}")
+        st5,b5=Client(s.port).login("user01").request("POST",f"/api/reservations/{rid}/reschedule",{"slot_id":str(sq_slot(s,lab,d1)),"request_id":uid()})
+        require(st5==403,f"non-owner reschedule: {st5}")
+        return {"rescheduled":True,"promoted":True,"note_ok":True}
+    record("T50 reschedule flow",t50) # -- r18/reschedule
     def t39(): # -- r12/archive
         """历史归档：sweep 周期性清理 30 天前的候补与请求回执（预约记录保留）。"""
         import sqlite3 as _sq
