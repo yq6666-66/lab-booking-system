@@ -1357,7 +1357,8 @@ def feature_checks(s):
     record("T63 approval x HELD promotion bypasses approval",t63) # -- r25/approval-held
     def t64(): # -- r25/priority-fifo
         """优先级×可执行 FIFO 组合：递补按 priority DESC 扫描——高优先级管理员因时间冲突被暂跳后，
-        低优先级普通用户获补位（可执行模式继续扫描）；strict 对照下遇冲突整体停止，无人递补。"""
+        低优先级普通用户获补位（可执行模式继续扫描）；strict 对照下遇冲突整体停止，无人递补。
+        场次时间动态避开 admin/user18/user19 的既有预约（CI 与本地时区不同，固定偏移会偶发碰撞）。"""
         import tempfile, subprocess as _sp, sqlite3 as _sq
         def build(sq):
             ad=Client(sq.port).login("admin")
@@ -1366,15 +1367,18 @@ def feature_checks(s):
             lab1=ad.post("/api/admin/labs",{"name":"优先A"+tag,"location":"实验楼","description":"p"})["data"]["lab_id"]
             time.sleep(1.2)
             lab2=ad.post("/api/admin/labs",{"name":"优先B"+tag,"location":"实验楼","description":"p"})["data"]["lab_id"]
-            day=time.strftime("%Y-%m-%d",time.localtime(time.time()+3*86400))  # +3d 避开 T61 遗留在 +2d 9 点的预约
-            time.sleep(1.0)
-            ad.post("/api/admin/slots/publish",{"lab_id":str(lab1),"start_date":day,"end_date":day,"capacity":"1"})
-            time.sleep(1.0)
-            ad.post("/api/admin/slots/publish",{"lab_id":str(lab2),"start_date":day,"end_date":day,"capacity":"1"})
-            t1=sq.sql("SELECT id FROM slots WHERE lab_id=? AND enabled=1 AND start_at>? ORDER BY start_at LIMIT 1",(int(lab1),int(time.time())))[0][0]
-            peer=sq.sql("SELECT id FROM slots WHERE lab_id=? AND start_at=(SELECT start_at FROM slots WHERE id=?) AND enabled=1",(int(lab2),t1))
-            require(peer,"peer slot same time exists")
-            return ad,t1,peer[0][0]
+            base=None
+            for off in range(2,13):
+                cand=((int(time.time())+off*86400+28800)//86400*86400-28800)+9*3600
+                busy=sq.sql("SELECT count(*) FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN users u ON u.id=r.user_id WHERE u.username IN('admin','user18','user19') AND r.status IN('CONFIRMED','HELD') AND s.start_at<? AND ?<s.end_at",(cand+3600,cand))[0][0]
+                if busy==0: base=cand; break
+            require(base,"free 9am day found")
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab1),base,base+3600,1))
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab2),base,base+3600,1))
+                t1=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab1),base)).fetchone()[0]
+                t2=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab2),base)).fetchone()[0]
+            return ad,t1,t2
         ad,t1,t2=build(s)  # 可执行模式（默认）
         occ=Client(s.port).login("user18")
         rr=occ.request("POST","/api/reservations",{"slot_id":str(t1),"request_id":uid()})
@@ -1429,7 +1433,12 @@ def feature_checks(s):
         lab=adm.post("/api/admin/labs",{"name":"抢占信用实验室"+uid()[:6],"location":"实验楼","description":"pc"})["data"]["lab_id"]
         time.sleep(1.2)
         now=int(time.time())
-        base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+        base=None
+        for off in range(2,13):  # 管理员是抢占者：两天带宽都须避开其既有预约（T64 会留下 +2d 9 点）
+            cand=((now+off*86400+28800)//86400*86400-28800)+9*3600
+            busy=s.sql("SELECT count(*) FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN users u ON u.id=r.user_id WHERE u.username='admin' AND r.status IN('CONFIRMED','HELD') AND s.start_at<? AND ?<s.end_at",(cand+2*86400,cand))[0][0]
+            if busy==0: base=cand; break
+        require(base,"free two-day band found")
         with _sq.connect(s.db,timeout=5) as conn:
             conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),base,base+3600,1))
             conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),base+86400,base+86400+3600,1))
