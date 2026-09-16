@@ -131,6 +131,17 @@ slots 增加 capacity 列（1..200，默认 1），schema user_version=3；v2 �
 - 评估与真实提交之间存在竞态，结果属**建议性质**；预约提交仍由 booking() 单写者事务内全量校验兜底（语义见「语义澄清」节）。
 - 前端预约页「约束感知建议」面板消费本端点；记录接口（/api/me/records、/api/admin/records）行内新增 `hold_deadline` 字段（HELD 的确认截止，其余状态为 null），支撑状态解释 UI（HELD 倒计时确认、PENDING 提示、取消原因四分展示）。
 
+## 候补策略三档与知情候补（r26）
+- `--waitlist-strategy` 取值扩为 **strict | executable（默认）| weighted**。weighted（老化加权）按 score 降序扫描可执行候选：**score = 1000×priority + 200×(credit−5) + 60×log₂(1+等待小时数)**——等待每翻倍 +60 分；同优先级下 1 点信用差约等于 8 小时等待；管理员（10000 分）不被普通用户老化越级。老化只解决"同档饿死"，冲突暂跳语义与 executable 一致（T70）。
+- **知情候补**：GET /api/suggestions 每场次新增 `queue_ahead`（本人若入队的排位，0 = 第 1 位）与 `promote_probability`（同实验室同星期过去 35 天已开场场次中"释放名额数 ≥ 排位"的经验占比；释放 = CANCELLED(USER/NO_SHOW/REJECTED)+EXPIRED；样本 <5 场为 null）。POST /api/waitlist 成功响应同附两字段（T71）。评估为建议口径，提交仍由事务全量校验兜底。
+- GET /api/admin/fairness?days=28（1..90，默认 28）：按用户聚合 {joined,promoted,withdrawn,skipped,avg_wait_s,granted}，全站 `jain_index = (Σx)²/(n·Σx²)`（x=窗口内该用户获得预约数），附口径定义；非管理员 403（T72）。
+- `--waitlist-daily-limit N`（0..100，默认 0 不限）：每用户每北京日候补入队（含历史入队计数）达 N 后返回 409 WAITLIST_LIMIT（T73）。
+
+## 评估与工程取舍（r26 备查）
+- 三策略 × 四档负载（ρ=请求/容量，0.7/1.0/1.3/1.6 过载递增）对照实验：tests/experiment.py --matrix，指标含候补转化率、SQL 口径等待时长（转正时刻−入队时刻）、Jain 公平指数；证据 docs/evidence/experiment/strategy_matrix.{json,md}。
+- 位图冲突检测对比（tests/bitmap_bench.py，纯算法模拟口径）：48 片/天位图按位与 vs 朴素区间线扫——命中最坏场景 n=10k 时约 1845 倍；生产路径仍用 SQLite 索引区间查询，位图作为复杂度阶论证素材（docs/evidence/bitmap/）。
+- **明确不做**（评估为负收益/超范围，防后续重复评估）：①事件驱动内核/最小堆时间轮——sweeper 1 秒周期对小时级业务延迟可忽略，重写引入回归风险；②匈牙利算法全局递补匹配——单场次递补场景退化为贪心，跨场次匹配与"场次独立容量"模型冲突；③分桶锁/CAS 乐观并发——SQLite 单写者事务已保证正确性；④ncurses TUI/存储抽象层——与 B/S 一体化定位不符。
+
 ## 语义澄清（r25 组合验证基准）
 以下五条是规则组合语义的唯一正确答案，由集成测试 T63–T67 钉死；与既有 BR 条目的单条描述冲突时以本节为准。
 

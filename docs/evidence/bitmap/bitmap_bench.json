@@ -1,0 +1,76 @@
+{
+  "meta": {
+    "queries": 500,
+    "seed": 7,
+    "slice_minutes": 30,
+    "note": "纯算法模拟口径；生产路径为 SQLite 索引化区间查询"
+  },
+  "rows": [
+    {
+      "n": 100,
+      "scenario": "hit",
+      "queries": 500,
+      "naive_ms": 0.22,
+      "bitmap_ms": 0.2,
+      "speedup": 1.1,
+      "naive_hit": 500,
+      "bitmap_hit": 500,
+      "semantic_mismatch": 0
+    },
+    {
+      "n": 100,
+      "scenario": "miss_worst",
+      "queries": 500,
+      "naive_ms": 3.43,
+      "bitmap_ms": 0.3,
+      "speedup": 11.5,
+      "naive_hit": 0,
+      "bitmap_hit": 0,
+      "semantic_mismatch": 0
+    },
+    {
+      "n": 1000,
+      "scenario": "hit",
+      "queries": 500,
+      "naive_ms": 0.36,
+      "bitmap_ms": 0.29,
+      "speedup": 1.2,
+      "naive_hit": 500,
+      "bitmap_hit": 500,
+      "semantic_mismatch": 0
+    },
+    {
+      "n": 1000,
+      "scenario": "miss_worst",
+      "queries": 500,
+      "naive_ms": 31.05,
+      "bitmap_ms": 0.2,
+      "speedup": 159.1,
+      "naive_hit": 0,
+      "bitmap_hit": 0,
+      "semantic_mismatch": 0
+    },
+    {
+      "n": 10000,
+      "scenario": "hit",
+      "queries": 500,
+      "naive_ms": 0.36,
+      "bitmap_ms": 0.26,
+      "speedup": 1.4,
+      "naive_hit": 500,
+      "bitmap_hit": 500,
+      "semantic_mismatch": 0
+    },
+    {
+      "n": 10000,
+      "scenario": "miss_worst",
+      "queries": 500,
+      "naive_ms": 304.91,
+      "bitmap_ms": 0.19,
+      "speedup": 1579.0,
+      "naive_hit": 0,
+      "bitmap_hit": 0,
+      "semantic_mismatch": 0
+    }
+  ]
+}

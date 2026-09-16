@@ -1631,6 +1631,187 @@ def feature_checks(s):
             require(rows[str(s1)]["joinable"] is False and rows[str(s1)]["bookable"] is False,"信用为零不可候补")
         return {"suggestions":True}
     record("T69 constraint-aware suggestions",t69) # -- r25/suggestions
+    def t70(): # -- r26/weighted-aging
+        """老化加权候补（--waitlist-strategy weighted）：score=1000·priority+200·(credit−5)+60·log₂(1+等待/3600)。
+        ①同 credit 下等待 10h 的先入者胜过刚入队者（aging 生效）；②credit 3+等10h(≈207) 输给 credit 5 刚入队(+400)；
+        ③管理员(10000)仍压过普通用户(credit 5, 等 10h≈207)——老化只解决同档饿死，不破坏角色优先级。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="waged-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"wg.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"wg.db",extra=["--waitlist-strategy","weighted"]) as sq:
+            ad=Client(sq.port).login("admin")
+            time.sleep(1.2)
+            lab=ad.post("/api/admin/labs",{"name":"老化实验室"+uid()[:6],"location":"实验楼","description":"w"})["data"]["lab_id"]
+            now=int(time.time())
+            base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,3,NULL)",(int(lab),base,base+3600,1))
+                sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base)).fetchone()[0]
+            occ1=Client(sq.port).login("user18")
+            occ2=Client(sq.port).login("user19")
+            occ3=Client(sq.port).login("user20")
+            for oc in (occ1,occ2,occ3):
+                oc.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+            def join(cl):
+                st,b=cl.request("POST","/api/waitlist",{"slot_id":str(sid),"request_id":uid()})
+                require(st==200,f"join: {st} {b}")
+                return int(b["data"]["waitlist_id"])
+            def cancel(cl,name):
+                rid=sq.sql("SELECT id FROM reservations WHERE slot_id=? AND user_id=(SELECT id FROM users WHERE username=?) AND status IN('CONFIRMED','HELD')",(sid,name))[0][0]
+                st,b=cl.request("POST",f"/api/reservations/{rid}/cancel",{"request_id":uid()})
+                require(st==200,f"cancel {name}: {st} {b}")
+            # ①B 先入队（id 小）、A 后入队再拨 A 到 10h 前：weighted 下 A 凭 aging≈207 反超 id 序（executable 对照为 B 胜）
+            B=Client(sq.port).login("user02");A=Client(sq.port).login("user01")
+            wb=join(B);wa=join(A)
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("UPDATE waitlist SET created_at=? WHERE id=?",(now-36000,wa))
+            cancel(occ1,"user18")
+            require(sq.sql("SELECT status FROM waitlist WHERE id=?",(wa,))[0][0]=="PROMOTED","①aging：久等者先转正")
+            require(sq.sql("SELECT status FROM waitlist WHERE id=?",(wb,))[0][0]=="WAITING","①B 仍等待")
+            # ②C(credit 3, 10h → −400+207=−193) vs D(credit 5, 刚入队=0) → 同档 B/D 先于 C
+            # credit 必须在 join 之后改：入队会触发每周信用回补（本周无 WEEKLY 流水则补回 5），先改会被覆盖（T65 同源陷阱）
+            C=Client(sq.port).login("user03");D=Client(sq.port).login("user04")
+            wc=join(C);wd=join(D)
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("UPDATE users SET credit=3 WHERE username='user03'")
+                conn.execute("UPDATE users SET credit=5 WHERE username='user04'")
+                conn.execute("UPDATE waitlist SET created_at=? WHERE id=?",(now-36000,wc))
+            cancel(occ2,"user19")
+            got=sq.sql("SELECT user_id FROM waitlist WHERE slot_id=? AND status='PROMOTED' ORDER BY id DESC LIMIT 1",(sid,))[0][0]
+            require(got!=sq.sql("SELECT id FROM users WHERE username='user03'")[0][0],"②信用项压制 aging：低信用久等者不获递补")
+            require(sq.sql("SELECT status FROM waitlist WHERE id=?",(wc,))[0][0]=="WAITING","②C 仍等待")
+            # ③管理员(credit 5, 刚入队=10000) vs E(credit 5, 等 10h≈207) → 管理员胜
+            E=Client(sq.port).login("user05")
+            we=join(E)
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("UPDATE waitlist SET created_at=? WHERE id=?",(now-36000,we))
+            wm=join(ad)
+            cancel(occ3,"user20")
+            require(sq.sql("SELECT status FROM waitlist WHERE id=?",(wm,))[0][0]=="PROMOTED","③管理员候补最优先（不被 aging 越级）")
+            require(sq.sql("SELECT status FROM waitlist WHERE id=?",(we,))[0][0]=="WAITING","③普通用户未越级")
+        return {"aging":True,"credit_dominates":True,"role_priority_kept":True}
+    record("T70 weighted aging waitlist strategy",t70) # -- r26/weighted-aging
+    def t71(): # -- r26/promote-probability
+        """转正概率预测：同 (lab,星期几) 过去 28 天已开场场次中"释放数≥排位"的经验占比；
+        样本 <5 场为 null；join 响应附 queue_ahead 与概率。"""
+        import sqlite3 as _sq
+        adm=Client(s.port).login("admin")
+        time.sleep(1.2)
+        lab=adm.post("/api/admin/labs",{"name":"概率实验室"+uid()[:6],"location":"实验楼","description":"p"})["data"]["lab_id"]
+        now=int(time.time())
+        base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+        fut_wd=None
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),base,base+3600,1))
+            sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base)).fetchone()[0]
+            fut_wd=((base+28800)//86400+4)%7
+            # 造历史：过去 35 天（5 周）内同星期几的已开场场次（样本≥5）——模式 1,1,0,1,1 → 4/6 释放
+            hist=[]
+            for k in range(1,8):
+                cand=base-k*7*86400  # 同 base 的星期几，往前每 7 天
+                if cand<now-34*86400:break
+                hist.append(cand)
+            released_flags=[]
+            for i,cand in enumerate(hist):
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),cand,cand+3600,1))
+                hid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),cand)).fetchone()[0]
+                rel=1 if i%3!=2 else 0  # 模式 1,1,0,1,1,0 → 前缀释放数
+                released_flags.append(rel)
+                if rel:
+                    conn.execute("INSERT INTO reservations(user_id,slot_id,status,source,created_at,cancelled_at,cancel_reason) VALUES(2,?,'CANCELLED','DIRECT',?,?,'USER')",(hid,cand-7200,cand-3600))
+        require(len(hist)>=5,f"历史样本≥5: {len(hist)}")
+        day=time.strftime("%Y-%m-%d",time.localtime(base))
+        rows={str(x["slot_id"]):x for x in adm.request("GET",f"/api/suggestions?lab_id={lab}&date={day}")[1]["data"]["suggestions"]}
+        require("promote_probability" in rows[str(sid)],"概率字段存在")
+        # 排位 1（无人候补）：P(释放≥1)=释放场次占比
+        import math
+        p1=rows[str(sid)]["promote_probability"]
+        expect=sum(released_flags)/len(released_flags)
+        require(p1 is not None and abs(p1-expect)<1e-9,f"rank1 概率=历史释放占比: {p1} vs {expect}")
+        # join 响应带 queue_ahead=0 与同一概率
+        occ=Client(s.port).login("user18")
+        occ.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+        u=Client(s.port).login("user17")
+        st,b=u.request("POST","/api/waitlist",{"slot_id":str(sid),"request_id":uid()})
+        require(st==200,f"join: {st} {b}")
+        require(int(b["data"]["queue_ahead"])==0,f"排第 1 位: {b['data']}")
+        require(b["data"]["promote_probability"] is not None and abs(b["data"]["promote_probability"]-expect)<1e-9,f"join 概率一致: {b['data']}")
+        # 再来一人候补（rank2）：P(释放≥2)=释放数≥2 的场次占比（本场景全为 0/1 → 0.0）
+        u2=Client(s.port).login("user16")
+        st,b2=u2.request("POST","/api/waitlist",{"slot_id":str(sid),"request_id":uid()})
+        require(st==200 and int(b2["data"]["queue_ahead"])==1,f"排第 2 位: {b2['data']}")
+        require(b2["data"]["promote_probability"]==0.0,f"rank2 概率=0（无场次释放≥2）: {b2['data']}")
+        # 无样本实验室 → null
+        lab2=adm.post("/api/admin/labs",{"name":"概率空白"+uid()[:6],"location":"实验楼","description":"p"})["data"]["lab_id"]
+        day2=time.strftime("%Y-%m-%d",time.localtime(base+86400))
+        with _sq.connect(s.db,timeout=5) as conn:
+            conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab2),base+86400,base+86400+3600,1))
+        rows2=adm.request("GET",f"/api/suggestions?lab_id={lab2}&date={day2}")[1]["data"]["suggestions"]
+        require(rows2 and rows2[0]["promote_probability"] is None,f"样本不足为 null: {rows2[0] if rows2 else rows2}")
+        return {"probability":expect}
+    record("T71 promote probability from history",t71) # -- r26/promote-probability
+    def t72(): # -- r26/fairness
+        """公平性审计：per_user 聚合与 SQL 对账一致；Jain 指数与手算一致；days 参数校验。"""
+        adm=Client(s.port).login("admin")
+        data=adm.request("GET","/api/admin/fairness?days=28")[1]["data"]
+        users={x["username"]:x for x in data["users"]}
+        require("user01" in users,"user01 在审计列表")
+        # 对账：user01 近 28 天 waitlist 计数
+        now=int(time.time());since=now-28*86400
+        joined=s.sql("SELECT count(*) FROM waitlist w JOIN users u ON u.id=w.user_id WHERE u.username='user01' AND w.created_at>=?",(since,))[0][0]
+        require(users["user01"]["joined"]==joined,f"joined 对账: {users['user01']['joined']} vs {joined}")
+        granted=s.sql("SELECT count(*) FROM reservations r JOIN users u ON u.id=r.user_id WHERE u.username='user01' AND r.created_at>=?",(since,))[0][0]
+        require(users["user01"]["granted"]==granted,f"granted 对账: {users['user01']['granted']} vs {granted}")
+        # Jain 手算
+        xs=[x["granted"] for x in data["users"]]
+        n=len(xs);ssum=sum(xs);ssq=sum(v*v for v in xs)
+        expect=(ssum*ssq) and (ssum*ssum)/(n*ssq) or 1.0
+        require(abs(data["jain_index"]-expect)<1e-9,f"Jain 对账: {data['jain_index']} vs {expect}")
+        require(0<data["jain_index"]<=1,"Jain ∈ (0,1]")
+        st,_=adm.request("GET","/api/admin/fairness?days=0")
+        require(st==400,"days=0 拒绝")
+        require(Client(s.port).login("user01").request("GET","/api/admin/fairness")[0]==403,"非管理员 403")
+        return {"jain":data["jain_index"]}
+    record("T72 fairness audit endpoint",t72) # -- r26/fairness
+    def t73(): # -- r26/waitlist-daily-limit
+        """每日候补上限（--waitlist-daily-limit）：达限 409 WAITLIST_LIMIT；北京日界重置（SQL 拨 created_at 到昨日）。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="wld-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"wl.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"wl.db",extra=["--waitlist-daily-limit","2"]) as sq:
+            ad=Client(sq.port).login("admin")
+            lab=ad.post("/api/admin/labs",{"name":"上限实验室"+uid()[:6],"location":"实验楼","description":"l"})["data"]["lab_id"]
+            now=int(time.time())
+            base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+            sids=[]
+            with _sq.connect(sq.db,timeout=5) as conn:
+                for k in range(3):
+                    sd=base+k*86400
+                    conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),sd,sd+3600,1))
+                    sids.append(conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),sd)).fetchone()[0])
+            u=Client(sq.port).login("user06")
+            occ=Client(sq.port).login("user07")
+            for sd in sids:  # 候补要求满员：先由他人占满三场（不同天同时刻，无重叠）
+                st,_=occ.request("POST","/api/reservations",{"slot_id":str(sd),"request_id":uid()})
+                require(st==200,f"occ fill: {st}")
+            st,_=u.request("POST","/api/waitlist",{"slot_id":str(sids[0]),"request_id":uid()})
+            require(st==200,f"1st join: {st}")
+            st,_=u.request("POST","/api/waitlist",{"slot_id":str(sids[1]),"request_id":uid()})
+            require(st==200,f"2nd join: {st}")
+            st,b=u.request("POST","/api/waitlist",{"slot_id":str(sids[2]),"request_id":uid()})
+            require(st==409 and b["code"]=="WAITLIST_LIMIT",f"3rd 409: {st} {b}")
+            # 拨一天前的一条入队到昨日 → 释放一个今日名额
+            d0=(now+28800)//86400*86400-28800
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("UPDATE waitlist SET created_at=? WHERE user_id=(SELECT id FROM users WHERE username='user06') AND slot_id=?",(d0-3600,sids[0]))
+            st,b=u.request("POST","/api/waitlist",{"slot_id":str(sids[2]),"request_id":uid()})
+            require(st==200,f"昨日计入今日之外 → 放行: {st} {b}")
+        return {"daily_limit":True}
+    record("T73 waitlist daily limit",t73) # -- r26/waitlist-daily-limit
 
 
 def account_checks(s):

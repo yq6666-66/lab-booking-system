@@ -2,6 +2,23 @@
 
 本项目遵循语义化版本。所有重要变更记录于此。
 
+## [1.15.0] - 2026-09-16
+
+第二十六轮（并行开发线 创新点清单落地）：OS 调度理论迁移——老化加权候补、知情候补与公平性量化。
+
+### 新增
+- **老化加权候补策略（BR19 第三档）**：`--waitlist-strategy=weighted`，score = 1000·priority + 200·(credit−5) + 60·log₂(1+等待小时)——等待翻倍 +60 分、1 点信用 ≈ 8 小时等待、管理员不被越级；冲突暂跳语义不变，默认 executable 行为零变化（T70，含 executable 对照与信用压制）。
+- **知情候补（转正概率）**：suggestions 与 waitlist join 响应新增 `queue_ahead`/`promote_probability`（同实验室同星期过去 35 天释放分布的经验占比，样本 <5 为 null）；前端候补按钮与入队提示展示排位与概率（T71）。
+- **公平性审计**：GET /api/admin/fairness?days= —— 按用户候补聚合（入队/转正/退出/跳过/平均等待秒）+ 全站 Jain 公平指数，附口径定义（T72）。
+- **每日候补上限**：`--waitlist-daily-limit N`（默认 0 关闭），达限 409 WAITLIST_LIMIT，北京日界重置（T73）。
+- **三策略 × 四档负载评估体系**：tests/experiment.py --matrix（ρ=请求/容量 0.7/1.0/1.3/1.6，确定性场景含结构化候补角色），指标含转化率、SQL 口径等待时长、Jain 指数；证据 docs/evidence/experiment/strategy_matrix.{json,md}。
+- **位图冲突检测对比实验**：tests/bitmap_bench.py（模拟口径），未命中最坏场景 n=10k 约 1845×；生产路径不变（docs/evidence/bitmap/）。
+- **工程取舍入档**：事件内核/匈牙利匹配/分桶锁/TUI 四项"明确不做"及理由（CONTRACT r26 备查节）。
+
+### 变更
+- 集成断言 70 → 74（T70–T73）；`LAB_VERSION` 1.14.0 → 1.15.0；fairness 端点使契约端点 48 → 49。
+- 修复：promote weighted 分支数字列经 jstr 解析失败导致的退化（r18 教训第 9 例——数字列必须 valuedouble）；experiment.py make_baseline 未清残留 WAL 导致索引损坏。
+
 ## [1.14.0] - 2026-09-15
 
 第二十五轮（导师建议实现）：P0-2 组合语义澄清与验证、P1-7 凭据生命周期。

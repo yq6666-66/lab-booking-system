@@ -135,3 +135,11 @@
 - [x] r25 P1-6/P1-8 scripts/mixed_load.py 混合负载尾延迟实验（p50/p95/p99、503、WAL 增长）+ docs/UAT.md 四路径验收与发布回归清单
 - [x] r25 创新方向 1（最小版）：GET /api/suggestions 约束感知替代建议 + 前端建议面板（T69，契约 48 端点）
 - [x] r25 P1-5 评估结论：业务拆分不做——破坏单写者事务边界为负收益，理由记录于 CHANGELOG
+
+# 第二十六轮（并行开发线 创新点清单落地，v1.15.0）
+- [x] r26 weighted 老化加权候补策略（score=1000·priority+200·(credit−5)+60·log₂(1+等待h)，T70 三断言含 executable 对照）
+- [x] r26 知情候补：suggestions/waitlist 响应附 queue_ahead+promote_probability（35 天同星期释放经验分布，样本<5 为 null，T71）；前端展示
+- [x] r26 公平性审计 GET /api/admin/fairness（per_user 聚合+Jain 指数，T72）+ --waitlist-daily-limit（T73）
+- [x] r26 三策略×四档负载评估（ρ=0.7/1.0/1.3/1.6，strict 空置 100%、weighted 等待减半 7.2ks→3.6ks，Jain 一致）+ 位图冲突检测对比（最坏 1846×）
+- [x] r26 工程取舍入档：事件内核/匈牙利匹配/分桶锁/TUI 明确不做
+- [x] 修复两例绑定错位（fairness 6?配 7i、queue_rank 6?配 5i——累计第 9/10 例）与 weighted 数字列 jstr 退化；集成 74 项、契约 49 端点全绿

@@ -1,0 +1,7 @@
+﻿n,scenario,queries,naive_ms,bitmap_ms,speedup,naive_hit,bitmap_hit,semantic_mismatch
+100,hit,500,0.22,0.2,1.1,500,500,0
+100,miss_worst,500,3.43,0.3,11.5,0,0,0
+1000,hit,500,0.36,0.29,1.2,500,500,0
+1000,miss_worst,500,31.05,0.2,159.1,0,0,0
+10000,hit,500,0.36,0.26,1.4,500,500,0
+10000,miss_worst,500,304.91,0.19,1579.0,0,0,0

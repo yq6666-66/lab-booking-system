@@ -196,6 +196,11 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
    if(!parse_id(a,&lab)||start<0)return invalid();
    return suggestion_list(d,&u,cfg,lab,start);
   }
+  if(!strcmp(path,"/api/admin/fairness")){ /* r26 公平性审计（只读聚合） */
+   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   char dd[12]={0};int days=28;if(query(ri,"days",dd,sizeof dd)){Id n=0;if(!parse_id(dd,&n)||n<1||n>90)return invalid();days=(int)n;}
+   return fairness_admin(d,days);
+  }
   if(!strcmp(path,"/api/me/records")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char st[24]={0};query(ri,"status",st,sizeof st);
    const char *status=NULL;
    if(st[0]){if(strcmp(st,"CONFIRMED")&&strcmp(st,"CANCELLED")&&strcmp(st,"NO_SHOW")&&strcmp(st,"PENDING"))return invalid();status=st;}

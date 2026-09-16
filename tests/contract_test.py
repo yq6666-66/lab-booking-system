@@ -119,7 +119,7 @@ SLOT_OBJ = {"id": T_ID, "lab_id": T_ID, "start_at": T_INT, "end_at": T_INT, "ena
             "my_checked_in_at": nb(T_INT), "my_waitlist_id": nb(T_ID)}
 RES_ROW = {"id": T_ID, "slot_id": T_ID, "lab_id": T_ID, "lab_name": T_STR, "username": T_STR, "start_at": T_INT, "end_at": T_INT,
            "status": T_STR, "source": T_STR, "cancel_reason": nb(T_STR), "checked_in_at": nb(T_INT),
-           "note": nb(T_STR)}
+           "hold_deadline": nb(T_NUM), "note": nb(T_STR)}
 WAIT_ROW = {"id": T_ID, "slot_id": T_ID, "lab_name": T_STR, "username": T_STR, "start_at": T_INT, "end_at": T_INT,
             "status": T_STR, "position": nb(T_INT)}
 NOTIFY_ROW = {"id": T_ID, "kind": T_STR, "title": T_STR, "body": T_STR, "slot_id": nb(T_ID),
@@ -136,7 +136,9 @@ WINDOW_ROW = {"id": T_ID, "asset_id": T_ID, "weekday_mask": T_INT, "start_minute
 MAINT_ROW = {"id": T_ID, "asset_id": T_ID, "started_at": T_INT, "ended_at": nb(T_INT), "reason": T_STR, "operator": nb(T_STR)}
 SUG_REASON = {"code": T_STR, "message": T_STR}
 SUG_ROW = {"slot_id": T_ID, "start_at": T_INT, "end_at": T_INT, "capacity": T_INT, "taken": T_INT, "waiting_count": T_INT,
-           "bookable": T_BOOL, "joinable": T_BOOL, "reasons": arr(SUG_REASON)}
+           "bookable": T_BOOL, "joinable": T_BOOL, "queue_ahead": T_INT, "promote_probability": nb(T_NUM), "reasons": arr(SUG_REASON)}
+FAIR_ROW = {"id": T_ID, "username": T_STR, "joined": T_INT, "promoted": T_INT, "withdrawn": T_INT, "skipped": T_INT,
+            "avg_wait_s": nb(T_NUM), "granted": T_INT}
 TOKEN_ROW = {"id": T_ID, "name": T_STR, "created_at": T_INT, "last_used_at": nb(T_INT)}
 TOTALS_OBJ = {"slots": T_INT, "confirmed": T_INT, "cancelled": T_INT, "no_show": T_INT,
               "checked_in": T_INT, "waiting": T_INT}
@@ -159,6 +161,7 @@ SCHEMAS = [
     ("GET",  "/api/labs",                      {"labs": arr(LAB_OBJ)}),
     ("GET",  "/api/slots?lab_id=1&date={today}", {"slots": arr(SLOT_OBJ), "checkin_window": T_INT}),
     ("GET",  "/api/suggestions?lab_id={lid}&date={today}", {"suggestions": arr(SUG_ROW)}),
+    ("GET",  "/api/admin/fairness?days=28", {"users": arr(FAIR_ROW), "jain_index": T_NUM, "days": T_INT, "jain_definition": T_STR, "wait_definition": T_STR}),
     ("GET",  "/api/me/records?page=1&page_size=5", ME_RECORDS),
     ("GET",  "/api/me/notifications?page=1&page_size=5",
              {"notifications": arr(NOTIFY_ROW), "unread_count": T_INT, **PAGED}),
@@ -167,7 +170,7 @@ SCHEMAS = [
     ("POST", "/api/me/password",               {"revoked_sessions": T_INT, "revoked_tokens": T_INT}),
     ("POST", "/api/reservations",              {"reservation_id": T_ID}),
     ("POST", "/api/reservations/{rid}/cancel", {"reservation_id": T_ID, "promoted_reservation_id": nb(T_ID)}),
-    ("POST", "/api/waitlist",                  {"waitlist_id": T_ID}),
+    ("POST", "/api/waitlist",                  {"waitlist_id": T_ID, "queue_ahead": T_INT, "promote_probability": nb(T_NUM)}),
     ("POST", "/api/waitlist/{wid2}/withdraw",  {"waitlist_id": T_ID}),
     ("POST", "/api/reservations/{rid2}/checkin", {"reservation_id": T_ID, "checked_in_at": T_INT}),
     ("POST", "/api/reservations/{rid2}/checkout", {"reservation_id": T_ID, "checked_out_at": nb(T_INT)}),

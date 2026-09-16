@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <math.h>
 /* -- r12 业务规则常量 -- */
 #define NO_SHOW_GRACE 2      /* 窗口内第 2 次爽约起触发限制 */
 #define PENALTY_DAYS 7       /* 限制时长：从触发爽约的场次时间起算 */
@@ -13,6 +14,9 @@ static int asset_window_ok(DB *d,Id asset,Id start_at); /* r23 资源自身可�
 static void event(DB *d,Id actor,const char *action,Id entity,const char *request){db_run(d,"INSERT INTO operation_events(actor_id,action,entity_id,request_id,created_at) VALUES(?,?,?,?,?)","isisi",actor,action,entity,request,now_sec());}
 /* r23 服务端按角色校准优先级：管理员 10、普通用户 0。不接受客户端自报，避免越权插队。 */
 static Id role_priority(const User *u){return u->admin?10:0;}
+/* r26 知情候补（前向声明，定义在 suggestion_list 附近）：排位与历史转正概率 */
+static Id queue_rank(DB *d,Id slot,Id user);
+static double promote_probability(DB *d,Id slot,Id rank);
 /* r23 信用账户：余额与流水在调用方事务内同增同减，每次变动均可追溯。
    reason ∈ RESERVE/CANCEL/CHECKIN/NO_SHOW/PREEMPTED/WEEKLY/GRANT。 */
 int credit_apply(DB *d,Id user,Id delta,const char *reason,Id reservation_id){
@@ -53,13 +57,55 @@ static void fault(const Config *c,const char *stage,const char *key){
 /* r24 候补递补（可执行 FIFO）：按 priority DESC,id 顺序扫描候补，账号停用者统一置 SKIPPED；
    临时时间冲突者"暂跳并保留原序号"，只递补第一个当前可执行的候选——队首暂时不可执行时不再阻塞整条队列。
    --waitlist-strategy=strict 时退化为旧语义（队首不可执行则阻塞），供对照实验使用。
-   --hold-window>0 时补位先落 HELD（限时保留），需用户确认才生效；默认 0 保持直接确认的既有行为。 */
+   --hold-window>0 时补位先落 HELD（限时保留），需用户确认才生效；默认 0 保持直接确认的既有行为。
+   r26 新增 --waitlist-strategy=weighted（老化加权）：候选按 score 降序扫描——
+   score = 1000*priority + 200*(credit-5) + 60*log2(1+等待秒/3600)。
+   量纲：等待时长每翻倍 +60 分；同优先级下 1 点信用差（200）约等于 8 小时等待可追平；
+   管理员(10000)不被普通用户的 aging 越级——老化只解决"同档饿死"，不破坏角色优先级语义。 */
+typedef struct{Id wid;Id uid;double score;} WeightedCand;
 static Id promote(DB *d,const Config *cfg,Id slot,Id actor,const char *key){
  db_run(d,"UPDATE waitlist SET status='SKIPPED' WHERE slot_id=? AND status='WAITING' AND user_id IN(SELECT id FROM users WHERE enabled=0)","i",slot);
- cJSON *cands=db_rows(d,"SELECT id,user_id FROM waitlist WHERE slot_id=? AND status='WAITING' ORDER BY priority DESC,id","i",slot);
+ int weighted=cfg&&cfg->waitlist_strategy==2;
+ cJSON *cands=db_rows(d,weighted
+  ?"SELECT w.id,w.user_id,w.priority,w.created_at,u.credit FROM waitlist w JOIN users u ON u.id=w.user_id WHERE w.slot_id=? AND w.status='WAITING' ORDER BY w.priority DESC,w.id"
+  :"SELECT id,user_id FROM waitlist WHERE slot_id=? AND status='WAITING' ORDER BY priority DESC,id","i",slot);
  if(!cands)return 0;
  int strict=cfg&&cfg->waitlist_strict;
  Id wid=0,uid=0;cJSON *it;
+ if(weighted){
+  /* 取回候选后按 score 降序（稳定：同分按原 priority DESC,id 序），再走同一套可执行性扫描 */
+  int n=cJSON_GetArraySize(cands);
+  if(n<=0){cJSON_Delete(cands);return 0;}
+  WeightedCand *arr=(WeightedCand*)malloc(sizeof(WeightedCand)*(size_t)n);
+  if(!arr){cJSON_Delete(cands);return 0;}
+  int m=0;Id now=clock_now();
+  cJSON_ArrayForEach(it,cands){
+   Id w=0,u=0;
+   parse_id(jstr(it,"id"),&w);parse_id(jstr(it,"user_id"),&u); /* 仅 _id 列是 jid 字符串；数字列必须走 valuedouble（r18 教训） */
+   cJSON *jp=cJSON_GetObjectItemCaseSensitive(it,"priority"),*jc=cJSON_GetObjectItemCaseSensitive(it,"created_at"),*jr=cJSON_GetObjectItemCaseSensitive(it,"credit");
+   Id pr=(jp&&cJSON_IsNumber(jp))?(Id)jp->valuedouble:0;
+   Id ca=(jc&&cJSON_IsNumber(jc))?(Id)jc->valuedouble:0;
+   Id cr=(jr&&cJSON_IsNumber(jr))?(Id)jr->valuedouble:5;
+   if(ca<=0||now<ca)ca=now;
+   double wait=(double)(now-ca)/3600.0;
+   double lg=log2(1.0+wait);if(lg<0)lg=0;
+   arr[m].wid=w;arr[m].uid=u;
+   arr[m].score=1000.0*(double)pr+200.0*((double)cr-5.0)+60.0*lg;
+   m++;
+  }
+  /* 插入排序（n 为候补队列规模，通常 < 百级；稳定：仅严格大于才交换） */
+  for(int i=1;i<m;i++){WeightedCand t=arr[i];int j=i-1;while(j>=0&&arr[j].score<t.score){arr[j+1]=arr[j];j--;}arr[j+1]=t;}
+  for(int i=0;i<m&&!wid;i++){
+   Id u=arr[i].uid;
+   if(!db_num(d,"SELECT count(*) FROM users WHERE id=? AND enabled=1","i",u)){if(d->error)break;continue;}
+   Id clash=db_num(d,"SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id JOIN slots s ON s.id=? WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD') AND s.start_at<s2.end_at AND s2.start_at<s.end_at","ii",slot,u);
+   if(d->error)break;
+   if(clash)continue; /* weighted 沿用可执行语义：冲突暂跳保留序号 */
+   wid=arr[i].wid;uid=u;
+  }
+  free(arr);
+ }
+ else{
  cJSON_ArrayForEach(it,cands){
   Id w=0,u=0;parse_id(jstr(it,"id"),&w);parse_id(jstr(it,"user_id"),&u);
   if(!db_num(d,"SELECT count(*) FROM users WHERE id=? AND enabled=1","i",u)){if(d->error)break;continue;}
@@ -67,6 +113,7 @@ static Id promote(DB *d,const Config *cfg,Id slot,Id actor,const char *key){
   if(d->error)break;
   if(clash){if(strict)break;continue;}
   wid=w;uid=u;break;
+ }
  }
  cJSON_Delete(cands);
  if(d->error||!wid)return 0;
@@ -294,9 +341,20 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
   credit_weekly_topup(d,u->id);if(d->error)goto failed;
   if(!db_num(d,"SELECT credit FROM users WHERE id=?","i",u->id)){r=result(409,"CREDIT_EXHAUSTED","信用额度已用尽，按时签到或等待每周回补后可继续候补",NULL);goto save;}
   if(d->error)goto failed;
+  if(cfg&&cfg->waitlist_daily_limit>0){ /* r26 防刷：每用户每日候补入队上限（北京日界） */
+   Id d0=(now_sec()+28800)/86400*86400-28800;
+   if(db_num(d,"SELECT count(*) FROM waitlist WHERE user_id=? AND created_at>=?","ii",u->id,d0)>=cfg->waitlist_daily_limit){r=result(409,"WAITLIST_LIMIT","今日候补次数已达上限，请明日再试",NULL);goto save;}
+   if(d->error)goto failed;
+  }
   Id wid=db_num(d,"SELECT id FROM waitlist WHERE user_id=? AND slot_id=? AND status='WAITING'","ii",u->id,sid);
   if(!wid){db_run(d,"INSERT INTO waitlist(user_id,slot_id,status,created_at,priority) VALUES(?,?,'WAITING',?,?)","iiii",u->id,sid,now_sec(),role_priority(u));wid=sqlite3_last_insert_rowid(d->sql);event(d,u->id,"WAIT",wid,key);}
-  r=ok_id("waitlist_id",wid);
+  { /* r26 知情候补：附排位与历史转正概率 */
+   Id rank=queue_rank(d,sid,u->id);if(d->error)goto failed;
+   double prob=promote_probability(d,sid,rank>0?rank:1);if(d->error)goto failed;
+   cJSON *j=cJSON_CreateObject();jid(j,"waitlist_id",wid);cJSON_AddNumberToObject(j,"queue_ahead",(double)(rank>0?rank-1:0));
+   if(prob<0)cJSON_AddNullToObject(j,"promote_probability");else cJSON_AddNumberToObject(j,"promote_probability",prob);
+   r=result(200,"OK","已加入候补",j);
+  }
  }else if(!strcmp(action,"cancel")){
   Id promoted=0;
   /* r24：HELD（待确认保留）与 CONFIRMED 一样可被本人取消 */
@@ -1352,6 +1410,45 @@ failed:
 }
 /* -- r25 创新方向 1（最小版）：约束感知替代建议——只读地逐场次评估当前用户可预约/可候补与否，并给出原因解释。
    评估与真实预约之间存在竞态，属建议性质；提交时仍由 booking() 事务内全量校验兜底。 -- */
+/* r26 转正概率：同 (实验室, 星期几) 过去 35 天（5 周）已开场场次中"释放名额数 ≥ rank"的场次占比（经验分布）。
+   释放 = CANCELLED(USER/NO_SHOW/REJECTED) + EXPIRED；样本 <5 场返回 -1（不下结论）。rank 从 1 计。 */
+static double promote_probability(DB *d,Id slot,Id rank){
+ if(rank<1)return -1.0;
+ Id start_at=db_num(d,"SELECT start_at FROM slots WHERE id=?","i",slot);
+ if(d->error||!start_at)return -1.0;
+ int wd=(int)(((start_at+28800)/86400+4)%7); /* 北京时区星期：1970-01-01 是周四 → +4 mod 7 得 0=周日…与 strftime('%w') 对齐 */
+ Id now=now_sec();
+ cJSON *rows=db_rows(d,
+  "SELECT s.id AS sid,"
+  "(SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND ((r.status='CANCELLED' AND r.cancel_reason IN('USER','NO_SHOW','REJECTED')) OR r.status='EXPIRED')) AS released "
+  "FROM slots s WHERE s.lab_id=(SELECT lab_id FROM slots WHERE id=?) AND s.start_at<? AND s.start_at>? "
+  "AND ((s.start_at+28800)/86400+4)%7=? GROUP BY s.id",
+  "iiii",slot,now-3600,now-35*86400,(Id)wd);
+ if(d->error)return -1.0;
+ int total=0,hit=0;
+ for(cJSON *r=rows?rows->child:NULL;r;r=r->next){
+  cJSON *rel=cJSON_GetObjectItemCaseSensitive(r,"released");
+  Id n=(rel&&cJSON_IsNumber(rel))?(Id)rel->valuedouble:0;
+  total++;if(n>=rank)hit++;
+ }
+ cJSON_Delete(rows);
+ if(total<5)return -1.0;
+ return (double)hit/(double)total;
+}
+/* r26 候补排位：按（priority DESC,id ASC）计本人前方有效候补数 +1；等待中的本人算第 1。 */
+static Id queue_rank(DB *d,Id slot,Id user){
+ Id prio=db_num(d,"SELECT priority FROM waitlist WHERE slot_id=? AND user_id=? AND status='WAITING'","ii",slot,user);
+ if(d->error)return 0;
+ if(!prio&&prio==0){ /* 无 WAITING 行（未入队）：按本人角色优先级估算 */
+  Id role=db_num(d,"SELECT role='ADMIN' FROM users WHERE id=?","i",user);
+  if(d->error)return 0;
+  prio=role?10:0;
+ }
+ Id ahead=db_num(d,"SELECT count(*) FROM waitlist w JOIN users u ON u.id=w.user_id WHERE w.slot_id=? AND w.status='WAITING' AND w.user_id<>? AND u.enabled=1 AND (w.priority>? OR (w.priority=? AND w.id<(SELECT COALESCE(MIN(id),9223372036854775807) FROM waitlist WHERE slot_id=? AND user_id=? AND status='WAITING')))",
+  "iiiiii",slot,user,prio,prio,slot,user);
+ if(d->error)return 0;
+ return ahead+1;
+}
 Result suggestion_list(DB *d,const User *u,const Config *cfg,Id lab,Id start){
  Id now=now_sec();
  cJSON *rows=db_rows(d,
@@ -1407,12 +1504,55 @@ Result suggestion_list(DB *d,const User *u,const Config *cfg,Id lab,Id start){
   cJSON_AddNumberToObject(item,"waiting_count",(wc&&cJSON_IsNumber(wc))?wc->valuedouble:0);
   cJSON_AddBoolToObject(item,"bookable",bookable);
   cJSON_AddBoolToObject(item,"joinable",joinable);
+  /* r26 知情候补：本人若入队的排位与历史转正概率（经验分布，样本不足为 null） */
+  Id rank=joinable?queue_rank(d,sid,u->id):0;
+  if(d->error)goto sug_fail_row;
+  cJSON_AddNumberToObject(item,"queue_ahead",(double)(rank>0?rank-1:0));
+  double prob=promote_probability(d,sid,rank>0?rank:1);
+  if(d->error)goto sug_fail_row;
+  if(prob<0)cJSON_AddNullToObject(item,"promote_probability");
+  else cJSON_AddNumberToObject(item,"promote_probability",prob);
   cJSON_AddItemToObject(item,"reasons",reasons);
   cJSON_AddItemToArray(out,item);
+  continue;
+sug_fail_row:
+  cJSON_Delete(reasons);cJSON_Delete(out);cJSON_Delete(rows);cJSON_Delete(mine);return db_failure(d);
  }
  #undef SUG_ADD
  cJSON_Delete(rows);cJSON_Delete(mine);
  cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"suggestions",out);
+ return result(200,"OK","查询成功",j);
+}
+/* -- r26 公平性审计：按用户聚合候补经历（入队/转正/退出/跳过/转正率/平均等待秒），
+   并给出全站 Jain 公平指数 = (Σx)²/(n·Σx²)，x 为该用户近 N 天获得预约数（任何状态，代表资源获取机会）。 -- */
+Result fairness_admin(DB *d,int days){
+ Id now=now_sec();Id since=now-(Id)days*86400;
+ cJSON *rows=db_rows(d,
+  "SELECT u.id,u.username,"
+  "(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.created_at>=?) AS joined,"
+  "(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.status='PROMOTED' AND w.created_at>=?) AS promoted,"
+  "(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.status='WITHDRAWN' AND w.created_at>=?) AS withdrawn,"
+  "(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.status='SKIPPED' AND w.created_at>=?) AS skipped,"
+  "(SELECT avg(r.created_at-w.created_at) FROM waitlist w JOIN reservations r ON r.id=w.promoted_reservation_id WHERE w.user_id=u.id AND w.status='PROMOTED' AND w.created_at>=?) AS avg_wait_s,"
+  "(SELECT count(*) FROM reservations r WHERE r.user_id=u.id AND r.created_at>=?) AS granted "
+  "FROM users u WHERE u.enabled=1 ORDER BY granted DESC,joined DESC,u.id",
+  "iiiiii",since,since,since,since,since,since);
+ if(d->error)return db_failure(d);
+ double sum=0,sum2=0;long long n=0;
+ for(cJSON *it=rows?rows->child:NULL;it;it=it->next){
+  cJSON *g=cJSON_GetObjectItemCaseSensitive(it,"granted");
+  double x=(g&&cJSON_IsNumber(g))?g->valuedouble:0;
+  sum+=x;sum2+=x*x;n++;
+  cJSON *aw=cJSON_GetObjectItemCaseSensitive(it,"avg_wait_s");
+  if(!aw||!cJSON_IsNumber(aw))cJSON_AddNullToObject(it,"avg_wait_s");
+ }
+ double jain=(n>0&&sum2>0)?(sum*sum)/((double)n*sum2):1.0;
+ cJSON *j=cJSON_CreateObject();
+ cJSON_AddItemToObject(j,"users",rows);
+ cJSON_AddNumberToObject(j,"jain_index",jain);
+ cJSON_AddNumberToObject(j,"days",(double)days);
+ cJSON_AddStringToObject(j,"jain_definition","(Σx)²/(n·Σx²)，x=该用户窗口内获得预约数；1 为完全公平");
+ cJSON_AddStringToObject(j,"wait_definition","avg_wait_s=转正时刻(reservations.created_at)−入队时刻(waitlist.created_at)的均值");
  return result(200,"OK","查询成功",j);
 }
 /* -- r23 信用流水：用户看自己的账本，每次增减都有原因与关联预约，规则对用户透明。 -- */

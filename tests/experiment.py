@@ -139,8 +139,10 @@ def make_baseline(tmp: pathlib.Path) -> pathlib.Path:
     """生成一个干净的种子库作为各轮实验的基线（与集成测试的口径一致）。"""
     tmp.mkdir(parents=True, exist_ok=True)
     baseline = tmp / "baseline.db"
-    if baseline.exists():
-        baseline.unlink()
+    for suffix in ("", "-wal", "-shm"):  # 连 WAL/SHM 一并清除，否则旧 WAL 重放到新库会造成索引损坏
+        p = pathlib.Path(str(baseline) + suffix)
+        if p.exists():
+            p.unlink()
     env = os.environ.copy()
     env["LAB_SEED_PASSWORD"] = PASSWORD
     r = subprocess.run([str(ROOT / "build" / "lab-booking.exe"), "--db", str(baseline), "--seed", "--init-only"],
@@ -175,17 +177,159 @@ def run_arm(strategy: str, rounds: int, tmp: pathlib.Path) -> dict:
     )
 
 
+def run_matrix_arm(strategy: str, rho: float, tmp: pathlib.Path, seed: int = 42) -> dict:
+    """r26 矩阵实验：单策略 × 负载档 ρ（需求/供给，>1 为过载，候补压力递增）。
+
+    场景：A/B 两实验室配对同时段，12 时段（3 天×4 段）×容量 3 = 36 席。
+    ρ 定义：预约请求数 = round(36ρ)（确定性随机序列）；释放 = 取消 50% 的 CONFIRMED。
+    结构化候补注入（保证三策略可分岔）：
+      P1 = 队首（最早入队时刻）但持跨场冲突（占 B 同时段）→ strict 阻塞空置 / exec、weighted 暂跳；
+      P2 = 次早入队，credit 3；P3 = 第三，credit 5 → executable 按 id 序给 P2，weighted 按信用给 P3；
+      其余候补者普通（credit 5，入队时刻依次 +1h）。
+    """
+    import random
+    rng = random.Random(seed + int(rho * 100))
+    base = make_baseline(tmp / f"mbase-{strategy}-{int(rho*100)}")
+    with ig.running(ROOT / "build" / "lab-booking.exe", tmp / f"mexp-{strategy}-{int(rho*100)}", base,
+                    extra=["--waitlist-strategy", strategy, "--sweep-interval", "2"]) as server:
+        adm = ig.Client(server.port).login("admin")
+        tag = uid()[:6]
+        labA = adm.post("/api/admin/labs", {"name": "矩阵A" + tag, "location": "x", "description": "m"})["data"]["lab_id"]
+        time.sleep(1.2)
+        labB = adm.post("/api/admin/labs", {"name": "矩阵B" + tag, "location": "x", "description": "m"})["data"]["lab_id"]
+        now = int(time.time())
+        day0 = ((now + 2 * 86400 + 28800) // 86400 * 86400 - 28800) + 9 * 3600
+        slotsA, slotsB = [], []
+        for i in range(12):
+            st_at = day0 + (i // 4) * 86400 + (i % 4) * 5400
+            for lab, lst in ((labA, slotsA), (labB, slotsB)):
+                server.sql("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,3,NULL)", (int(lab), st_at, st_at + 3600, 1))
+                lst.append(server.sql("SELECT id FROM slots WHERE lab_id=? AND start_at=?", (int(lab), st_at))[0][0])
+        # 负载用户与结构化角色分离：user01-15 随机负载，user16-18 候补三角色，user19/20 target 占位
+        load_users = [f"user{i:02d}" for i in range(1, 16)]
+        pairs = [(u, s) for s in slotsA for u in load_users]
+        rng.shuffle(pairs)
+        n_req = int(round(36 * rho))
+        booked = {}
+        for u, s in pairs[:n_req]:
+            c = ig.Client(server.port).login(u)
+            st, _ = c.request("POST", "/api/reservations", {"slot_id": str(s), "request_id": uid()})
+            if st == 200:
+                booked.setdefault(u, []).append(s)
+        # target：第一个满员场；若无则由 user19/20 占 slotsA[0] 补满（确定性）
+        target = next((s for s in slotsA if server.sql(
+            "SELECT count(*) FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD')", (s,))[0][0] >= 3), None)
+        if target is None:
+            target = slotsA[0]
+            for u in ("user19", "user20"):
+                c = ig.Client(server.port).login(u)
+                st, _ = c.request("POST", "/api/reservations", {"slot_id": str(target), "request_id": uid()})
+                if st == 200:
+                    booked.setdefault(u, []).append(target)
+        idx_t = slotsA.index(target)
+        # 结构化候补：三人先入队（拨 now-3h/2h/1h；P2 credit3），P1 **入队后**再占 B 同时段制造冲突
+        # （次序关键：先占 B 会被候补入队的 TIME_CONFLICT 拒绝——与 T64 同理）
+        p1, p2, p3 = "user16", "user17", "user18"
+        joined = []
+        for k, u in enumerate((p1, p2, p3)):
+            c = ig.Client(server.port).login(u)
+            st, wb = c.request("POST", "/api/waitlist", {"slot_id": str(target), "request_id": uid()})
+            if st == 200:
+                wid = int(wb["data"]["waitlist_id"])
+                server.sql("UPDATE waitlist SET created_at=?,priority=0 WHERE id=?", (now - (3 - k) * 3600, wid))
+                server.sql("UPDATE users SET credit=? WHERE username=?", (3 if u == p2 else 5, u))
+                joined.append((u, wid))
+        c1 = ig.Client(server.port).login(p1)
+        c1.request("POST", "/api/reservations", {"slot_id": str(slotsB[idx_t]), "request_id": uid()})
+        # 确定性释放：取消 target 的一个占用者（优先 user19/user20，否则任一 booked 用户）
+        cancels = 0
+        rel = None
+        for u in ("user19", "user20"):
+            r = server.sql("SELECT id FROM reservations WHERE user_id=(SELECT id FROM users WHERE username=?) AND slot_id=? AND status IN('CONFIRMED','HELD')", (u, target))
+            if r:
+                rel = (u, r[0][0]); break
+        if not rel:
+            r = server.sql("SELECT r.id,u.username FROM reservations r JOIN users u ON u.id=r.user_id WHERE r.slot_id=? AND r.status IN('CONFIRMED','HELD') AND u.username NOT IN('user16','user17','user18') LIMIT 1", (target,))
+            if r:
+                rel = (r[0][1], r[0][0])
+        if rel:
+            c19 = ig.Client(server.port).login(rel[0])
+            st, _ = c19.request("POST", f"/api/reservations/{rel[1]}/cancel", {"request_id": uid()})
+            if st == 200:
+                cancels += 1
+        for u, lst in booked.items():
+            if u in ("user19", "user20") or rng.random() >= 0.5:
+                c = ig.Client(server.port).login(u)
+                rid = server.sql("SELECT id FROM reservations WHERE user_id=(SELECT id FROM users WHERE username=?) AND slot_id=? AND status IN('CONFIRMED','HELD')",
+                                 (u, lst[0]))
+                if rid:
+                    st, _ = c.request("POST", f"/api/reservations/{rid[0][0]}/cancel", {"request_id": uid()})
+                    if st == 200:
+                        cancels += 1
+        time.sleep(2.0)
+        waits = [r[0] for r in server.sql(
+            "SELECT r.created_at-w.created_at FROM waitlist w JOIN reservations r ON r.id=w.promoted_reservation_id "
+            "WHERE w.status='PROMOTED'")] or [0]
+        waits.sort()
+        promoted = server.sql("SELECT count(*) FROM waitlist WHERE status='PROMOTED'")[0][0]
+        jjoined = server.sql("SELECT count(*) FROM waitlist")[0][0]
+        granted = server.sql("SELECT user_id,count(*) c FROM reservations GROUP BY user_id")
+        xs = [g[1] for g in granted]
+        jain = (sum(xs) ** 2) / (len(xs) * sum(v * v for v in xs)) if xs and any(xs) else 1.0
+        p95 = waits[min(len(waits) - 1, int(round(0.95 * (len(waits) - 1))))] if waits else 0
+        return dict(
+            strategy=strategy, rho=rho, requests=n_req, cancels=cancels,
+            waitlist_joined=jjoined, waitlist_promoted=promoted,
+            promote_rate=round(promoted / jjoined, 4) if jjoined else 0.0,
+            wait_mean_s=round(sum(waits) / len(waits), 1), wait_median_s=round(statistics.median(waits), 1),
+            wait_p95_s=round(p95, 1),
+            jain_index=round(jain, 4),
+        )
+
+def run_matrix(rounds_note: str, tmp: pathlib.Path, output: pathlib.Path) -> dict:
+    """三策略 × 四档负载矩阵；输出 JSON + markdown 对比表。"""
+    strategies = ("strict", "executable", "weighted")
+    rhos = (0.7, 1.0, 1.3, 1.6)
+    rows = [run_matrix_arm(s, r, tmp) for s in strategies for r in rhos]
+    report = dict(
+        question="不同候补策略在四档负载（ρ=预约请求数/总容量，>1 为过载）下的公平性与效率表现？结构化候补：P1 队首带跨场冲突、P2 低信用次早、P3 高信用第三",
+        metric_definitions={
+            "promote_rate": "候补转化率 = PROMOTED / 入队数",
+            "wait_mean_s": "平均等待秒（SQL：转正时刻−入队时刻；入队时刻按序号人工拨开制造 aging 素材）",
+            "wait_p95_s": "等待秒 P95",
+            "jain_index": "Jain 公平指数（按用户获得预约数）；1 为完全公平",
+        },
+        note=rounds_note,
+        rows=rows,
+    )
+    (output / "strategy_matrix.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    lines = ["| 策略 | ρ | 请求数 | 释放 | 入队 | 转正 | 转化率 | 平均等待s | P95s | Jain |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
+    for r in rows:
+        lines.append(f"| {r['strategy']} | {r['rho']} | {r['requests']} | {r['cancels']} | {r['waitlist_joined']} | "
+                     f"{r['waitlist_promoted']} | {r['promote_rate']} | {r['wait_mean_s']} | {r['wait_p95_s']} | {r['jain_index']} |")
+    (output / "strategy_matrix.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return report
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--rounds", type=int, default=5, help="每种策略的重复轮数（默认 5）")
+    ap.add_argument("--matrix", action="store_true", help="运行 r26 三策略×四档负载矩阵实验（默认只跑经典两臂）")
     ap.add_argument("--output", type=pathlib.Path, default=ROOT / "docs" / "evidence" / "experiment")
     args = ap.parse_args()
     if len(PASSWORD) < 8:
-        print("请通过 LAB_TEST_PASSWORD 提供至少 8 位测试口令", file=sys.stderr)
+        print("请通过 LAB_TEST_PASSWORD 提供至少 8 位的测试口令", file=sys.stderr)
         return 2
     ig.PASSWORD = PASSWORD
     tmp = ROOT / "artifacts" / "experiment-runs"
     args.output.mkdir(parents=True, exist_ok=True)
+
+    if args.matrix:
+        rep = run_matrix("每格单轮确定性序列（随机种子固定），矩阵共 12 格", tmp, args.output)
+        print(json.dumps(rep, ensure_ascii=False, indent=2))
+        print(f"\n证据已写入: {args.output / 'strategy_matrix.json'}")
+        return 0
 
     arms = [run_arm(s, args.rounds, tmp) for s in ("strict", "executable")]
     strict, execu = arms[0], arms[1]

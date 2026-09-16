@@ -1,15 +1,12 @@
 {
-  "timestamp_utc": "2026-09-15T18:22:16.463121+00:00",
+  "timestamp_utc": "2026-09-16T17:14:37.196759+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
-  "endpoints_total": 48,
-  "endpoints_passed": 48,
+  "endpoints_total": 49,
+  "endpoints_passed": 49,
   "error_cases_total": 14,
   "error_cases_passed": 14,
   "all_passed": true,
-  "contract_drift": [
-    "GET /api/admin/records?date={today}&page=1&page_size=5.data.reservations[]: 实现多返回契约未记录的字段 ['hold_deadline']",
-    "GET /api/me/records?page=1&page_size=5.data.reservations[]: 实现多返回契约未记录的字段 ['hold_deadline']"
-  ],
+  "contract_drift": [],
   "results": [
     {
       "name": "GET /api/health",
@@ -45,6 +42,11 @@
       "name": "GET /api/suggestions?lab_id={lid}&date={today}",
       "passed": true,
       "detail": "data 字段 ['suggestions']"
+    },
+    {
+      "name": "GET /api/admin/fairness?days=28",
+      "passed": true,
+      "detail": "data 字段 ['days', 'jain_definition', 'jain_index', 'users', 'wait_definition']"
     },
     {
       "name": "GET /api/me/records?page=1&page_size=5",
@@ -84,7 +86,7 @@
     {
       "name": "POST /api/waitlist",
       "passed": true,
-      "detail": "data 字段 ['waitlist_id']"
+      "detail": "data 字段 ['promote_probability', 'queue_ahead', 'waitlist_id']"
     },
     {
       "name": "POST /api/waitlist/{wid2}/withdraw",
