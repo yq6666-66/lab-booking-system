@@ -118,6 +118,7 @@ SQLite（WAL · synchronous=FULL · 外键 · 容量不变量）
 
 | 文档 | 内容 |
 | --- | --- |
+| [docs/答辩技术手册.md](docs/答辩技术手册.md) | 答辩速查：架构与机制深挖、代码导航、实验数据、高频问题预答 |
 | [docs/CONTRACT.md](docs/CONTRACT.md) | 接口契约：端点、数据模型、事务与一致性规则、错误码 |
 | [docs/TEST_REPORT.md](docs/TEST_REPORT.md) | 测试报告：实验设计、数据与结论 |
 | [tests/README.md](tests/README.md) | 测试执行方法与断言范围 |
