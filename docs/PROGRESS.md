@@ -100,10 +100,10 @@
 - [ ] 学校格式模板套排（待模板）与论文定稿修改（待导师意见）
 
 
-# 第五轮：双线并发升级（容量制/限流/指标/CI）
-- [x] 并行开发线 分支 r5/wb：CI 门禁（.github/workflows/ci.yml + README 徽章）、tests/benchmark.py 性能基准实验、src/metrics.c 运行指标（原子计数器 + 延迟直方图）、GET /api/admin/metrics 与管理端指标面板、T25
-- [x] 主线 分支 r5/core 分块④：src/ratelimit.c 登录防爆破与写操作令牌桶限流（纯函数可单测），429 LOGIN_LOCKED/RATE_LIMITED，四个新 CLI 参数，T23/T24 与限流纯函数单测
-- [x] 主线 分块⑤：容量制 schema v3（slots.capacity、退役单占用唯一索引、promote_fill 连续补位、publish capacity、前端已约 X/Y），T26 与容量/迁移单测
+# 第五轮：双线并行开发（容量制/限流/指标/CI）
+- [x] 并行分支 r5/wb：CI 门禁（.github/workflows/ci.yml + README 徽章）、tests/benchmark.py 性能基准实验、src/metrics.c 运行指标（原子计数器 + 延迟直方图）、GET /api/admin/metrics 与管理端指标面板、T25
+- [x] 主线分支 r5/core 分块④：src/ratelimit.c 登录防爆破与写操作令牌桶限流（纯函数可单测），429 LOGIN_LOCKED/RATE_LIMITED，四个新 CLI 参数，T23/T24 与限流纯函数单测
+- [x] 主线分块⑤：容量制 schema v3（slots.capacity、退役单占用唯一索引、promote_fill 连续补位、publish capacity、前端已约 X/Y），T26 与容量/迁移单测
 - [x] 修复三个实测缺陷：publish_slots 变参宽度错位（int 经 'i' 绑定致 CHECK 失败）、RateBucket 哨兵与时间戳 0 碰撞（t=0 边界单测暴露）、T26 测试自身丢失预约编号
 - [x] 合并与集成验证：解决 3 处行级冲突；单元 20/20；集成 29 项全绿（正常+加固各一轮，720 次并发零重复占用、20 次中断恢复正确）；-fanalyzer 零告警；浏览器端到端通过（容量显示/替代时段/指标面板），截图 docs/evidence/ui-r5/
 - [ ] 论文正文初稿（待大纲确认）
@@ -119,10 +119,10 @@
 
 
 
-# 第九至十二轮（多模块并发）
+# 第九至十二轮（多功能模块并行）
 - [x] r9 全分类测试矩阵 21 类（契约/灰盒/文档/供应链/安装/SQL 注入/时序侧信道等）+ ASan 通道转正式门禁
 - [x] r10 管理员双入口 + 独立控制台（概览/实验室/发布/记录/统计导出/指标/通知）
-- [x] r10 场次修改、通知发布、签到页、管理员自动进台（五模块分波交付，E2E 5 用例）
+- [x] r10 场次修改、通知发布、签到页、管理员自动进台（分五模块波次交付，E2E 5 用例）
 - [x] r11 用户管理（停用/重置密码）、通知历史、开场提醒、自动备份轮转、全响应安全头、通知分页、取消二次确认、记录与日志筛选
 - [x] r12 业务规则深化：爽约信用、时段重叠检测、历史归档、运行日志查看、统计 SVG 图表、演示数据生成器
 
@@ -136,7 +136,7 @@
 - [x] r25 创新方向 1（最小版）：GET /api/suggestions 约束感知替代建议 + 前端建议面板（T69，契约 48 端点）
 - [x] r25 P1-5 评估结论：业务拆分不做——破坏单写者事务边界为负收益，理由记录于 CHANGELOG
 
-# 第二十六轮（并行开发线 创新点清单落地，v1.15.0）
+# 第二十六轮（候补调度策略深化，v1.15.0）
 - [x] r26 weighted 老化加权候补策略（score=1000·priority+200·(credit−5)+60·log₂(1+等待h)，T70 三断言含 executable 对照）
 - [x] r26 知情候补：suggestions/waitlist 响应附 queue_ahead+promote_probability（35 天同星期释放经验分布，样本<5 为 null，T71）；前端展示
 - [x] r26 公平性审计 GET /api/admin/fairness（per_user 聚合+Jain 指数，T72）+ --waitlist-daily-limit（T73）
