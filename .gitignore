@@ -13,3 +13,8 @@ __pycache__/
 *.dll
 /.playwright-mcp/
 *.gcov
+
+# r26 仓库卫生：覆盖率产物/调试库/实验中间产物不入库（证据归档在 docs/evidence/）
+*.gcov
+debug-*.db*
+tests/results-*/

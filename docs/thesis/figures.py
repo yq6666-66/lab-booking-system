@@ -268,6 +268,38 @@ arrow(ax, 1.7, 4.5, 4.2, 2.2, "重放不执行业务", lx=3.2, ly=2.35, ls="--")
 arrow(ax, 1.6, 2.9, 3.9, 1.85, "重试", lx=2.2, ly=2.6)
 save(fig, "fig4-6-dedup.png")
 
+# ---- 图6-1 候补策略对比实验（r26 矩阵实测数据）：三策略×四档 ρ 的平均等待时长 + Jain 公平指数 ----
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
+rhos = [0.7, 1.0, 1.3, 1.6]
+data = {  # docs/evidence/experiment/strategy_matrix.json（2026-09-17 实测）
+    "strict":     [0, 0, 0, 0],
+    "executable": [7204, 7205, 7207, 7208],
+    "weighted":   [3603, 3606, 3606, 3608],
+}
+import numpy as _np
+x = _np.arange(len(rhos)); w = 0.26
+colors = {"strict": "#b9c8c1", "executable": G, "weighted": "#d9a441"}
+for i, (name, vals) in enumerate(data.items()):
+    ax1.bar(x + (i - 1) * w, vals, w, label=name, color=colors[name], edgecolor=BD, linewidth=0.6)
+ax1.set_xticks(x); ax1.set_xticklabels([f"ρ={r}" for r in rhos], fontsize=10)
+ax1.set_ylabel("候补平均等待（秒）", fontsize=10.5)
+ax1.set_title("释放名额的平均等待时长（strict 全部空置 =0）", fontsize=11)
+ax1.legend(fontsize=9.5, frameon=False); ax1.spines[["top", "right"]].set_visible(False)
+ax1.grid(axis="y", linestyle=":", alpha=0.5)
+jain = {"strict": [0.7385, 0.7935, 0.8028, 0.8176], "executable": [0.7319, 0.7801, 0.7893, 0.7940], "weighted": [0.7319, 0.7801, 0.7893, 0.7940]}
+for name, vals in jain.items():
+    ax2.plot(x, vals, marker="o", markersize=5, linewidth=1.6, label=name, color=colors[name])
+ax2.set_xticks(x); ax2.set_xticklabels([f"ρ={r}" for r in rhos], fontsize=10)
+ax2.set_ylim(0.70, 0.84); ax2.set_ylabel("Jain 公平指数", fontsize=10.5)
+ax2.set_title("Jain 公平指数（按用户获得预约数，1=完全公平）", fontsize=11)
+ax2.legend(fontsize=9.5, frameon=False, loc="lower right"); ax2.spines[["top", "right"]].set_visible(False)
+ax2.grid(axis="y", linestyle=":", alpha=0.5)
+fig.suptitle("三策略 × 四档负载的候补递补对比（确定性矩阵实验，容量 3 × 12 场次）", fontsize=11.5)
+fig.tight_layout(rect=[0, 0, 1, 0.94])
+fig.savefig(OUT / "fig6-1-strategies.png", dpi=160)
+plt.close(fig)
+print("saved fig6-1-strategies.png")
+
 print("全部插图生成完毕 →", OUT)
 if WARN:
     print("\n".join(WARN))

@@ -49,6 +49,19 @@
 | 5 | user07 同时段声明同一资源 | 409 资源配额已满（ASSET_QUOTA） |
 | 6 | 管理员开启该资源的维护工单 | user08 新声明 409；user06 既有预约不受影响；关闭工单后恢复 |
 
+## 路径 5：知情候补与三档策略（r25–r26）
+
+| 步骤 | 操作 | 预期 |
+| --- | --- | --- |
+| 1 | 找一个已满场次（或按路径 1 制造） | 预约卡下方"约束感知建议"面板逐场次列出可预约/可候补与原因 |
+| 2 | 加入候补 | 按钮显示"历史转正率约 X%"；成功提示"当前排第 N 位，历史转正概率约 X%"（样本不足时如实显示） |
+| 3 | （对照实例）`--waitlist-strategy weighted` 起第二实例，两用户候补同场，将先入队者入队时间 SQL 拨到 10 小时前，释放名额 | 久等者获得递补（aging 生效）；executable 对照下按入队序 |
+| 4 | 管理端 → 统计页 → 公平性审计表 | 按用户列出候补入队/转正/退出/平均等待秒，顶部 Jain 公平指数（≤1） |
+| 5 | （可选）`--waitlist-daily-limit 2` 实例候补第 3 次 | 409 WAITLIST_LIMIT，次日（SQL 拨时间）自动恢复 |
+
+> 走查记录（2026-09-17，v1.15.0）：路径 1–4 与新功能 N-1/N-2（概率字段、公平审计）经 API 等价走查全部通过；
+> 路径 5 步骤 3 的行为由集成 T70 钉死（含 executable 对照与信用压制、管理员不越级）。
+
 ## 凭据生命周期抽查（P1-7）
 
 1. user09 在"我的 → API 令牌"签发一枚令牌，用 `X-API-Token` 头以 GET 访问 `/api/me` 成功。
@@ -58,9 +71,9 @@
 ## 发布回归清单（每次发布前逐项勾选）
 
 - [ ] `powershell -File scripts/build.ps1`：构建通过且 24 个单元测试全绿
-- [ ] `python tests/integration.py --quick`：69 项断言组全绿（T01–T68 及 CLI 检查）
-- [ ] `python tests/contract_test.py`：47 端点契约 + 14 错误场景全绿
+- [ ] `python tests/integration.py --quick`：74 项断言组全绿（T01–T73 及 CLI 检查）
+- [ ] `python tests/contract_test.py`：49 端点契约 + 14 错误场景全绿
 - [ ] `python scripts/mixed_load.py --duration 30`：混合负载无 5xx、无请求错误，WAL 增长收敛，p99 在本机基线内
 - [ ] CI 三通道（构建与测试 / -fanalyzer 静态分析 / llvm-mingw ASan）绿
-- [ ] 上述 UAT 四路径 + 凭据抽查走通
+- [ ] 上述 UAT 五路径 + 凭据抽查走通
 - [ ] `docs/CHANGELOG.md` 与版本号（`src/app.h` LAB_VERSION）一致
