@@ -7,9 +7,13 @@
 结果写入 docs/evidence/doc/doc_results.json，退出码 0 表示全部通过。
 """
 from __future__ import annotations
-import argparse, datetime, json, pathlib, re
+import argparse, datetime, json, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+# CI（Windows runner）stdout 默认 cp1252，中文输出会 UnicodeEncodeError——强制 UTF-8
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 RESULTS = []
 
 ENDPOINT_RE = re.compile(r"\b(GET|POST)\s+(/api/[A-Za-z0-9/_{}?=&.,-]+)")
