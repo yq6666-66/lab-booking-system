@@ -116,6 +116,7 @@ $('logs-level').addEventListener('change',()=>loadLogs());
 $('sent-prev').addEventListener('click',()=>{if(state.sentPage>1){state.sentPage--;loadSent();}});
 $('sent-next').addEventListener('click',()=>{if(state.sentHasMore){state.sentPage++;loadSent();}});
 $('refresh-stats').addEventListener('click',()=>loadStats());
+$('refresh-fairness').addEventListener('click',()=>loadFairness());
 $('export-stats').addEventListener('click',()=>exportStats());
 async function exportUtil(){const start=$('stats-start').value,end=$('stats-end').value;if(!start||!end){note('请先选择统计的起止日期。',true);return;}const b=$('export-util');b.disabled=true;try{const d=await api('/api/admin/stats/utilization/export?start_date='+encodeURIComponent(start)+'&end_date='+encodeURIComponent(end));const blob=new Blob([d.content],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=d.filename||'utilization.csv';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);note('利用率报表已导出：'+(d.filename||'utilization.csv'));}catch(e){note(e.message,true);}finally{b.disabled=false;}}
 $('export-util').addEventListener('click',exportUtil);

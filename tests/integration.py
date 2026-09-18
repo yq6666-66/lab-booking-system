@@ -1812,6 +1812,89 @@ def feature_checks(s):
             require(st==200,f"昨日计入今日之外 → 放行: {st} {b}")
         return {"daily_limit":True}
     record("T73 waitlist daily limit",t73) # -- r26/waitlist-daily-limit
+    def t74(): # -- r29/property-weighted
+        """差分属性测试：weighted 递补与 Python 参考模型在 12 组随机场景下逐场一致。
+        参考模型 = score(1000·priority+200·(credit−5)+60·log₂(1+等待h)) 降序稳定排序
+        + 可执行扫描（跳过停用者与时间冲突者）；与 promote() 实测递补者对拍。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq, math as _math, random as _rnd
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="prop-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"pr.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"pr.db",
+                     extra=["--waitlist-strategy","weighted","--rate-burst","100000"]) as sq:
+            ad=Client(sq.port).login("admin")
+            time.sleep(1.2)
+            tag=uid()[:6]
+            lab1=ad.post("/api/admin/labs",{"name":"属性A"+tag,"location":"x","description":"p"})["data"]["lab_id"]
+            time.sleep(1.0)
+            lab2=ad.post("/api/admin/labs",{"name":"属性B"+tag,"location":"x","description":"p"})["data"]["lab_id"]
+            now=int(time.time())
+            base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+            occ=Client(sq.port).login("user18")
+            rnd=_rnd.Random(20260917)
+            pool=[f"user{i:02d}" for i in range(1,11)]
+            uid_by_name={n:sq.sql("SELECT id FROM users WHERE username=?",(n,))[0][0] for n in pool}
+            def ref_winner(slot,nowv):
+                rows=sq.sql("SELECT w.id,w.user_id,w.priority,w.created_at,u.credit,u.enabled FROM waitlist w JOIN users u ON u.id=w.user_id WHERE w.slot_id=? AND w.status='WAITING'",(slot,))
+                rows.sort(key=lambda r:(-r[2],r[0]))
+                scored=[]
+                for r in rows:
+                    wait_h=max(0.0,(nowv-r[3])/3600.0)
+                    sc=1000.0*r[2]+200.0*(r[4]-5)+60.0*max(0.0,_math.log2(1.0+wait_h))
+                    scored.append((sc,r))
+                scored.sort(key=lambda t:-t[0])
+                tgt=sq.sql("SELECT start_at,end_at FROM slots WHERE id=?",(slot,))[0]
+                for sc,r in scored:
+                    if not r[5]:continue
+                    clash=sq.sql("SELECT count(*) FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD') AND s.id<>? AND s.start_at<? AND ?<s.end_at",(r[1],slot,tgt[1],tgt[0]))[0][0]
+                    if clash:continue
+                    return r[1]
+                return None
+            mismatches=0
+            for rd in range(12):
+                st=base+rd*5400
+                with _sq.connect(sq.db,timeout=5) as conn:
+                    conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab1),st,st+3600,1))
+                    conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,9,NULL)",(int(lab2),st,st+3600,1))
+                    sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab1),st)).fetchone()[0]
+                    sid2=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab2),st)).fetchone()[0]
+                st_o,_=occ.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+                require(st_o==200,f"占位 r{rd}: {st_o}")
+                names=rnd.sample(pool,rnd.randint(3,6))
+                if rd==10: names.append("admin")
+                hours=rnd.sample(range(1,31),len(names))
+                wids={}
+                for n in names:
+                    c=Client(sq.port).login(n)
+                    stw,bw=c.request("POST","/api/waitlist",{"slot_id":str(sid),"request_id":uid()})
+                    require(stw==200,f"入队 {n} r{rd}: {stw} {bw}")
+                    wids[n]=bw["data"]["waitlist_id"]
+                with _sq.connect(sq.db,timeout=5) as conn:
+                    for n,h in zip(names,hours):
+                        conn.execute("UPDATE waitlist SET created_at=? WHERE id=?",(now-h*3600,wids[n]))
+                        conn.execute("UPDATE users SET credit=? WHERE username=?",(rnd.randint(1,5),n))  # ≥1 保证后续轮次仍可入队
+                    if rd==11:
+                        conn.execute("UPDATE users SET enabled=0 WHERE username='user03'")
+                for n in names:  # 30% 概率制造跨场冲突（入队后占 B 同时段）
+                    if n!="admin" and rnd.random()<0.3:
+                        c=Client(sq.port).login(n)
+                        c.request("POST","/api/reservations",{"slot_id":str(sid2),"request_id":uid()})
+                expected=ref_winner(sid,int(time.time()))
+                rid_o=sq.sql("SELECT id FROM reservations WHERE slot_id=? AND status IN('CONFIRMED','HELD') AND user_id=(SELECT id FROM users WHERE username='user18')",(sid,))[0][0]
+                stc,_=occ.request("POST",f"/api/reservations/{rid_o}/cancel",{"request_id":uid()})
+                require(stc==200,f"取消 r{rd}: {stc}")
+                prom=sq.sql("SELECT user_id FROM waitlist WHERE slot_id=? AND status='PROMOTED'",(sid,))
+                actual=prom[0][0] if prom else None
+                if expected!=actual:
+                    mismatches+=1
+                    print(f"  r{rd} 不一致: 期望 {expected} 实际 {actual}")
+                if rd==11:
+                    with _sq.connect(sq.db,timeout=5) as conn:
+                        conn.execute("UPDATE users SET enabled=1 WHERE username='user03'")
+            require(mismatches==0,f"12 轮差分一致（不一致 {mismatches} 轮）")
+        return {"rounds":12,"mismatches":0}
+    record("T74 differential property test for weighted promotion",t74) # -- r29/property-weighted
 
 
 def account_checks(s):

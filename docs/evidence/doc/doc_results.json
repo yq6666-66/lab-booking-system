@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-09-13T10:23:25.337390+00:00",
+  "timestamp_utc": "2026-09-17T17:24:56.533793+00:00",
   "checks_total": 7,
   "checks_passed": 7,
   "all_passed": true,
@@ -7,12 +7,12 @@
     {
       "name": "CONTRACT 声明的端点均在 src/http.c 中有路由",
       "passed": true,
-      "detail": "32 个端点在 src/http.c 中均有对应路由片段"
+      "detail": "58 个端点在 src/http.c 中均有对应路由片段"
     },
     {
       "name": "CONTRACT 的错误码均在服务端源码中出现",
       "passed": true,
-      "detail": "16 个错误码均在源码中使用：['ALREADY_RESERVED', 'CSRF', 'DATABASE_BUSY', 'FORBIDDEN', 'INTERNAL_ERROR', 'INVALID_INPUT', 'NOT_FOUND', 'RATE_LIMITED', 'REQUEST_ID_CONFLICT', 'ROLE_MISMATCH', 'SLOT_AVAILABLE', 'SLOT_FULL', 'STATE_CONFLICT', 'TOO_LARGE', 'UNAUTHORIZED', 'USERNAME_TAKEN']"
+      "detail": "25 个错误码均在源码中使用：['ALREADY_RESERVED', 'APPROVAL_CAPACITY', 'CREDIT_EXHAUSTED', 'CSRF', 'DATABASE_BUSY', 'FORBIDDEN', 'HOLD_EXPIRED', 'INTERNAL_ERROR', 'INVALID_INPUT', 'LEAD_TIME', 'NOT_FOUND', 'PENALTY_ACTIVE', 'RATE_LIMITED', 'REQUEST_ID_CONFLICT', 'ROLE_MISMATCH', 'SLOT_AVAILABLE', 'SLOT_FULL', 'STATE_CONFLICT', 'TIME_CONFLICT', 'TOO_LARGE', 'UNAUTHORIZED', 'USERNAME_TAKEN', 'WAITLIST_LIMIT', 'WEEKLY_QUOTA', 'WINDOW_CONFLICT']"
     },
     {
       "name": "契约声明了各状态码对应的错误码",
@@ -22,7 +22,7 @@
     {
       "name": "README.md 引用的本地文件均存在",
       "passed": true,
-      "detail": "13 个本地引用全部存在"
+      "detail": "14 个本地引用全部存在"
     },
     {
       "name": "关键文档齐全",

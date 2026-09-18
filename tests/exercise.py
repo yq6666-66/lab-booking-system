@@ -136,6 +136,25 @@ def main():
     u.request("GET","/api/me/calendar.ics")
     a.request("GET","/api/admin/asset-claims?start_date=2026-09-20&end_date=2026-09-26")
     a.request("GET","/api/admin/asset-claims/export?start_date=2026-09-20&end_date=2026-09-26")
+    # -- r29 覆盖走查扩：公平审计/确认/参数校验分支 --
+    a.request("GET","/api/admin/fairness?days=28")
+    a.request("GET","/api/admin/fairness?days=90")
+    a.request("GET","/api/admin/fairness?days=0")      # 400 分支
+    u.request("GET","/api/admin/fairness")              # 403 分支
+    import sqlite3 as _sq2
+    with _sq2.connect("artifacts/coverage-run/cov.db") as conn:
+        fslot=conn.execute("SELECT s.id FROM slots s WHERE s.start_at>strftime('%s','now') AND NOT EXISTS(SELECT 1 FROM reservations r WHERE r.slot_id=s.id AND r.user_id=2) ORDER BY s.start_at LIMIT 1").fetchone()
+        if fslot:
+            conn.execute("INSERT INTO reservations(user_id,slot_id,status,source,created_at,hold_deadline) VALUES(?,?,'HELD','WAITLIST',strftime('%s','now'),strftime('%s','now')+3600)",(2,fslot[0]))
+            hid=conn.execute("SELECT id FROM reservations WHERE status='HELD' ORDER BY id DESC LIMIT 1").fetchone()[0]
+        else:
+            hid=None
+    if hid:
+        with _sq2.connect("artifacts/coverage-run/cov.db") as conn:
+            huser=conn.execute("SELECT u.username FROM reservations r JOIN users u ON u.id=r.user_id WHERE r.id=?",(hid,)).fetchone()[0]
+        oc=Client(port).login(huser)
+        oc.request("POST",f"/api/reservations/{hid}/confirm",{"request_id":str(uuid.uuid4())})   # 200 分支
+        oc.request("POST",f"/api/reservations/{hid}/confirm",{"request_id":str(uuid.uuid4())})   # 409 已确认分支
     a.request("GET","/api/admin/users?page=1&page_size=5&q=user")
     import http.client as _hc  # /metrics 返回 Prometheus 纯文本，不走 JSON 客户端
     _c=_hc.HTTPConnection("127.0.0.1",port,timeout=5)

@@ -60,9 +60,9 @@ Creating 'stdlib.h.gcov'
 
 Lines executed:24.76% of 6026
 File 'vendor/cjson/cJSON.c'
-Lines executed:45.09% of 1404
+Lines executed:45.37% of 1404
 Branches executed:59.49% of 938
-Taken at least once:36.25% of 938
+Taken at least once:36.57% of 938
 Calls executed:45.16% of 217
 Creating 'cJSON.c.gcov'
 
@@ -72,7 +72,7 @@ No branches
 Calls executed:100.00% of 1
 Creating 'stdlib.h.gcov'
 
-Lines executed:45.16% of 1406
+Lines executed:45.45% of 1406
 File 'src/db.c'
 Lines executed:86.55% of 275
 Branches executed:86.27% of 408
@@ -82,13 +82,13 @@ Creating 'db.c.gcov'
 
 Lines executed:86.55% of 275
 File 'src/http.c'
-Lines executed:89.17% of 314
-Branches executed:86.24% of 654
-Taken at least once:56.57% of 654
-Calls executed:69.96% of 486
+Lines executed:89.94% of 318
+Branches executed:86.49% of 666
+Taken at least once:57.06% of 666
+Calls executed:70.47% of 491
 Creating 'http.c.gcov'
 
-Lines executed:89.17% of 314
+Lines executed:89.94% of 318
 File 'src/log.c'
 Lines executed:84.62% of 26
 Branches executed:100.00% of 22
@@ -98,13 +98,13 @@ Creating 'log.c.gcov'
 
 Lines executed:84.62% of 26
 File 'src/main.c'
-Lines executed:83.53% of 85
-Branches executed:50.72% of 276
-Taken at least once:34.06% of 276
-Calls executed:31.36% of 118
+Lines executed:82.56% of 86
+Branches executed:48.28% of 290
+Taken at least once:32.41% of 290
+Calls executed:30.58% of 121
 Creating 'main.c.gcov'
 
-Lines executed:83.53% of 85
+Lines executed:82.56% of 86
 File 'src/metrics.c'
 Lines executed:95.24% of 42
 Branches executed:85.71% of 42
@@ -128,18 +128,18 @@ Creating 'ratelimit.c.gcov'
 
 Lines executed:86.76% of 68
 File 'src/service.c'
-Lines executed:82.95% of 1220
-Branches executed:81.49% of 1480
-Taken at least once:47.03% of 1480
-Calls executed:62.33% of 1383
+Lines executed:81.48% of 1312
+Branches executed:79.48% of 1608
+Taken at least once:45.90% of 1608
+Calls executed:62.02% of 1443
 Creating 'service.c.gcov'
 
-Lines executed:82.95% of 1220
+Lines executed:81.48% of 1312
 File 'vendor/sqlite/sqlite3.c'
-Lines executed:45.23% of 49552
-Branches executed:50.07% of 33349
-Taken at least once:34.28% of 33349
-Calls executed:36.79% of 13162
+Lines executed:45.48% of 49552
+Branches executed:50.37% of 33349
+Taken at least once:34.56% of 33349
+Calls executed:36.95% of 13162
 Creating 'sqlite3.c.gcov'
 
 File 'C:/ProgramData/mingw64/mingw64/x86_64-w64-mingw32/include/psdk_inc/intrin-impl.h'
@@ -148,7 +148,7 @@ No branches
 No calls
 Creating 'intrin-impl.h.gcov'
 
-Lines executed:45.23% of 49553
+Lines executed:45.48% of 49553
 File 'tests/unit.c'
 Lines executed:100.00% of 460
 Branches executed:100.00% of 290
