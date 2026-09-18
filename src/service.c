@@ -1449,6 +1449,54 @@ static Id queue_rank(DB *d,Id slot,Id user){
  if(d->error)return 0;
  return ahead+1;
 }
+/* r30 预取辅助：一次查询取齐建议列表所需的排位与概率数据，替代逐场次的 N+1 查询。
+   rank：未入队用户在某场的排位 = Σ(priority≥本人优先级的 WAITING 计数)+1（与 queue_rank 对未入队者等价：
+   未入队时 id 上界子查询为 NULL→COALESCE 取 INT64_MAX，同优先级全部计入前方）；本人已 WAITING 该场时仍走精确 queue_rank。
+   概率：按星期分桶的历史释放经验分布（与 promote_probability 同口径，样本<5 为不下结论）。 */
+typedef struct{Id slot;Id cnt[11];} SuggRankRow;
+typedef struct{Id rel[8];int n;} SuggProbBucket; /* 每 weekday 一桶，35 天窗口同 weekday 已开场场次 ≤5 */
+static int suggestion_prefetch(DB *d,Id lab,Id near_bound,Id far_bound,
+                                  SuggRankRow **ranks,int *nrank,SuggProbBucket *prob /*[7]*/){
+ *ranks=NULL;*nrank=0;memset(prob,0,7*sizeof *prob);
+ cJSON *wr=db_rows(d,
+  "SELECT w.slot_id,w.priority,count(*) AS c FROM waitlist w JOIN users u ON u.id=w.user_id "
+  "WHERE w.status='WAITING' AND u.enabled=1 GROUP BY w.slot_id,w.priority","");
+ if(d->error)return -1;
+ int cap=16;*ranks=malloc(sizeof(SuggRankRow)*(size_t)cap);
+ if(!*ranks){cJSON_Delete(wr);return -1;}
+ for(cJSON *it=wr?wr->child:NULL;it;it=it->next){
+  Id sid=0,pr=0,c=0;
+  parse_id(jstr(it,"slot_id"),&sid);
+  cJSON *jp=cJSON_GetObjectItemCaseSensitive(it,"priority"),*jc=cJSON_GetObjectItemCaseSensitive(it,"c");
+  pr=(jp&&cJSON_IsNumber(jp))?(Id)jp->valuedouble:0;
+  c=(jc&&cJSON_IsNumber(jc))?(Id)jc->valuedouble:0;
+  if(pr<0)pr=0;if(pr>10)pr=10;
+  SuggRankRow *row=NULL;
+  for(int k=0;k<*nrank;k++)if((*ranks)[k].slot==sid){row=&(*ranks)[k];break;}
+  if(!row){
+   if(*nrank>=cap){cap*=2;SuggRankRow *nr=realloc(*ranks,sizeof(SuggRankRow)*(size_t)cap);if(!nr){free(*ranks);cJSON_Delete(wr);*ranks=NULL;return -1;}*ranks=nr;}
+   row=&(*ranks)[(*nrank)++];row->slot=sid;memset(row->cnt,0,sizeof row->cnt);
+  }
+  row->cnt[pr]+=c;
+ }
+ cJSON_Delete(wr);
+ cJSON *pr_rows=db_rows(d,
+  "SELECT ((s.start_at+28800)/86400+4)%7 AS wd,"
+  "(SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND ((r.status='CANCELLED' AND r.cancel_reason IN('USER','NO_SHOW','REJECTED')) OR r.status='EXPIRED')) AS rel "
+  "FROM slots s WHERE s.lab_id=? AND s.start_at<? AND s.start_at>? GROUP BY s.id",
+  "iii",lab,near_bound,far_bound);
+ if(d->error){free(*ranks);*ranks=NULL;return -1;}
+ for(cJSON *it=pr_rows?pr_rows->child:NULL;it;it=it->next){
+  cJSON *jw=cJSON_GetObjectItemCaseSensitive(it,"wd"),*jr=cJSON_GetObjectItemCaseSensitive(it,"rel");
+  int wd=(jw&&cJSON_IsNumber(jw))?(int)jw->valuedouble:0;
+  Id rel=(jr&&cJSON_IsNumber(jr))?(Id)jr->valuedouble:0;
+  if(wd<0||wd>6)continue;
+  SuggProbBucket *b=&prob[wd];
+  if(b->n<8)b->rel[b->n++]=rel;
+ }
+ cJSON_Delete(pr_rows);
+ return 0;
+}
 Result suggestion_list(DB *d,const User *u,const Config *cfg,Id lab,Id start){
  Id now=now_sec();
  cJSON *rows=db_rows(d,
@@ -1468,6 +1516,12 @@ Result suggestion_list(DB *d,const User *u,const Config *cfg,Id lab,Id start){
  if(d->error)return db_failure(d);
  cJSON *mine=db_rows(d,"SELECT s.start_at,s.end_at FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD')","i",u->id);
  if(d->error)return db_failure(d);
+ /* r30 预取：排位计数与星期分桶历史释放一次取齐（替代逐场次 N+1），本人已 WAITING 的场次仍走精确 queue_rank */
+ SuggRankRow *ranks;int nrank;SuggProbBucket probs[7];
+ if(suggestion_prefetch(d,lab,now-3600,now-35*86400,&ranks,&nrank,probs)){cJSON_Delete(rows);cJSON_Delete(mine);return db_failure(d);}
+ int my_prio=u->admin?10:0;
+ cJSON *mywait=db_rows(d,"SELECT slot_id FROM waitlist WHERE user_id=? AND status='WAITING'","i",u->id);
+ if(d->error){free(ranks);cJSON_Delete(rows);cJSON_Delete(mine);return db_failure(d);}
  cJSON *out=cJSON_CreateArray();
  for(cJSON *sl=rows?rows->child:NULL;sl;sl=sl->next){
   cJSON *jstart=cJSON_GetObjectItemCaseSensitive(sl,"start_at"),*jend=cJSON_GetObjectItemCaseSensitive(sl,"end_at");
@@ -1504,22 +1558,36 @@ Result suggestion_list(DB *d,const User *u,const Config *cfg,Id lab,Id start){
   cJSON_AddNumberToObject(item,"waiting_count",(wc&&cJSON_IsNumber(wc))?wc->valuedouble:0);
   cJSON_AddBoolToObject(item,"bookable",bookable);
   cJSON_AddBoolToObject(item,"joinable",joinable);
-  /* r26 知情候补：本人若入队的排位与历史转正概率（经验分布，样本不足为 null） */
-  Id rank=joinable?queue_rank(d,sid,u->id):0;
-  if(d->error)goto sug_fail_row;
-  cJSON_AddNumberToObject(item,"queue_ahead",(double)(rank>0?rank-1:0));
-  double prob=promote_probability(d,sid,rank>0?rank:1);
-  if(d->error)goto sug_fail_row;
-  if(prob<0)cJSON_AddNullToObject(item,"promote_probability");
-  else cJSON_AddNumberToObject(item,"promote_probability",prob);
+   /* r26 知情候补（r30 预取版）：排位与概率由预取结构计算；已 WAITING 该场时回退精确 queue_rank */
+   int im_waiting=0;
+   for(cJSON *mw=mywait;mw;mw=mw->next){Id wslot=0;parse_id(jstr(mw,"slot_id"),&wslot);if(wslot==sid){im_waiting=1;break;}}
+   Id rank=0;
+   if(!joinable)rank=0;
+   else if(im_waiting)rank=queue_rank(d,sid,u->id);
+   else{
+    Id ahead=0;const SuggRankRow *row=NULL;
+    for(int k=0;k<nrank;k++)if(ranks[k].slot==sid){row=&ranks[k];break;}
+    if(row)for(int p=my_prio;p<=10;p++)ahead+=row->cnt[p];
+    rank=ahead+1;
+   }
+   if(d->error)goto sug_fail_row;
+   cJSON_AddNumberToObject(item,"queue_ahead",(double)(rank>0?rank-1:0));
+   double prob=-1.0;
+   if(rank>0){
+    int wd2=(int)(((st+28800)/86400+4)%7);
+    const SuggProbBucket *b=&probs[wd2];
+    if(b->n>=5){Id hit=0;for(int k=0;k<b->n;k++)if(b->rel[k]>=rank)hit++;prob=(double)hit/(double)b->n;}
+   }
+   if(prob<0)cJSON_AddNullToObject(item,"promote_probability");
+   else cJSON_AddNumberToObject(item,"promote_probability",prob);
   cJSON_AddItemToObject(item,"reasons",reasons);
   cJSON_AddItemToArray(out,item);
   continue;
 sug_fail_row:
-  cJSON_Delete(reasons);cJSON_Delete(out);cJSON_Delete(rows);cJSON_Delete(mine);return db_failure(d);
+  cJSON_Delete(reasons);cJSON_Delete(out);cJSON_Delete(rows);cJSON_Delete(mine);cJSON_Delete(mywait);free(ranks);return db_failure(d);
  }
  #undef SUG_ADD
- cJSON_Delete(rows);cJSON_Delete(mine);
+ cJSON_Delete(rows);cJSON_Delete(mine);cJSON_Delete(mywait);free(ranks);
  cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"suggestions",out);
  return result(200,"OK","查询成功",j);
 }

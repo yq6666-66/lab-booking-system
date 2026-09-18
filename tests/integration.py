@@ -61,6 +61,9 @@ class Server:
         self.directory = pathlib.Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.db = self.directory / "test.db"
+        # 复用目录时必须连 WAL/SHM 一并清除，否则旧 WAL 重放进新库会造成索引损坏（r26 实验教训）
+        for stale in self.directory.glob("test.db-*"):
+            stale.unlink()
         shutil.copy2(baseline, self.db)
         self.executable, self.fault, self.fault_request = executable, fault, fault_request
         self.extra = list(extra or [])

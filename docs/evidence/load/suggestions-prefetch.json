@@ -1,0 +1,10 @@
+{
+  "date": "2026-09-19",
+  "environment": "Windows x64 回环，串行单连接 5 秒",
+  "scenario": "104 场次（40 场满员+候补），GET /api/suggestions 7 天窗口",
+  "baseline_qps": 118.4,
+  "optimized_qps": 179.2,
+  "speedup_pct": 51.4,
+  "method": "v1.15.0 单变量：r30 预取（排位计数 GROUP BY slot×priority + 星期分桶历史释放）替代逐场次 N+1（~4 SQL/场 → 3 SQL/请求）",
+  "equivalence": "集成 75/75（含 T69 建议/T71 概率数值断言）+ 契约 49/49 + E2E 6/6"
+}
