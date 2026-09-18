@@ -1560,7 +1560,7 @@ Result suggestion_list(DB *d,const User *u,const Config *cfg,Id lab,Id start){
   cJSON_AddBoolToObject(item,"joinable",joinable);
    /* r26 知情候补（r30 预取版）：排位与概率由预取结构计算；已 WAITING 该场时回退精确 queue_rank */
    int im_waiting=0;
-   for(cJSON *mw=mywait;mw;mw=mw->next){Id wslot=0;parse_id(jstr(mw,"slot_id"),&wslot);if(wslot==sid){im_waiting=1;break;}}
+   for(cJSON *mw=mywait?mywait->child:NULL;mw;mw=mw->next){Id wslot=0;parse_id(jstr(mw,"slot_id"),&wslot);if(wslot==sid){im_waiting=1;break;}} /* db_rows 返回数组：必须从 child 遍历（r31/T75 抓出） */
    Id rank=0;
    if(!joinable)rank=0;
    else if(im_waiting)rank=queue_rank(d,sid,u->id);

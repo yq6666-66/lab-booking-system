@@ -1898,6 +1898,53 @@ def feature_checks(s):
             require(mismatches==0,f"12 轮差分一致（不一致 {mismatches} 轮）")
         return {"rounds":12,"mismatches":0}
     record("T74 differential property test for weighted promotion",t74) # -- r29/property-weighted
+    def t75(): # -- r31/suggestions-rank-parity
+        """suggestions.queue_ahead 数值等价断言（独立实例）：未入场用户与已 WAITING 用户各一场，
+        预取计算值必须与 queue_rank 精确口径（SQL 手算）一致。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="rank-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"rk.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"rk.db",extra=["--rate-burst","100000"]) as sq:
+            adm=Client(sq.port).login("admin")
+            time.sleep(1.0)
+            lab=adm.post("/api/admin/labs",{"name":"排位对拍实验室"+uid()[:6],"location":"实验楼","description":"r"})["data"]["lab_id"]
+            now=int(time.time())
+            base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,2,NULL)",(int(lab),base,base+3600,1))
+                sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base)).fetchone()[0]
+            # 三位已有预约者占满，两位候补：user15 先入、user16 后入
+            for u in ("user17","user18"):
+                hst,hb=Client(sq.port).login(u).request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+                require(hst==200,f"holder {u}: {hst} {hb}")
+            w1=Client(sq.port).login("user15");w2=Client(sq.port).login("user16")
+            st,bw1=w1.request("POST","/api/waitlist",{"slot_id":str(sid),"request_id":uid()})
+            require(st==200,f"w1 join: {st} {bw1}")
+            wid1=int(bw1["data"]["waitlist_id"])
+            st,bw2=w2.request("POST","/api/waitlist",{"slot_id":str(sid),"request_id":uid()})
+            require(st==200,f"w2 join: {st}")
+            wid2=int(bw2["data"]["waitlist_id"])
+            day=time.strftime("%Y-%m-%d",time.localtime(base))
+            # 场景A：user14（未入队、优先级0）→ ahead = 全部 WAITING(priority>=0)=2
+            sugA=Client(sq.port).login("user14").request("GET",f"/api/suggestions?lab_id={lab}&date={day}")[1]["data"]["suggestions"]
+            rowA=[x for x in sugA if str(x["slot_id"])==str(sid)][0]
+            require(rowA["queue_ahead"]==2,f"未入队 ahead=2: {rowA['queue_ahead']}")
+            # 场景B：user15（已 WAITING、id=wid1 最小）→ ahead = 同优先级 id<wid1 计数=0
+            sugB=w1.request("GET",f"/api/suggestions?lab_id={lab}&date={day}")[1]["data"]["suggestions"]
+            rowB=[x for x in sugB if str(x["slot_id"])==str(sid)][0]
+            require(rowB["queue_ahead"]==0,f"已入队队首 ahead=0: {rowB['queue_ahead']}")
+            # 场景C：user16（已 WAITING、id=wid2）→ ahead = id<wid2 的同优先级 WAITING=1
+            sugC=w2.request("GET",f"/api/suggestions?lab_id={lab}&date={day}")[1]["data"]["suggestions"]
+            rowC=[x for x in sugC if str(x["slot_id"])==str(sid)][0]
+            require(rowC["queue_ahead"]==1,f"已入队第二位 ahead=1: {rowC['queue_ahead']}")
+            # 场景D：管理员（未入队、优先级10）→ ahead = priority>=10 计数=0
+            sugD=adm.request("GET",f"/api/suggestions?lab_id={lab}&date={day}")[1]["data"]["suggestions"]
+            rowD=[x for x in sugD if str(x["slot_id"])==str(sid)][0]
+            require(rowD["queue_ahead"]==0,f"管理员 ahead=0: {rowD['queue_ahead']}")
+            return {"parity":True}
+    record("T75 suggestions queue_ahead parity",t75) # -- r31/suggestions-rank-parity
 
 
 def account_checks(s):
