@@ -1,117 +1,181 @@
 {
-  "started": "2026-09-10T20:02:57.253773+00:00",
-  "seconds": 60,
+  "started": "2026-09-19T17:50:42.320258+00:00",
+  "seconds": 300,
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
   "samples": [
     {
-      "ws_mb": 7.39,
-      "peak_ws_mb": 71.32,
-      "handles": 109,
+      "ws_mb": 3.63,
+      "peak_ws_mb": 71.76,
+      "handles": 132,
       "t": 0.0,
       "requests": 2,
       "5xx": 0
     },
     {
-      "ws_mb": 9.43,
-      "peak_ws_mb": 71.32,
-      "handles": 150,
-      "t": 5.0,
-      "requests": 3113,
-      "5xx": 0
-    },
-    {
-      "ws_mb": 9.51,
-      "peak_ws_mb": 71.32,
-      "handles": 151,
-      "t": 10.0,
-      "requests": 5824,
-      "5xx": 0
-    },
-    {
-      "ws_mb": 9.66,
-      "peak_ws_mb": 71.32,
-      "handles": 150,
+      "ws_mb": 6.14,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
       "t": 15.0,
-      "requests": 8688,
+      "requests": 7860,
       "5xx": 0
     },
     {
-      "ws_mb": 9.61,
-      "peak_ws_mb": 71.32,
-      "handles": 151,
-      "t": 20.0,
-      "requests": 11620,
-      "5xx": 0
-    },
-    {
-      "ws_mb": 9.65,
-      "peak_ws_mb": 71.32,
-      "handles": 151,
-      "t": 25.0,
-      "requests": 14297,
-      "5xx": 0
-    },
-    {
-      "ws_mb": 9.43,
-      "peak_ws_mb": 71.32,
-      "handles": 150,
+      "ws_mb": 6.65,
+      "peak_ws_mb": 71.76,
+      "handles": 188,
       "t": 30.0,
-      "requests": 17020,
+      "requests": 15226,
       "5xx": 0
     },
     {
-      "ws_mb": 9.96,
-      "peak_ws_mb": 71.32,
-      "handles": 153,
-      "t": 35.0,
-      "requests": 19880,
+      "ws_mb": 0.21,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 45.1,
+      "requests": 16170,
       "5xx": 0
     },
     {
-      "ws_mb": 9.75,
-      "peak_ws_mb": 71.32,
-      "handles": 153,
-      "t": 40.0,
-      "requests": 22645,
+      "ws_mb": 0.21,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 60.1,
+      "requests": 16170,
       "5xx": 0
     },
     {
-      "ws_mb": 9.61,
-      "peak_ws_mb": 71.32,
-      "handles": 154,
-      "t": 45.0,
-      "requests": 25486,
+      "ws_mb": 0.07,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 75.1,
+      "requests": 16170,
       "5xx": 0
     },
     {
-      "ws_mb": 10.17,
-      "peak_ws_mb": 71.32,
-      "handles": 154,
-      "t": 50.0,
-      "requests": 28446,
+      "ws_mb": 0.21,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 90.1,
+      "requests": 16170,
       "5xx": 0
     },
     {
-      "ws_mb": 10.39,
-      "peak_ws_mb": 71.32,
-      "handles": 153,
-      "t": 55.0,
-      "requests": 31209,
+      "ws_mb": 0.07,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 105.2,
+      "requests": 16170,
+      "5xx": 0
+    },
+    {
+      "ws_mb": 0.21,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 120.3,
+      "requests": 16170,
+      "5xx": 0
+    },
+    {
+      "ws_mb": 0.07,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 135.3,
+      "requests": 16170,
+      "5xx": 0
+    },
+    {
+      "ws_mb": 0.21,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 150.3,
+      "requests": 16170,
+      "5xx": 0
+    },
+    {
+      "ws_mb": 0.21,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 165.4,
+      "requests": 16170,
+      "5xx": 0
+    },
+    {
+      "ws_mb": 0.21,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 180.4,
+      "requests": 16170,
+      "5xx": 0
+    },
+    {
+      "ws_mb": 0.07,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 195.5,
+      "requests": 16170,
+      "5xx": 0
+    },
+    {
+      "ws_mb": 0.21,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 210.5,
+      "requests": 16170,
+      "5xx": 0
+    },
+    {
+      "ws_mb": 0.21,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 225.5,
+      "requests": 16170,
+      "5xx": 0
+    },
+    {
+      "ws_mb": 0.21,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 240.5,
+      "requests": 16170,
+      "5xx": 0
+    },
+    {
+      "ws_mb": 0.07,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 255.6,
+      "requests": 16170,
+      "5xx": 0
+    },
+    {
+      "ws_mb": 0.21,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 270.6,
+      "requests": 16170,
+      "5xx": 0
+    },
+    {
+      "ws_mb": 0.21,
+      "peak_ws_mb": 71.76,
+      "handles": 186,
+      "t": 285.7,
+      "requests": 16170,
       "5xx": 0
     }
   ],
-  "requests": 34970,
+  "requests": 16170,
   "errors": 0,
   "5xx": 0,
   "working_set": {
-    "first_mb": 7.39,
-    "last_mb": 10.39,
-    "growth_mb": 3.0
+    "first_mb": 3.63,
+    "last_mb": 0.21,
+    "growth_mb": -3.42
   },
   "handles": {
-    "first": 109,
-    "last": 153,
-    "growth": 44
+    "first": 132,
+    "last": 186,
+    "growth": 54
   },
   "passed": true
 }

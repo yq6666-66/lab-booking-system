@@ -1,8 +1,8 @@
 {
-  "timestamp_utc": "2026-09-19T16:51:54.860520+00:00",
+  "timestamp_utc": "2026-09-19T17:05:16.509263+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
-  "endpoints_total": 50,
-  "endpoints_passed": 50,
+  "endpoints_total": 52,
+  "endpoints_passed": 52,
   "error_cases_total": 14,
   "error_cases_passed": 14,
   "all_passed": true,
@@ -252,6 +252,16 @@
       "name": "POST /api/admin/approvals/batch",
       "passed": true,
       "detail": "data 字段 ['failed', 'processed', 'succeeded']"
+    },
+    {
+      "name": "POST /api/admin/reservations/{fid}/force-cancel",
+      "passed": true,
+      "detail": "data 字段 ['promoted_reservation_id', 'reservation_id']"
+    },
+    {
+      "name": "POST /api/admin/reservations/{fid2}/force-complete",
+      "passed": true,
+      "detail": "data 字段 ['checked_out_at', 'reservation_id']"
     },
     {
       "name": "POST /api/me/sessions/{sid}/revoke",

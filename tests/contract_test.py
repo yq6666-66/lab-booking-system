@@ -204,6 +204,8 @@ SCHEMAS = [
     ("POST", "/api/admin/slots/publish",       {"created": T_INT}),
     ("POST", "/api/register",                  LOGIN_DATA),
     ("POST", "/api/admin/approvals/batch",     {"processed": T_INT, "succeeded": T_INT, "failed": arr(T_ANY)}),
+    ("POST", "/api/admin/reservations/{fid}/force-cancel", {"reservation_id": T_ID, "promoted_reservation_id": nb(T_ID)}),
+    ("POST", "/api/admin/reservations/{fid2}/force-complete", {"reservation_id": T_ID, "checked_out_at": nb(T_INT)}),  # 已签到未签退 → 代签退 200
     ("POST", "/api/me/sessions/{sid}/revoke",  "empty-or-obj"),
 ]
 
@@ -271,6 +273,16 @@ def run_scenarios(server):
     bind = {"today": today()}
     st, body = a.request("POST", "/api/reservations", {"slot_id": slot, "request_id": uid()})
     require(st == 200 and body["code"] == "OK", f"准备预约失败：{st} {body}")
+    import sqlite3 as _csql, time as _ctime
+    with _csql.connect(server.db, timeout=5) as _cc:
+        _now=int(_ctime.time())
+        _cd=((_now+2*86400+28800)//86400*86400-28800)+10*3600
+        _cc.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),_cd,_cd+3600,1))
+        _cs=_cc.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),_cd)).fetchone()[0]
+        _cc.execute("INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(2,?,'CONFIRMED','DIRECT',?)",(_cs,_now))
+        bind["fid"]=_cc.execute("SELECT id FROM reservations WHERE slot_id=? AND status='CONFIRMED' ORDER BY id DESC LIMIT 1",(_cs,)).fetchone()[0]
+        _cc.execute("INSERT INTO reservations(user_id,slot_id,status,source,created_at,checked_in_at) VALUES(2,?,'CONFIRMED','DIRECT',?,?)",(_cs,_now,_now-60))
+        bind["fid2"]=_cc.execute("SELECT id FROM reservations WHERE slot_id=? AND status='CONFIRMED' AND id<>? ORDER BY id DESC LIMIT 1",(_cs,bind["fid"])).fetchone()[0]
     bind["rid"] = body["data"]["reservation_id"]
     st, body = b.request("POST", "/api/waitlist", {"slot_id": slot, "request_id": uid()})
     require(st == 200 and body["code"] == "OK", f"准备候补失败：{st} {body}")
@@ -344,6 +356,8 @@ def run_scenarios(server):
                 payload = {"name": "契约资源", "spec": "contract-v2", "total": "3", "status": "AVAILABLE"}
             elif path_tpl == "/api/admin/slots/publish":
                 payload = {"lab_id": lab, "start_date": today(), "end_date": today()}
+            elif path_tpl.startswith("/api/admin/reservations/") and "/force-" in path_tpl:
+                payload = {"request_id": uid()}
             elif path_tpl == "/api/admin/approvals/batch":
                 payload = {"action": "approve", "ids": [999999], "request_id": uid()}  # 不存在的 id：failed[] 路径
             elif path_tpl == "/api/me/password":

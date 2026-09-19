@@ -302,7 +302,7 @@ def run(pw, exe) -> int:
                 page.set_default_timeout(8000)
                 page.set_default_navigation_timeout(15000)
                 attach_dialogs(page)
-            env = {"base": base, "admin_page": admin_page, "user_page": user_page, "lab": lab, "lab_name": lab_name}
+            env = {"base": base, "admin_page": admin_page, "user_page": user_page, "lab": lab, "lab_name": lab_name, "server": server}
             cases = [
                 ("case1 管理员双Tab登录跳转", lambda: case1(env), admin_page),
                 ("case2 场次修改流", lambda: case2(env), admin_page),
@@ -310,6 +310,7 @@ def run(pw, exe) -> int:
                 ("case4 用户端签到Tab与通知", lambda: case4(env), user_page),
                 ("case5 普通用户管理员入口403", lambda: case5(env), user_page),
                 ("case6 资源管理与用户端可见", lambda: case6(env), admin_page),
+                ("case7 管理员强制取消与用户端可见", lambda: case7(env), user_page),
             ]
             rows = []
             for name, fn, page_for_shot in cases:
@@ -377,6 +378,61 @@ def case6(env):
       sel: document.querySelector('#lab-select')?.value, raw: document.querySelector('#lab-assets')?.textContent.slice(0,80),
       bookViewHidden: document.querySelector('#book-view')?.hidden })""")
     require("E2E 示波器" in chips, f"用户端预约页未显示新资源 chips: {chips[:60]} diag={diag}")
+
+
+def case7(env):
+    """r35 管理员强制取消（API 层）+ 用户端记录页可见性。
+    前端 agent 交付管理端按钮前，用 API 驱动同一业务路径，保证端到端（DB→API→用户端渲染）被覆盖。"""
+    import http.client as _hc
+    import json as _json
+    import sqlite3 as _sq
+    import time as _time
+    import uuid as _uuid
+    server = env["server"]
+    port = server.port
+    def api_login(page, username):
+        body = _json.dumps({"username": username, "password": PASSWORD}).encode()
+        conn = _hc.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("POST", "/api/login", body, {"Content-Type": "application/json", "Origin": f"http://127.0.0.1:{port}"})
+        resp = conn.getresponse(); data = _json.loads(resp.read())
+        cookie = resp.getheader("Set-Cookie").split(";", 1)[0]
+        conn.close()
+        require(resp.status == 200 and data["code"] == "OK", f"e2e login {username}: {resp.status}")
+        return cookie, data["data"]["csrf_token"]
+    adm_ck, adm_cs = api_login(None, "admin")
+    u_ck, u_cs = api_login(None, "user07")
+    w_ck, w_cs = api_login(None, "user08")
+    def api(cookie, csrf, method, path, payload=None):
+        # POST 需通过 Origin 校验：与浏览器上下文一致的回环 Origin
+        h = {"Content-Type": "application/json", "Cookie": cookie, "X-CSRF-Token": csrf,
+             "Origin": f"http://127.0.0.1:{port}"}
+        body = _json.dumps(payload).encode() if payload is not None else None
+        conn = _hc.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request(method, path, body, h)
+        resp = conn.getresponse(); data = _json.loads(resp.read())
+        conn.close()
+        return resp.status, data
+    now = int(_time.time())
+    with _sq.connect(server.db, timeout=5) as c:
+        cd = ((now + 2*86400 + 28800)//86400*86400 - 28800) + 10*3600
+        c.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)", (int(env["lab"]), cd, cd+3600, 1))
+        row = c.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?", (int(env["lab"]), cd)).fetchone()
+        require(row is not None, f"case7 sid 未找到: lab={env['lab']} cd={cd}（前序用例可能改动场次）")
+        sid = row[0]
+    st, b = api(u_ck, u_cs, "POST", "/api/reservations", {"slot_id": str(sid), "request_id": str(_uuid.uuid4())})
+    require(st == 200, f"e2e reserve: {st} {b}")
+    rid = b["data"]["reservation_id"]
+    st, b = api(w_ck, w_cs, "POST", "/api/waitlist", {"slot_id": str(sid), "request_id": str(_uuid.uuid4())})
+    require(st == 200, f"e2e wait: {st} {b}")
+    # 管理员强制取消
+    st, b = api(adm_ck, adm_cs, "POST", f"/api/admin/reservations/{rid}/force-cancel", {"request_id": str(_uuid.uuid4())})
+    require(st == 200 and b["data"]["promoted_reservation_id"], f"e2e force-cancel: {st} {b}")
+    # 用户端记录页可见"已取消"（渲染层验证：打开我的记录）
+    user_page = env["user_page"]
+    user_page.evaluate("() => { const t = document.querySelector('[data-tab=mine]'); if (t) t.click(); }")
+    user_page.wait_for_timeout(800)
+    body_text = user_page.evaluate("() => document.body.textContent")
+    require("已取消" in body_text, "用户端记录页应显示已取消条目")
 
 def main():
     parser = argparse.ArgumentParser(description="R10 浏览器端到端验收（Playwright）")
