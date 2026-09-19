@@ -311,6 +311,7 @@ def run(pw, exe) -> int:
                 ("case5 普通用户管理员入口403", lambda: case5(env), user_page),
                 ("case6 资源管理与用户端可见", lambda: case6(env), admin_page),
                 ("case7 管理员强制取消与用户端可见", lambda: case7(env), user_page),
+                ("case8 管理端强制操作按钮", lambda: case8(env), admin_page),
             ]
             rows = []
             for name, fn, page_for_shot in cases:
@@ -433,6 +434,58 @@ def case7(env):
     user_page.wait_for_timeout(800)
     body_text = user_page.evaluate("() => document.body.textContent")
     require("已取消" in body_text, "用户端记录页应显示已取消条目")
+
+
+def case8(env):
+    """r36 预写：管理端批量审批与强制操作按钮（前端交付后自动启用）。
+    守卫：检测页面上是否存在 data-force-cancel 选择器；不存在则跳过（记 skipped 而非 failed），
+    前端 agent 交付包含 [data-force-cancel] 按钮后零改动生效。"""
+    admin_page = env["admin_page"]
+    # 守卫：按钮不存在时返回 skipped 标记
+    has_btn = admin_page.evaluate("() => !!document.querySelector('[data-force-cancel]')")
+    if not has_btn:
+        return {"skipped": True, "reason": "前端未交付强制操作按钮（[data-force-cancel]），跳过"}
+    # --- 以下在前端交付后执行 ---
+    import http.client as _hc, json as _json, sqlite3 as _sq, time as _time, uuid as _uuid
+    server = env["server"]; port = server.port
+    def api_login(username):
+        body = _json.dumps({"username": username, "password": PASSWORD}).encode()
+        conn = _hc.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("POST", "/api/login", body, {"Content-Type": "application/json", "Origin": f"http://127.0.0.1:{port}"})
+        r = conn.getresponse(); d = _json.loads(r.read())
+        ck = r.getheader("Set-Cookie").split(";", 1)[0]; conn.close()
+        require(r.status == 200, f"login {username}: {r.status}")
+        return ck, d["data"]["csrf_token"]
+    adm_ck, adm_cs = api_login("admin")
+    def api(cookie, csrf, method, path, payload=None):
+        h = {"Content-Type": "application/json", "Cookie": cookie, "X-CSRF-Token": csrf,
+             "Origin": f"http://127.0.0.1:{port}"}
+        body = _json.dumps(payload).encode() if payload is not None else None
+        conn = _hc.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request(method, path, body, h)
+        r = conn.getresponse(); d = _json.loads(r.read()); conn.close()
+        return r.status, d
+    # 造一条可强删的 CONFIRMED
+    now = int(_time.time())
+    with _sq.connect(server.db, timeout=5) as c:
+        cd = ((now + 3*86400 + 28800)//86400*86400 - 28800) + 11*3600
+        c.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)", (int(env["lab"]), cd, cd+3600, 1))
+        sid = c.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?", (int(env["lab"]), cd)).fetchone()[0]
+        c.execute("INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(2,?,'CONFIRMED','DIRECT',?)", (sid, now))
+        rid = c.execute("SELECT id FROM reservations WHERE slot_id=? AND status='CONFIRMED' ORDER BY id DESC LIMIT 1", (sid,)).fetchone()[0]
+    # UI 点击路径：进入全员记录 → 找到该行 → 点击强制取消按钮
+    admin_page.evaluate("() => { const t = document.querySelector('[data-tab=records]'); if (t) t.click(); }")
+    admin_page.wait_for_timeout(800)
+    btn = admin_page.query_selector(f"[data-rid='{rid}'] [data-force-cancel], [data-force-cancel][data-rid='{rid}']")
+    require(btn is not None, f"记录行未找到强制取消按钮: rid={rid}")
+    btn.click()
+    admin_page.wait_for_timeout(600)
+    st, b = api(adm_ck, adm_cs, "GET", "/api/admin/records?page=1&page_size=50")
+    # DB 终态
+    with _sq.connect(server.db, timeout=5) as c:
+        st_db = c.execute("SELECT status,cancel_reason FROM reservations WHERE id=?", (rid,)).fetchone()
+    require(st_db == ("CANCELLED", "ADMIN"), f"UI 强制取消后 DB 终态: {st_db}")
+    return {"rid": rid}
 
 def main():
     parser = argparse.ArgumentParser(description="R10 浏览器端到端验收（Playwright）")

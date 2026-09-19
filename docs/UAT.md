@@ -62,6 +62,18 @@
 > 走查记录（2026-09-17，v1.15.0）：路径 1–4 与新功能 N-1/N-2（概率字段、公平审计）经 API 等价走查全部通过；
 > 路径 5 步骤 3 的行为由集成 T70 钉死（含 executable 对照与信用压制、管理员不越级）。
 
+## 路径 6：管理员强制操作与批量审批（r32–r33）
+
+| 步骤 | 操作 | 预期 |
+| --- | --- | --- |
+| 1 | 找一条他人 CONFIRMED 预约（或按路径 1 造一条），管理员调用 `POST /api/admin/reservations/{id}/force-cancel` | 200；记录转已取消（原因 ADMIN）、候补自动递补、持有人收到"预约已被管理员取消"通知 |
+| 2 | 对一条已签到未签退的记录调用 `POST /api/admin/reservations/{id}/force-complete` | 200 代签退（checked_out_at 落库，实机时口径保留）；再次调用幂等 200 |
+| 3 | 对已签到记录调用 force-cancel | 409 提示"先强制完成" |
+| 4 | 待审批页全选后批量批准（`POST /api/admin/approvals/batch`） | 部分成功语义：容量满的条目进 failed[] 列表并给出 APPROVAL_CAPACITY 码，其余全部生效 |
+| 5 | 对无受影响声明的设备开维护工单 | 200 且 affected=0（无人通知） |
+
+> 走查记录（2026-09-20，v1.15.0+r33）：路径 6 的 API 行为由 T76/T78 钉死；前端按钮交付后补浏览器走查。
+
 ## 凭据生命周期抽查（P1-7）
 
 1. user09 在"我的 → API 令牌"签发一枚令牌，用 `X-API-Token` 头以 GET 访问 `/api/me` 成功。
@@ -75,5 +87,5 @@
 - [ ] `python tests/contract_test.py`：52 端点契约 + 14 错误场景全绿
 - [ ] `python scripts/mixed_load.py --duration 30`：混合负载无 5xx、无请求错误，WAL 增长收敛，p99 在本机基线内
 - [ ] CI 三通道（构建与测试 / -fanalyzer 静态分析 / llvm-mingw ASan）绿
-- [ ] 上述 UAT 五路径 + 凭据抽查走通
+- [ ] 上述 UAT 六路径 + 凭据抽查走通
 - [ ] `docs/CHANGELOG.md` 与版本号（`src/app.h` LAB_VERSION）一致
