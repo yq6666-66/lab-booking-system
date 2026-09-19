@@ -1200,9 +1200,14 @@ def feature_checks(s):
         st,b=adm.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"open","reason":"例行保养","request_id":uid()})
         require(st==200,f"open work order: {st} {b}")
         require(s.sql("SELECT status FROM assets WHERE id=?",(int(aid),))[0][0]=="MAINTENANCE","status MAINTENANCE")
+        time.sleep(1.6)  # r32 后工单开单带事务+受影响通知，CI 慢机上密集请求易撞令牌桶——先等补充
         st2,b2=adm.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"open","request_id":uid()})
-        require(st2==409,f"duplicate open rejected: {st2} {b2}")
-        time.sleep(1.5)
+        require(st2 in (409,429),f"duplicate open rejected(或限流重试): {st2} {b2}")
+        if st2==429:
+            time.sleep(1.6)
+            st2,b2=adm.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"open","request_id":uid()})
+            require(st2==409,f"duplicate open rejected: {st2} {b2}")
+        time.sleep(1.6)
         st3,_=adm.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"close","request_id":uid()})
         require(st3==200,f"close work order: {st3}")
         require(s.sql("SELECT status FROM assets WHERE id=?",(int(aid),))[0][0]=="AVAILABLE","status restored")
