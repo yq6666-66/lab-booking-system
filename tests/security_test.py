@@ -41,7 +41,8 @@ def main():
         user_count=server.sql("SELECT count(*) FROM users")[0][0]
         require(user_count==21,f"user count changed: {user_count}")
         tables=server.sql("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN "
-            "('users','sessions','labs','slots','reservations','waitlist','request_receipts','operation_events','notifications')")
+            "('users','sessions','labs','slots','reservations','waitlist','request_receipts','operation_events','notifications',"
+            "'assets','asset_claims','api_tokens','credit_ledger','asset_windows','asset_maintenance','qualifications','outbox')")  # r13-r24 扩展表（r37 同步）
         require(len(tables)==0,f"unexpected tables: {tables}")
 
         # === 2. 用户名时序侧信道 ===
