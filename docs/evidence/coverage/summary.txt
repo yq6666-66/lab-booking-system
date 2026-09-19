@@ -1,8 +1,8 @@
 ﻿src/db.c -> Lines executed:86.55% of 275
-src/http.c -> Lines executed:89.94% of 318
+src/http.c -> Lines executed:89.81% of 324
 src/log.c -> Lines executed:84.62% of 26
 src/main.c -> Lines executed:82.56% of 86
 src/metrics.c -> Lines executed:95.24% of 42
 src/ratelimit.c -> Lines executed:86.76% of 68
-src/service.c -> Lines executed:81.48% of 1312
+src/service.c -> Lines executed:80.34% of 1490
 src/util.c -> Lines executed:98.08% of 52

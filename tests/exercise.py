@@ -136,6 +136,19 @@ def main():
     u.request("GET","/api/me/calendar.ics")
     a.request("GET","/api/admin/asset-claims?start_date=2026-09-20&end_date=2026-09-26")
     a.request("GET","/api/admin/asset-claims/export?start_date=2026-09-20&end_date=2026-09-26")
+    # -- r33-34 覆盖走查扩：强制操作与批量审批 --
+    # force-complete（未签到 409 分支）与 force-cancel（未签到 CONFIRMED 可取消 200 分支）
+    frows=a.request("GET","/api/admin/records?date=2026-09-20&page=1&page_size=50")[1]["data"]["reservations"]
+    fcand=[r for r in (frows or []) if r.get("status")=="CONFIRMED"]
+    if fcand:
+        fid=str(fcand[0]["id"])
+        a.request("POST",f"/api/admin/reservations/{fid}/force-complete",{"request_id":str(uuid.uuid4())})  # 未签到→409
+        a.request("POST",f"/api/admin/reservations/{fid}/force-cancel",{"request_id":str(uuid.uuid4())})    # CONFIRMED→200+ADMIN
+        a.request("POST",f"/api/admin/reservations/{fid}/force-cancel",{"request_id":str(uuid.uuid4())})    # 已取消→409
+    a.request("POST","/api/admin/reservations/999999/force-cancel",{"request_id":str(uuid.uuid4())})          # 404
+    # 批量审批（ids 空数组 400 / 不存在 id 走 failed[] 200）
+    a.request("POST","/api/admin/approvals/batch",{"action":"approve","ids":[],"request_id":str(uuid.uuid4())})
+    a.request("POST","/api/admin/approvals/batch",{"action":"reject","ids":[999999],"request_id":str(uuid.uuid4())})
     # -- r29 覆盖走查扩：公平审计/确认/参数校验分支 --
     a.request("GET","/api/admin/fairness?days=28")
     a.request("GET","/api/admin/fairness?days=90")
