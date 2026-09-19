@@ -78,6 +78,8 @@ Result reservation_reschedule(DB *db,const Config *cfg,const User *u,Id target,I
 Result reservation_approval(DB *db,const User *u,Id target,int approve,const char *request_id);
 /* r32 批量审批：一个事务内逐条执行（部分成功语义，失败项入 failed[]） */
 Result reservation_approval_batch(DB *db,const User *u,const cJSON *body,const char *request_id);
+/* r33 管理员强制操作：force-complete（代签退）/force-cancel（ADMIN 取消+补位+通知） */
+Result reservation_force(DB *db,const Config *cfg,const User *u,Id target,const char *op,const char *request_id);
 Result utilization_export(DB *db,Id start,Id end);
 Result notifications_sent(DB *db,int page,int size);
 Result logs_tail(int lines,int level);

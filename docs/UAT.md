@@ -71,7 +71,7 @@
 ## 发布回归清单（每次发布前逐项勾选）
 
 - [ ] `powershell -File scripts/build.ps1`：构建通过且 24 个单元测试全绿
-- [ ] `python tests/integration.py --quick`：78 项断言组全绿（T01–T77 及 CLI 检查）
+- [ ] `python tests/integration.py --quick`：79 项断言组全绿（T01–T78 及 CLI 检查）
 - [ ] `python tests/contract_test.py`：50 端点契约 + 14 错误场景全绿
 - [ ] `python scripts/mixed_load.py --duration 30`：混合负载无 5xx、无请求错误，WAL 增长收敛，p99 在本机基线内
 - [ ] CI 三通道（构建与测试 / -fanalyzer 静态分析 / llvm-mingw ASan）绿

@@ -2,6 +2,21 @@
 
 本项目遵循语义化版本。所有重要变更记录于此。
 
+## [未发布] - r33
+
+第三十三轮（后端功能）：管理员强制操作与公平审计 N+1 消除。
+
+### 新增
+- **管理员强制完成/取消** `POST /api/admin/reservations/{id}/force-complete|force-cancel`（现场运营：设备损坏/用户失联/突发闭馆）：force-complete 对已签到未签退者代签退（保实机时口径）；force-cancel 对 CONFIRMED/HELD/PENDING 置 CANCELLED/**cancel_reason='ADMIN'**（CHECK 枚举扩展，幂等迁移重建）+ 同事务 FIFO 递补 + 双向通知；已签到记录不可直接 force-cancel（先 force-complete），T78。
+- **公平审计 N+1 消除**：fairness_admin 从 7 相关子查询×每用户改为 6 条 GROUP BY 预聚合 + 内存拼装（granted 排序经 LEFT JOIN 下推 SQL）。
+
+### 修复
+- 第 13 例 JSON 取值类缺陷：force 路径对 `_id` 字符串列用 valuedouble 取值恒 0 → 通知外键违规 500（必须 parse_id）。
+- T46 日期边界 flaky：周六深夜运行时 base 落下周一 9 点，-7d 挪动后恰落本周一 9:00=week_start 仍被计数（改 -8d）。
+
+### 变更
+- 集成断言 78 → 79（T01–T78 及 CLI）；契约 50 端点（force 两端点待前端集成后入契约）。
+
 ## [未发布] - r32
 
 第三十二轮（后端功能）：批量审批与维护影响通知。

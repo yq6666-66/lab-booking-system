@@ -1676,33 +1676,99 @@ sug_fail_row:
    并给出全站 Jain 公平指数 = (Σx)²/(n·Σx²)，x 为该用户近 N 天获得预约数（任何状态，代表资源获取机会）。 -- */
 Result fairness_admin(DB *d,int days){
  Id now=now_sec();Id since=now-(Id)days*86400;
- cJSON *rows=db_rows(d,
-  "SELECT u.id,u.username,"
-  "(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.created_at>=?) AS joined,"
-  "(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.status='PROMOTED' AND w.created_at>=?) AS promoted,"
-  "(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.status='WITHDRAWN' AND w.created_at>=?) AS withdrawn,"
-  "(SELECT count(*) FROM waitlist w WHERE w.user_id=u.id AND w.status='SKIPPED' AND w.created_at>=?) AS skipped,"
-  "(SELECT avg(r.created_at-w.created_at) FROM waitlist w JOIN reservations r ON r.id=w.promoted_reservation_id WHERE w.user_id=u.id AND w.status='PROMOTED' AND w.created_at>=?) AS avg_wait_s,"
-  "(SELECT count(*) FROM reservations r WHERE r.user_id=u.id AND r.created_at>=?) AS granted "
-  "FROM users u WHERE u.enabled=1 ORDER BY granted DESC,joined DESC,u.id",
-  "iiiiii",since,since,since,since,since,since);
- if(d->error)return db_failure(d);
+ /* r33 N+1 消除：7 个相关子查询×每用户 → 4 条 GROUP BY 预聚合并内存拼装（与 r30 建议端点同手法） */
+ cJSON *wjoin=db_rows(d,"SELECT user_id,count(*) AS c FROM waitlist WHERE created_at>=? GROUP BY user_id","i",since);
+ cJSON *wprom=db_rows(d,"SELECT user_id,count(*) AS c FROM waitlist WHERE status='PROMOTED' AND created_at>=? GROUP BY user_id","i",since);
+ cJSON *wwd=db_rows(d,"SELECT user_id,count(*) AS c FROM waitlist WHERE status='WITHDRAWN' AND created_at>=? GROUP BY user_id","i",since);
+ cJSON *wsk=db_rows(d,"SELECT user_id,count(*) AS c FROM waitlist WHERE status='SKIPPED' AND created_at>=? GROUP BY user_id","i",since);
+ cJSON *wwait=db_rows(d,"SELECT w.user_id,avg(r.created_at-w.created_at) AS a FROM waitlist w JOIN reservations r ON r.id=w.promoted_reservation_id WHERE w.status='PROMOTED' AND w.created_at>=? GROUP BY w.user_id","i",since);
+ cJSON *gcount=db_rows(d,"SELECT user_id,count(*) AS c FROM reservations WHERE created_at>=? GROUP BY user_id","i",since);
+ if(d->error){cJSON_Delete(wjoin);cJSON_Delete(wprom);cJSON_Delete(wwd);cJSON_Delete(wsk);cJSON_Delete(wwait);cJSON_Delete(gcount);return db_failure(d);}
+ cJSON *users=db_rows(d,"SELECT u.id,u.username,COALESCE(g.c,0) AS granted FROM users u LEFT JOIN (SELECT user_id,count(*) AS c FROM reservations WHERE created_at>=? GROUP BY user_id) g ON g.user_id=u.id WHERE u.enabled=1 ORDER BY granted DESC,u.id","i",since);
+ if(d->error){cJSON_Delete(wjoin);cJSON_Delete(wprom);cJSON_Delete(wwd);cJSON_Delete(wsk);cJSON_Delete(wwait);cJSON_Delete(gcount);return db_failure(d);}
+ cJSON *out=cJSON_CreateArray();
  double sum=0,sum2=0;long long n=0;
- for(cJSON *it=rows?rows->child:NULL;it;it=it->next){
-  cJSON *g=cJSON_GetObjectItemCaseSensitive(it,"granted");
-  double x=(g&&cJSON_IsNumber(g))?g->valuedouble:0;
-  sum+=x;sum2+=x*x;n++;
-  cJSON *aw=cJSON_GetObjectItemCaseSensitive(it,"avg_wait_s");
-  if(!aw||!cJSON_IsNumber(aw))cJSON_AddNullToObject(it,"avg_wait_s");
+ for(cJSON *u=users?users->child:NULL;u;u=u->next){
+  Id uid=0;parse_id(jstr(u,"id"),&uid);
+  cJSON *row=cJSON_CreateObject();
+  jid(row,"id",uid);
+  cJSON_AddStringToObject(row,"username",jstr(u,"username"));
+  Id joined=0,promoted=0,withdrawn=0,skipped=0,granted=0;double avgwait=0;int has_wait=0;
+  cJSON *it;
+  cJSON_ArrayForEach(it,wjoin){Id x=0;parse_id(jstr(it,"user_id"),&x);if(x==uid){joined=(Id)cJSON_GetObjectItemCaseSensitive(it,"c")->valuedouble;break;}}
+  cJSON_ArrayForEach(it,wprom){Id x=0;parse_id(jstr(it,"user_id"),&x);if(x==uid){promoted=(Id)cJSON_GetObjectItemCaseSensitive(it,"c")->valuedouble;break;}}
+  cJSON_ArrayForEach(it,wwd){Id x=0;parse_id(jstr(it,"user_id"),&x);if(x==uid){withdrawn=(Id)cJSON_GetObjectItemCaseSensitive(it,"c")->valuedouble;break;}}
+  cJSON_ArrayForEach(it,wsk){Id x=0;parse_id(jstr(it,"user_id"),&x);if(x==uid){skipped=(Id)cJSON_GetObjectItemCaseSensitive(it,"c")->valuedouble;break;}}
+  cJSON_ArrayForEach(it,wwait){Id x=0;parse_id(jstr(it,"user_id"),&x);if(x==uid){cJSON *a=cJSON_GetObjectItemCaseSensitive(it,"a");if(a&&cJSON_IsNumber(a)){avgwait=a->valuedouble;has_wait=1;}break;}}
+  {cJSON *gc=cJSON_GetObjectItemCaseSensitive(u,"granted");granted=(gc&&cJSON_IsNumber(gc))?(Id)gc->valuedouble:0;}
+  cJSON_AddNumberToObject(row,"joined",(double)joined);
+  cJSON_AddNumberToObject(row,"promoted",(double)promoted);
+  cJSON_AddNumberToObject(row,"withdrawn",(double)withdrawn);
+  cJSON_AddNumberToObject(row,"skipped",(double)skipped);
+  if(has_wait)cJSON_AddNumberToObject(row,"avg_wait_s",avgwait);else cJSON_AddNullToObject(row,"avg_wait_s");
+  cJSON_AddNumberToObject(row,"granted",(double)granted);
+  cJSON_AddItemToArray(out,row);
+  sum+=(double)granted;sum2+=(double)granted*(double)granted;n++;
  }
+ cJSON_Delete(wjoin);cJSON_Delete(wprom);cJSON_Delete(wwd);cJSON_Delete(wsk);cJSON_Delete(wwait);cJSON_Delete(gcount);cJSON_Delete(users);
  double jain=(n>0&&sum2>0)?(sum*sum)/((double)n*sum2):1.0;
  cJSON *j=cJSON_CreateObject();
- cJSON_AddItemToObject(j,"users",rows);
+ cJSON_AddItemToObject(j,"users",out);
  cJSON_AddNumberToObject(j,"jain_index",jain);
  cJSON_AddNumberToObject(j,"days",(double)days);
  cJSON_AddStringToObject(j,"jain_definition","(Σx)²/(n·Σx²)，x=该用户窗口内获得预约数；1 为完全公平");
  cJSON_AddStringToObject(j,"wait_definition","avg_wait_s=转正时刻(reservations.created_at)−入队时刻(waitlist.created_at)的均值");
  return result(200,"OK","查询成功",j);
+}
+/* -- r33 管理员强制操作（现场运营：设备损坏/用户失联/突发闭馆）：
+   force-complete：CONFIRMED 且已签到未签退 → 代签退（checked_out_at=now，保实机时口径），用户不需在场；
+   force-cancel：CONFIRMED/HELD/PENDING 任意 → CANCELLED（cancel_reason='ADMIN'，扩展原因枚举）+ 同事务 FIFO 补位 + 通知。
+   不能对已签到者 force-cancel（先 force-complete 或让爽约回收处理，避免签到中记录被取消的矛盾状态）。 -- */
+Result reservation_force(DB *d,const Config *cfg,const User *u,Id target,const char *op,const char *key){
+ Result r={500,NULL};cJSON *row=NULL;
+ if(!db_run(d,"BEGIN IMMEDIATE",""))return db_failure(d);
+ row=db_first(d,"SELECT r.user_id,r.status,r.checked_in_at,r.checked_out_at,r.slot_id,s.start_at,s.end_at FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE r.id=?","i",target);
+ if(d->error)goto force_fail;
+ if(!row){r=result(404,"NOT_FOUND","记录不存在",NULL);goto force_save;}
+ if(!strcmp(op,"force-complete")){
+  if(strcmp(jstr(row,"status"),"CONFIRMED")){r=result(409,"STATE_CONFLICT","仅有效预约可强制完成",NULL);goto force_save;}
+  {cJSON *ci=cJSON_GetObjectItemCaseSensitive(row,"checked_in_at");
+   if(!(ci&&cJSON_IsNumber(ci)&&ci->valuedouble>0)){r=result(409,"STATE_CONFLICT","该预约尚未签到，请用强制取消",NULL);goto force_save;}}
+  {cJSON *co=cJSON_GetObjectItemCaseSensitive(row,"checked_out_at");
+   if(co&&cJSON_IsNumber(co)&&co->valuedouble>0){
+    cJSON *j=cJSON_CreateObject();jid(j,"reservation_id",target);cJSON_AddNumberToObject(j,"checked_out_at",co->valuedouble);
+    r=result(200,"OK","该预约已签退",j);goto force_save;}}
+  {Id when=now_sec();
+   if(!db_run(d,"UPDATE reservations SET checked_out_at=? WHERE id=?","ii",when,target))goto force_fail;
+   {Id owner=0;parse_id(jstr(row,"user_id"),&owner);
+    event(d,u->id,"FORCE_COMPLETE",target,key);
+    {Id fslot=0;parse_id(jstr(row,"slot_id"),&fslot); /* _id 列是 jid 字符串，必须 parse_id（第 13 例） */
+     notify(d,owner,"NOTICE","预约已被管理员结束","管理员已结束你的本次使用（视为已签退），如有疑问请联系管理员。",fslot,target);}}
+   cJSON *j=cJSON_CreateObject();jid(j,"reservation_id",target);cJSON_AddNumberToObject(j,"checked_out_at",(double)when);
+   r=result(200,"OK","已强制完成（代签退）",j);}
+ }else{ /* force-cancel */
+  const char *st=jstr(row,"status");
+  if(strcmp(st,"CONFIRMED")&&strcmp(st,"HELD")&&strcmp(st,"PENDING")){r=result(409,"STATE_CONFLICT","该状态不可强制取消",NULL);goto force_save;}
+  {cJSON *ci=cJSON_GetObjectItemCaseSensitive(row,"checked_in_at");
+   if(ci&&cJSON_IsNumber(ci)&&ci->valuedouble>0){r=result(409,"STATE_CONFLICT","已签到记录不可强制取消（请先强制完成）",NULL);goto force_save;}}
+  {Id owner=0,slot2=0;parse_id(jstr(row,"user_id"),&owner);parse_id(jstr(row,"slot_id"),&slot2); /* _id 列 parse_id（第 13 例） */
+   if(!db_run(d,"UPDATE reservations SET status='CANCELLED',cancelled_at=?,cancel_reason='ADMIN',hold_deadline=NULL WHERE id=?","ii",now_sec(),target))goto force_fail;
+   event(d,u->id,"FORCE_CANCEL",target,key);
+   notify(d,owner,"NOTICE","预约已被管理员取消","你的预约被管理员取消（名额已按候补顺序释放），如有疑问请联系管理员。",slot2,target);
+   Id promoted=promote_fill(d,cfg,slot2,u->id,key);
+   if(d->error)goto force_fail;
+   cJSON *j=cJSON_CreateObject();jid(j,"reservation_id",target);
+   if(promoted)jid(j,"promoted_reservation_id",promoted);else cJSON_AddNullToObject(j,"promoted_reservation_id");
+   r=result(200,"OK","已强制取消，候补已按规则递补",j);}
+ }
+force_save:
+ if(d->error)goto force_fail;
+ if(!r.body){d->error=SQLITE_NOMEM;goto force_fail;}
+ if(!db_run(d,"COMMIT",""))goto force_fail;
+ cJSON_Delete(row);
+ return r;
+force_fail:
+ sqlite3_exec(d->sql,"ROLLBACK",NULL,NULL,NULL);cJSON_Delete(row);cJSON_Delete(r.body);return db_failure(d);
 }
 /* -- r23 信用流水：用户看自己的账本，每次增减都有原因与关联预约，规则对用户透明。 -- */
 Result credit_history(DB *d,const User *u,int page,int size){

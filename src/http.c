@@ -105,11 +105,14 @@ static int pager(const struct mg_request_info *ri,int *page,int *size){
  char a[16]={0},b[16]={0};query(ri,"page",a,sizeof a);query(ri,"page_size",b,sizeof b);
  int p=page_arg(a,1,1,1000000),s=page_arg(b,20,1,200);if(p<0||s<0)return 0;*page=p;*size=s;return 1;
 }
-static Result admin(DB *d,const User *u,const char *path,const cJSON *body){
+static Result admin(DB *d,const Config *cfg,const User *u,const char *path,const cJSON *body){
  Id target=0;
  if(!strcmp(path,"/api/admin/approvals/batch")){ /* r32 批量审批（部分成功语义） */
   const char *kb=jstr(body,"request_id");if(!uuid_valid(kb))return invalid();
   return reservation_approval_batch(d,u,body,kb);}
+ {Id ftarget=0; /* r33 管理员强制操作 */
+  if(path_id(path,"/api/admin/reservations/","/force-complete",&ftarget)){const char *k3=jstr(body,"request_id");if(!uuid_valid(k3))return invalid();return reservation_force(d,cfg,u,ftarget,"force-complete",k3);}
+  if(path_id(path,"/api/admin/reservations/","/force-cancel",&ftarget)){const char *k3=jstr(body,"request_id");if(!uuid_valid(k3))return invalid();return reservation_force(d,cfg,u,ftarget,"force-cancel",k3);}}
  if(!strcmp(path,"/api/admin/slots/publish")){
   Id lab=0,start=date_start(jstr(body,"start_date")),end=date_start(jstr(body,"end_date")),capacity=1;
   cJSON *cap=cJSON_GetObjectItemCaseSensitive(body,"capacity");
@@ -289,7 +292,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   if(path_id(path,"/api/me/tokens/","/revoke",&tok_id)){if(!uuid_valid(k))return invalid();return token_revoke(d,&u,tok_id,k);}
   if(path_hex(path,"/api/me/sessions/","/revoke",sh,sizeof sh)){if(!uuid_valid(k))return invalid();return session_revoke(d,&u,sh,k);}
  }
- if(!strncmp(path,"/api/admin/",11)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return admin(d,&u,path,body);}
+ if(!strncmp(path,"/api/admin/",11)){if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);return admin(d,cfg,&u,path,body);}
  const char *action=NULL;Id target=0;
  if(!strcmp(path,"/api/me/tokens"))return token_create(d,&u,body);
  if(!strcmp(path,"/api/reservations/batch")){const char *k2=jstr(body,"request_id");if(!uuid_valid(k2))return invalid();return reservation_batch(d,cfg,&u,body,k2);}

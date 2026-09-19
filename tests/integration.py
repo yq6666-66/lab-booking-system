@@ -857,8 +857,9 @@ def feature_checks(s):
             st3,b3=ru.request("POST","/api/reservations",{"slot_id":str(sids[2]),"request_id":uid()})
             require(st3==409 and b3["code"]=="WEEKLY_QUOTA",f"weekly quota: {st3} {b3}")
             # 跨周重置：把一单挪到上周 → 本周计数减一，可再约
+            # -8d（而非 -7d）：base 在深夜/周日计算时落在下周一 9 点，-7d 恰落本周一 9:00=week_start 仍被计数（日期边界 flaky）
             with _sq.connect(sq.db,timeout=5) as conn:
-                conn.execute("UPDATE slots SET start_at=start_at-7*86400,end_at=end_at-7*86400 WHERE id=?",(sids[0],))
+                conn.execute("UPDATE slots SET start_at=start_at-8*86400,end_at=end_at-8*86400 WHERE id=?",(sids[0],))
             st4,_=ru.request("POST","/api/reservations",{"slot_id":str(sids[2]),"request_id":uid()})
             require(st4==200,f"next week reset: {st4}")
         return {"quota_enforced":True}
@@ -2038,6 +2039,64 @@ def feature_checks(s):
             require(st==200 and bb["data"]["affected"]==2,f"过去声明不计: {bb['data']}")
         return {"notify":True}
     record("T77 maintenance affected notifications",t77) # -- r32/maintenance-notify
+    def t78(): # -- r33/force-ops
+        """管理员强制操作：force-complete 代签退（保实机时）；force-cancel ADMIN 取消+FIFO 补位+通知；
+        已签到记录不可直接 force-cancel；非管理员 403；幂等。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="force-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"fc.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"fc.db",extra=["--rate-burst","100000"]) as sq:
+            ad=Client(sq.port).login("admin")
+            time.sleep(1.0)
+            lab=ad.post("/api/admin/labs",{"name":"强制操作实验室"+uid()[:6],"location":"实验楼","description":"fc"})["data"]["lab_id"]
+            now=int(time.time())
+            base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+            with _sq.connect(sq.db,timeout=5) as conn:
+                for k in range(3):
+                    conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),base+k*86400,base+k*86400+3600,1))
+                sids=[r[0] for r in conn.execute("SELECT id FROM slots WHERE lab_id=? ORDER BY start_at",(int(lab),))]
+            u1,u2=Client(sq.port).login("user13"),Client(sq.port).login("user14")
+            # 场景1 force-cancel：u1 约 s0，u2 候补 s0 → 强制取消 u1 → u2 递补 + 双方通知
+            r1=u1.request("POST","/api/reservations",{"slot_id":str(sids[0]),"request_id":uid()})[1]["data"]["reservation_id"]
+            u2.request("POST","/api/waitlist",{"slot_id":str(sids[0]),"request_id":uid()})
+            st,bb=ad.request("POST",f"/api/admin/reservations/{r1}/force-cancel",{"request_id":uid()})
+            require(st==200,f"force-cancel: {st} {bb}")
+            require(sq.sql("SELECT status,cancel_reason FROM reservations WHERE id=?",(int(r1),))[0]==("CANCELLED","ADMIN"),"ADMIN 取消落库")
+            prom=sq.sql("SELECT status FROM waitlist WHERE slot_id=? AND status='PROMOTED'",(sids[0],))
+            require(prom and prom[0][0]=="PROMOTED","递补发生")
+            require(bb["data"]["promoted_reservation_id"] is not None,"响应含递补 id")
+            notes=u1.request("GET","/api/me/notifications?page=1&page_size=10")[1]["data"]["notifications"]
+            require(any(n["title"]=="预约已被管理员取消" for n in notes),"取消通知")
+            # 场景2 force-complete：u2（已递补持有 s0）拨场次到已开始+签到 → 代签退
+            r2=sq.sql("SELECT id FROM reservations WHERE slot_id=? AND status='CONFIRMED'",(sids[0],))[0][0]
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("UPDATE slots SET start_at=?,end_at=? WHERE id=?",(now-1800,now+1800,sids[0]))
+            st,_=u2.request("POST",f"/api/reservations/{r2}/checkin",{"request_id":uid()})
+            require(st==200,f"checkin: {st}")
+            st,bb=ad.request("POST",f"/api/admin/reservations/{r2}/force-complete",{"request_id":uid()})
+            require(st==200,f"force-complete: {st} {bb}")
+            require(bb["data"]["checked_out_at"]>0,"代签退时间")
+            # 幂等：再次 force-complete 返回已签退 200
+            st2,_=ad.request("POST",f"/api/admin/reservations/{r2}/force-complete",{"request_id":uid()})
+            require(st2==200,"幂等已签退")
+            # 场景3：已签到记录不可 force-cancel（先 force-complete 提示）
+            st,bb=ad.request("POST",f"/api/admin/reservations/{r2}/force-cancel",{"request_id":uid()})
+            require(st==409 and "强制完成" in bb["message"],f"已签到不可取消: {st} {bb}")
+            # 场景4：未签到者 force-complete 409（提示用 force-cancel）
+            r4=u1.request("POST","/api/reservations",{"slot_id":str(sids[1]),"request_id":uid()})[1]["data"]["reservation_id"]
+            st,bb=ad.request("POST",f"/api/admin/reservations/{r4}/force-complete",{"request_id":uid()})
+            require(st==409,"未签到不可强制完成")
+            # 权限与存在性
+            require(u1.request("POST",f"/api/admin/reservations/{r4}/force-cancel",{"request_id":uid()})[0]==403,"非管理员 403")
+            require(ad.request("POST","/api/admin/reservations/999999/force-cancel",{"request_id":uid()})[0]==404,"404")
+            # 旧库迁移：无 ADMIN 枚举的表触发重建
+            with _sq.connect(sq.db,timeout=5) as conn:
+                chk=conn.execute("SELECT sql FROM sqlite_master WHERE name='reservations'").fetchone()[0]
+                require("'ADMIN'" in chk,f"新库 DDL 含 ADMIN: {chk[-160:]}")
+        return {"force":True}
+    record("T78 admin force complete and cancel",t78) # -- r33/force-ops
 
 
 def account_checks(s):
