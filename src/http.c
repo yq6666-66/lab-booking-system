@@ -107,6 +107,9 @@ static int pager(const struct mg_request_info *ri,int *page,int *size){
 }
 static Result admin(DB *d,const User *u,const char *path,const cJSON *body){
  Id target=0;
+ if(!strcmp(path,"/api/admin/approvals/batch")){ /* r32 批量审批（部分成功语义） */
+  const char *kb=jstr(body,"request_id");if(!uuid_valid(kb))return invalid();
+  return reservation_approval_batch(d,u,body,kb);}
  if(!strcmp(path,"/api/admin/slots/publish")){
   Id lab=0,start=date_start(jstr(body,"start_date")),end=date_start(jstr(body,"end_date")),capacity=1;
   cJSON *cap=cJSON_GetObjectItemCaseSensitive(body,"capacity");

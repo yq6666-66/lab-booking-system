@@ -1945,6 +1945,99 @@ def feature_checks(s):
             require(rowD["queue_ahead"]==0,f"管理员 ahead=0: {rowD['queue_ahead']}")
             return {"parity":True}
     record("T75 suggestions queue_ahead parity",t75) # -- r31/suggestions-rank-parity
+    def t76(): # -- r32/batch-approval
+        """批量审批（部分成功语义）：一个事务内逐条执行；容量满的条目失败入 failed[] 不影响其他条；
+        非管理员 403；ids 非法 400。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="bapr-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"ba.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"ba.db",extra=["--rate-burst","100000"]) as sq:
+            ad=Client(sq.port).login("admin")
+            time.sleep(1.0)
+            lab=ad.post("/api/admin/labs",{"name":"批量审批实验室"+uid()[:6],"location":"实验楼","description":"ba","require_approval":True})["data"]["lab_id"]
+            now=int(time.time())
+            base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,2,NULL)",(int(lab),base,base+3600,1))
+                sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base)).fetchone()[0]
+            def reg(tag):
+                c=Client(sq.port);st,bb=c.request("POST","/api/register",{"username":tag+uid()[:6],"password":PASSWORD})
+                require(st==200,f"reg: {st}")
+                c.csrf=bb["data"]["csrf_token"];return c
+            us=[reg(f"ba{i}") for i in range(4)]
+            rids=[]
+            for c in us:
+                st,bb=c.request("POST","/api/reservations",{"slot_id":str(sid),"request_id":uid()})
+                require(st==200 and bb["data"]["reservation_id"],f"pend: {st} {bb}")
+                rids.append(bb["data"]["reservation_id"])
+            # 先逐条批准 1 号占 1 席；再批量 approve [2,3,999]：2 号拿第 2 席成功、3 号容量满失败、999 不存在失败
+            st,bb=ad.request("POST",f"/api/reservations/{rids[0]}/approve",{"request_id":uid()})
+            require(st==200,f"pre approve: {st}")
+            st,bb=ad.request("POST","/api/admin/approvals/batch",{"action":"approve","ids":[int(rids[1]),int(rids[2]),999],"request_id":uid()})
+            require(st==200,f"batch: {st} {bb}")
+            require(bb["data"]["processed"]==3 and bb["data"]["succeeded"]==1,f"计数: {bb['data']}")
+            failed={int(x["reservation_id"]):x["code"] for x in bb["data"]["failed"]}
+            require(int(rids[2]) in failed and failed[int(rids[2])]=="APPROVAL_CAPACITY",f"容量失败: {failed}")
+            require(999 in failed and failed[999]=="NOT_FOUND",f"404 失败: {failed}")
+            for i in (0,1):
+                require(sq.sql("SELECT status FROM reservations WHERE id=?",(int(rids[i]),))[0][0]=="CONFIRMED",f"r{i} CONFIRMED")
+            for i in (2,3):
+                require(sq.sql("SELECT status FROM reservations WHERE id=?",(int(rids[i]),))[0][0]=="PENDING",f"r{i} 仍 PENDING")
+            # 2/3 号批量 reject 全成功
+            st,bb=ad.request("POST","/api/admin/approvals/batch",{"action":"reject","ids":[int(rids[2]),int(rids[3])],"request_id":uid()})
+            require(st==200 and bb["data"]["succeeded"]==2,f"批量拒绝: {bb['data']}")
+            require(sq.sql("SELECT count(*) FROM reservations WHERE slot_id=? AND status='CANCELLED' AND cancel_reason='REJECTED'",(sid,))[0][0]==2,"拒绝落库")
+            st,_=ad.request("POST","/api/admin/approvals/batch",{"action":"approve","ids":[],"request_id":uid()})
+            require(st==400,"空 ids 400")
+            st,_=ad.request("POST","/api/admin/approvals/batch",{"action":"wrong","ids":[1],"request_id":uid()})
+            require(st==400,"非法 action 400")
+            require(us[0].request("POST","/api/admin/approvals/batch",{"action":"approve","ids":[1],"request_id":uid()})[0]==403,"非管理员 403")
+        return {"batch":True}
+    record("T76 batch approval partial-success semantics",t76) # -- r32/batch-approval
+    def t77(): # -- r32/maintenance-notify
+        """维护影响通知：开/关工单时受影响的未来声明持有者收到 NOTICE，响应含 affected 计数；过去场次声明不计入。"""
+        import tempfile, subprocess as _sp, sqlite3 as _sq
+        tdir=pathlib.Path(tempfile.mkdtemp(prefix="mnt-"))
+        seed_env=dict(os.environ);seed_env["LAB_SEED_PASSWORD"]=PASSWORD
+        r0=_sp.run([str(pathlib.Path("build/lab-booking.exe").resolve()),"--db",str(tdir/"mn.db"),"--seed","--init-only"],env=seed_env,capture_output=True,text=True,timeout=60)
+        require(r0.returncode==0,f"seed: {r0.stderr}")
+        with running(pathlib.Path("build/lab-booking.exe").resolve(),tdir,tdir/"mn.db",extra=["--rate-burst","100000"]) as sq:
+            ad=Client(sq.port).login("admin")
+            time.sleep(1.0)
+            lab=ad.post("/api/admin/labs",{"name":"维护通知实验室"+uid()[:6],"location":"实验楼","description":"mn"})["data"]["lab_id"]
+            aid=ad.post(f"/api/admin/labs/{lab}/assets",{"name":"受影响设备","spec":"x","total":"3"})["data"]["asset_id"]
+            now=int(time.time())
+            base=((now+2*86400+28800)//86400*86400-28800)+9*3600
+            with _sq.connect(sq.db,timeout=5) as conn:
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,3,NULL)",(int(lab),base,base+3600,1))
+                sid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),base)).fetchone()[0]
+            u1,u2=Client(sq.port).login("user11"),Client(sq.port).login("user12")
+            for c in (u1,u2):
+                st,bb=c.request("POST","/api/reservations",{"slot_id":str(sid),"assets":[str(aid)],"request_id":uid()})
+                require(st==200,f"claim: {st} {bb}")
+            st,bb=ad.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"open","reason":"通知测试","request_id":uid()})
+            require(st==200,f"open: {st} {bb}")
+            require(bb["data"]["affected"]==2,f"affected=2: {bb['data']}")
+            for c in (u1,u2):
+                notes=c.request("GET","/api/me/notifications?page=1&page_size=10")[1]["data"]["notifications"]
+                require(any(n["title"]=="设备维护提醒" for n in notes),"维护提醒通知")
+            st,bb=ad.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"close","request_id":uid()})
+            require(st==200 and bb["data"]["affected"]==2,f"close affected: {bb['data']}")
+            notes=u1.request("GET","/api/me/notifications?page=1&page_size=10")[1]["data"]["notifications"]
+            require(any(n["title"]=="设备恢复可用" for n in notes),"恢复通知")
+            # 过去场次的声明不计入 affected
+            with _sq.connect(sq.db,timeout=5) as conn:
+                past=base-7*86400
+                conn.execute("INSERT OR IGNORE INTO slots(lab_id,start_at,end_at,enabled,capacity,reminded_at) VALUES(?,?,?,?,1,NULL)",(int(lab),past,past+3600,1))
+                psid=conn.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?",(int(lab),past)).fetchone()[0]
+                conn.execute("INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(2,?,'CONFIRMED','DIRECT',?)",(psid,now))
+                conn.execute("INSERT INTO asset_claims(reservation_id,asset_id,created_at) SELECT id,?,? FROM reservations WHERE slot_id=?",(int(aid),now,psid))
+            st,bb=ad.request("POST",f"/api/admin/assets/{aid}/maintenance",{"op":"open","reason":"过去不通知","request_id":uid()})
+            require(st==200 and bb["data"]["affected"]==2,f"过去声明不计: {bb['data']}")
+        return {"notify":True}
+    record("T77 maintenance affected notifications",t77) # -- r32/maintenance-notify
 
 
 def account_checks(s):

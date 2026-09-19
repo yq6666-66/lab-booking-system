@@ -76,6 +76,8 @@ Result token_list(DB *db,const User *u);
 Result token_revoke(DB *db,const User *u,Id target,const char *request_id);
 Result reservation_reschedule(DB *db,const Config *cfg,const User *u,Id target,Id new_slot,const char *request_id);
 Result reservation_approval(DB *db,const User *u,Id target,int approve,const char *request_id);
+/* r32 批量审批：一个事务内逐条执行（部分成功语义，失败项入 failed[]） */
+Result reservation_approval_batch(DB *db,const User *u,const cJSON *body,const char *request_id);
 Result utilization_export(DB *db,Id start,Id end);
 Result notifications_sent(DB *db,int page,int size);
 Result logs_tail(int lines,int level);

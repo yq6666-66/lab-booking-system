@@ -107,7 +107,7 @@ def running(*args, **kwargs):
     finally: server.stop()
 
 # ---------------- 契约 schema ----------------
-T_ID, T_INT, T_BOOL, T_STR, T_NUM = "id", "int", "bool", "str", "num"
+T_ID, T_INT, T_BOOL, T_STR, T_NUM, T_ANY = "id", "int", "bool", "str", "num", "any"
 def nb(spec): return ("nullable", spec)
 def arr(spec): return ("array", spec)
 
@@ -199,10 +199,11 @@ SCHEMAS = [
     ("GET",  "/api/admin/assets/{aid}/windows", {"windows": arr(WINDOW_ROW)}),
     ("POST", "/api/admin/assets/{aid}/windows", {"window_id": T_ID}),
     ("GET",  "/api/admin/assets/{aid}/maintenance", {"maintenance": arr(MAINT_ROW)}),
-    ("POST", "/api/admin/assets/{aid}/maintenance", {"maintenance_id": T_ID}),
+    ("POST", "/api/admin/assets/{aid}/maintenance", {"maintenance_id": T_ID, "affected": T_INT}),
     ("POST", "/api/admin/users/{uid1}/credit",  {"granted": T_INT}),
     ("POST", "/api/admin/slots/publish",       {"created": T_INT}),
     ("POST", "/api/register",                  LOGIN_DATA),
+    ("POST", "/api/admin/approvals/batch",     {"processed": T_INT, "succeeded": T_INT, "failed": arr(T_ANY)}),
     ("POST", "/api/me/sessions/{sid}/revoke",  "empty-or-obj"),
 ]
 
@@ -219,6 +220,8 @@ def check_value(value, spec, path):
         fields(value, spec, path); return
     if spec == T_ID:
         require(isinstance(value, str) and value.isdigit(), f"{path}: 期望十进制 ID 字符串，实际 {value!r}")
+    elif spec == T_ANY:
+        pass  # 任意类型占位（如 failed[] 异构行）
     elif spec == T_INT:
         require(isinstance(value, int) and not isinstance(value, bool), f"{path}: 期望整数，实际 {type(value).__name__}={value!r}")
     elif spec == T_BOOL:
@@ -341,6 +344,8 @@ def run_scenarios(server):
                 payload = {"name": "契约资源", "spec": "contract-v2", "total": "3", "status": "AVAILABLE"}
             elif path_tpl == "/api/admin/slots/publish":
                 payload = {"lab_id": lab, "start_date": today(), "end_date": today()}
+            elif path_tpl == "/api/admin/approvals/batch":
+                payload = {"action": "approve", "ids": [999999], "request_id": uid()}  # 不存在的 id：failed[] 路径
             elif path_tpl == "/api/me/password":
                 payload = {"old_password": PASSWORD, "new_password": PASSWORD + "-x", "request_id": uid()}
             elif path_tpl == "/api/me/notifications/read":

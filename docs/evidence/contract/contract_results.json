@@ -1,8 +1,8 @@
 {
-  "timestamp_utc": "2026-09-18T23:39:02.671001+00:00",
+  "timestamp_utc": "2026-09-19T15:36:48.625221+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
-  "endpoints_total": 49,
-  "endpoints_passed": 49,
+  "endpoints_total": 50,
+  "endpoints_passed": 50,
   "error_cases_total": 14,
   "error_cases_passed": 14,
   "all_passed": true,
@@ -231,7 +231,7 @@
     {
       "name": "POST /api/admin/assets/{aid}/maintenance",
       "passed": true,
-      "detail": "data 字段 ['maintenance_id']"
+      "detail": "data 字段 ['affected', 'maintenance_id']"
     },
     {
       "name": "POST /api/admin/users/{uid1}/credit",
@@ -247,6 +247,11 @@
       "name": "POST /api/register",
       "passed": true,
       "detail": "data 字段 ['csrf_token', 'user']"
+    },
+    {
+      "name": "POST /api/admin/approvals/batch",
+      "passed": true,
+      "detail": "data 字段 ['failed', 'processed', 'succeeded']"
     },
     {
       "name": "POST /api/me/sessions/{sid}/revoke",
