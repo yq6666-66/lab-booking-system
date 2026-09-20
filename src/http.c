@@ -218,6 +218,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
    if(st[0]){if(strcmp(st,"CONFIRMED")&&strcmp(st,"CANCELLED")&&strcmp(st,"NO_SHOW")&&strcmp(st,"PENDING"))return invalid();status=st;}
    return records(d,&u,0,0,pg,ps,status,NULL,NULL);}
   if(!strcmp(path,"/api/me/notifications")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char uf[8]={0};query(ri,"unread",uf,sizeof uf);return notifications(d,&u,!strcmp(uf,"1")||!strcmp(uf,"true"),pg,ps);}
+  if(!strcmp(path,"/api/me/notifications/export"))return notifications_export(d,&u); /* r46 CSV 导出 */
   if(!strcmp(path,"/api/me/sessions"))return sessions_list(d,&u,tokenhash);
   if(!strcmp(path,"/api/me/calendar/export"))return calendar_export(d,&u);
   if(!strcmp(path,"/api/me/tokens"))return token_list(d,&u);

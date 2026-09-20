@@ -51,6 +51,42 @@ Result stats_export(DB *d,Id start,Id end){
  cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"filename",name);cJSON_AddStringToObject(j,"content",csv);free(csv);
  return result(200,"OK","导出完成",j);
 }
+/* -- r46 用户通知 CSV 导出：全部通知按时间倒序，带 BOM 兼容 Excel。
+   与既有 stats_export 对齐的 {filename, content} 封套。 -- */
+Result notifications_export(DB *d,const User *u){
+ cJSON *rows=db_rows(d,
+  "SELECT n.kind,n.title,n.body,n.read_at,n.created_at,n.slot_id,n.reservation_id "
+  "FROM notifications n WHERE n.user_id=? ORDER BY n.id DESC LIMIT 500","i",u->id);
+ if(d->error)return db_failure(d);
+ int count=rows?cJSON_GetArraySize(rows):0;
+ size_t cap=256+(size_t)count*512;char *csv=malloc(cap);
+ if(!csv){cJSON_Delete(rows);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
+ int n=snprintf(csv,cap,"\xEF\xBB\xBF" "时间,类型,标题,内容,已读时间,场次编号,预约编号\n");
+ cJSON *it;cJSON_ArrayForEach(it,rows){
+  if((size_t)n+480>=cap)break;
+  cJSON *ct=cJSON_GetObjectItemCaseSensitive(it,"created_at"),*ra=cJSON_GetObjectItemCaseSensitive(it,"read_at");
+  cJSON *si=cJSON_GetObjectItemCaseSensitive(it,"slot_id"),*ri=cJSON_GetObjectItemCaseSensitive(it,"reservation_id");
+  Id created=(ct&&cJSON_IsNumber(ct))?(Id)ct->valuedouble:0;
+  Id read=(ra&&cJSON_IsNumber(ra))?(Id)ra->valuedouble:0;
+  char cs[24]={0},rs[24]={0};
+  if(created){Id bj=created+28800;date_text(bj/86400,cs);int len=(int)strlen(cs);snprintf(cs+len,sizeof(cs)-len," %02d:%02d",(int)((bj%86400)/3600),(int)((bj%3600)/60));}
+  if(read){Id bj=read+28800;date_text(bj/86400,rs);int len=(int)strlen(rs);snprintf(rs+len,sizeof(rs)-len," %02d:%02d",(int)((bj%86400)/3600),(int)((bj%3600)/60));}
+  /* CSV 转义：内容含逗号/引号/换行时用双引号包裹并重复内部引号 */
+  const char *title=jstr(it,"title"),*body=jstr(it,"body");
+  char et[256]={0},eb[512]={0};
+  {int k=0;for(const char*p=title;*p&&k<250;p++)et[k++]=(*p=='"')?'\"':*p;et[k]=0;}
+  {int k=0;for(const char*p=body;*p&&k<505;p++)eb[k++]=(*p=='"')?'\"':*p;eb[k]=0;}
+  const char *kind=jstr(it,"kind");
+  n+=snprintf(csv+n,cap-(size_t)n,"%s,%s,\"%s\",\"%s\",%s,%lld,%lld\n",
+   cs,kind?kind:"",et,eb,rs[0]?rs:"未读",
+   (si&&cJSON_IsNumber(si))?(long long)si->valuedouble:0,
+   (ri&&cJSON_IsNumber(ri))?(long long)ri->valuedouble:0);
+ }
+ cJSON_Delete(rows);
+ char name[48];snprintf(name,sizeof name,"notifications-%lld.csv",(long long)u->id);
+ cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"filename",name);cJSON_AddStringToObject(j,"content",csv);free(csv);
+ return result(200,"OK","导出完成",j);
+}
 /* 资源利用率：按实验室聚合区间内的开放场次/席位与预约、签到、爽约，利用率=有效预约/总席位。 */
 Result lab_utilization(DB *d,Id start,Id end){
  cJSON *rows=db_rows(d,

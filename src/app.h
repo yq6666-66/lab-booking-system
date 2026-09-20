@@ -64,6 +64,8 @@ Result suggestion_list(DB *db,const User *u,const Config *cfg,Id lab,Id start);
 Result fairness_admin(DB *db,int days);
 /* r45 管理台聚合概览：一次调用返回首屏数据（今日统计/待审批/候补top/趋势/日志） */
 Result admin_dashboard(DB *db);
+/* r46 用户通知 CSV 导出（500 条上限，带 BOM，Excel 兼容） */
+Result notifications_export(DB *db,const User *u);
 Result admin_credit_grant(DB *db,const User *actor,Id target,const cJSON *body);
 Result asset_windows_list(DB *db,Id asset);
 Result asset_window_admin(DB *db,const User *actor,Id asset,const cJSON *body);
