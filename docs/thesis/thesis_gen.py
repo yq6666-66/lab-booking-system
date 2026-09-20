@@ -143,7 +143,7 @@ para("The system guarantees concurrent correctness with single-writer transactio
 para("The system passes five layers of automated verification: 24 unit tests, 79 integration assertion groups (including a 720-request "
      "concurrent-contention experiment with no overbooking observed across all trials, 30 crash-recovery trials all correct, and five "
      "cross-rule combination checks), contract tests over 52 endpoints, gray-box/documentation tests, fuzz and soak stability experiments, "
-     "and a four-channel continuous integration gate (build and test, static analysis, AddressSanitizer memory safety). A timing "
+     "and a four-channel continuous integration gate (build and test, contract/documentation consistency, static analysis, AddressSanitizer memory safety). A timing "
      "side-channel experiment shows the login path responds to valid and invalid accounts within a 1.07x ratio, substantially flattening the "
      "observable timing difference available for account enumeration. Connection reuse and statement caching raise read throughput by up to "
      "541% (about 6.4x) and cut p50 latency by 87%.", font="Times New Roman")
@@ -281,8 +281,8 @@ para("数据模型共 17 张表（当前 schema user_version=5），如图 4-2 �
 img("fig4-2-er.png", cap_text="图 4-2 数据库 ER 图（核心 11 表；schema v5 共 17 表）")
 h2("4.3 状态转换设计")
 para("预约状态机包含五个状态：PENDING（待审批意向，不占容量）、CONFIRMED（有效预约，占容）、HELD（候补递补的限时保留，占容）、"
-     "CANCELLED（终态）与 EXPIRED（保留超时回收）；签到与签退不产生新状态。CANCELLED 的取消原因四分为 USER（主动取消）、NO_SHOW（爽约）、"
-     "REJECTED（审批拒绝）、PREEMPTED（被高优先级抢占）。候补状态机包含 WAITING、PROMOTED、WITHDRAWN、SKIPPED 四个状态（SKIPPED 用于"
+     "CANCELLED（终态）与 EXPIRED（保留超时回收）；签到与签退不产生新状态。CANCELLED 的取消原因五分为 USER（主动取消）、NO_SHOW（爽约）、"
+     "REJECTED（审批拒绝）、PREEMPTED（被高优先级抢占）与 ADMIN（管理员强制取消）。候补状态机包含 WAITING、PROMOTED、WITHDRAWN、SKIPPED 四个状态（SKIPPED 用于"
      "账号停用等不可递补场景）。全部转换由显式业务动作或扫描线程触发；占容口径统一为 CONFIRMED 与 HELD 之和，PENDING 与 WAITING "
      "不占容量，如图 4-3 所示。")
 img("fig4-3-states.png", cap_text="图 4-3 预约与候补状态转换图")
@@ -346,7 +346,7 @@ h2("5.2 HTTP 接入与会话安全")
 para("api() 处理器依次执行 Host 白名单、方法检查、健康探测、Origin 校验、请求体上限与 JSON 合法性检查（含重复键拒绝）、数据库连接获取、"
      "会话认证与 CSRF 校验后才进入业务分发。登录接口前置防爆破闸门：同一用户名连续失败达到阈值（默认 5 次）后锁定 900 秒，期间正确口令"
      "同样返回 429；已登录用户的全部写操作经过每用户令牌桶（默认突发 30、每秒补充 1）限速。路由计数口径：分派器共 63 个路由分支"
-     "（其中 24 个带路径参数），另有 Prometheus 抓取端点 /metrics 为独立处理器；契约测试覆盖其中 52 个端点的响应封套与字段类型"
+     "（其中 26 个带路径参数），另有 Prometheus 抓取端点 /metrics 为独立处理器；契约测试覆盖其中 52 个端点的响应封套与字段类型"
      "（计数以仓库 tests/contract_test.py 的 SCHEMAS 键数为准）。管理端点集中做角色断言，静态资源与 API 共享全局安全响应头。")
 h2("5.3 事务与去重核心")
 para("booking() 是全部写操作的汇聚点，其主干为：BEGIN IMMEDIATE → 用户可用性检查（含爽约信用受限与时间重叠检测）→ 回执查询（命中即重放/"
@@ -389,7 +389,7 @@ para("测试体系分五层：（1）Unity 单元测试 24 个，不经 HTTP 直
      "驱动真实服务进程，覆盖功能、安全、并发、故障恢复、运营能力与跨规则组合语义；（3）契约测试（52 个端点逐项校验响应封套与字段类型）与灰盒/文档一致性测试；"
      "（4）模糊稳健性实验与浸泡稳定性实验；（5）真实浏览器端到端验收。所有实验使用独立临时端口与全新数据库副本，原始证据（数据库、日志、"
      "结果 JSON）完整归档，失败样本不销毁。")
-para("持续集成设有三条并行门禁通道：构建与单元/集成测试、静态分析门禁（-fanalyzer 与绑定参数静态核查）、以及 AddressSanitizer + "
+para("持续集成设有四条并行门禁通道：构建与单元/集成测试、静态分析门禁（-fanalyzer 与绑定参数静态核查）、以及 AddressSanitizer + "
      "UndefinedBehaviorSanitizer 内存安全通道。ASan 通道基于 llvm-mingw 工具链解决 MinGW 发行版缺少 sanitizer 运行库的问题，"
      "在真实服务进程上执行核心实验组，任一通道失败即阻断合并。")
 h2("6.2 单元测试与覆盖率")
@@ -435,7 +435,7 @@ para("并发实验以 1、5、10、20 个独立客户端在线程屏障对齐后
      "与数据库占用数恒为 1，其余请求全部收到明确的 409，未出现重复占用或忙碌失败。")
 cap("表 6-2 并发争抢实验结果（每档 20 轮）")
 tbl(["并发数", "请求数", "成功预约", "409 冲突", "503 忙碌", "p50 中位 (ms)", "p95 (ms)"],
-    [[1, 20, 20, 0, 0, 5.7, 9.9], [5, 100, 100, 0, 0, 6.9, 32.4], [10, 200, 200, 0, 0, 9.4, 99.4], [20, 400, 400, 0, 0, 13.6, 210.8]])
+    [[1, 20, 20, 0, 0, 129.3, 129.3], [5, 100, 20, 80, 0, 76.9, 177.6], [10, 200, 20, 180, 0, 97.3, 280.2], [20, 400, 20, 380, 0, 114.8, 273.7]])
 para("该实验同时是容量制正确性的直接证据：容量为 1 的场次在全部 720 次争抢样本中未出现超卖与重复占用，表明在本实验的负载与部署条件下，"
      "单写者事务协议足以替代唯一索引兜底。需要说明的是，该结论是实验证据而非形式化保证，其外推以单写者串行化前提保持成立为条件。")
 h2("6.5 故障注入恢复实验")
@@ -508,7 +508,7 @@ para("本课题面向高校开放实验室管理场景，完整经历了需求�
      "候补补位的业务闭环，延伸至限时签到、场次提醒、爽约信用、时间重叠检测的完整运营规则，并深化出预约审批流、可执行 FIFO 与限时保留（HELD）"
      "的候补策略、优先级抢占与信用账户、资源维护工单/时段窗/资格授权等一体化机制；以单写者事务与持久化回执为核心的并发一致性与幂等设计；"
      "面向真实管理的独立控制台与自动备份、历史归档等运营能力；覆盖单元、集成、契约、并发、故障注入、模糊与浸泡的五层自动化验证体系，"
-     "以及构建、静态分析与 AddressSanitizer 三通道持续集成门禁；从 720 次争抢实验、30 次崩溃恢复实验、跨规则组合验证、计时旁路实验到"
+     "以及构建、静态分析与 AddressSanitizer 四通道持续集成门禁；从 720 次争抢实验、30 次崩溃恢复实验、跨规则组合验证、计时旁路实验到"
      "性能优化对比的完整实测证据链。")
 h2("7.2 不足与展望")
 para("系统当前为单机回环部署，尚未覆盖：传输加密（TLS 证书体系已预留）；跨校区多实例与集中部署；与门禁、一卡通系统的对接；"
