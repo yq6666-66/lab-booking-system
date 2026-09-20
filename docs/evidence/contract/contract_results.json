@@ -1,8 +1,8 @@
 {
-  "timestamp_utc": "2026-09-20T14:28:17.862417+00:00",
+  "timestamp_utc": "2026-09-20T20:18:23.255422+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
-  "endpoints_total": 52,
-  "endpoints_passed": 52,
+  "endpoints_total": 53,
+  "endpoints_passed": 53,
   "error_cases_total": 14,
   "error_cases_passed": 14,
   "all_passed": true,
@@ -49,6 +49,11 @@
       "detail": "data 字段 ['days', 'jain_definition', 'jain_index', 'users', 'wait_definition']"
     },
     {
+      "name": "GET /api/admin/dashboard",
+      "passed": true,
+      "detail": "data 字段 ['pending_approvals', 'recent_events', 'today', 'top_waitlists', 'trend_7d']"
+    },
+    {
       "name": "GET /api/me/records?page=1&page_size=5",
       "passed": true,
       "detail": "data 字段 ['events', 'has_more', 'page', 'page_size', 'reservations', 'waitlist']"
@@ -76,7 +81,7 @@
     {
       "name": "POST /api/reservations",
       "passed": true,
-      "detail": "data 字段 ['reservation_id']"
+      "detail": "data 字段 ['reservation_id', 'status']"
     },
     {
       "name": "POST /api/reservations/{rid}/cancel",

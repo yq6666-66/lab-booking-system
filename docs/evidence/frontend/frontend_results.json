@@ -1,0 +1,189 @@
+{
+  "timestamp_utc": "2026-09-20T20:18:26.910122+00:00",
+  "target": "web/",
+  "checks_total": 36,
+  "checks_passed": 36,
+  "all_passed": true,
+  "results": [
+    {
+      "name": "check_no_inline_style",
+      "passed": true,
+      "detail": "两页均无内联 style 属性"
+    },
+    {
+      "name": "check_no_inline_script_and_handler",
+      "passed": true,
+      "detail": "无内联脚本、无 on* 处理器、无 javascript: 协议"
+    },
+    {
+      "name": "check_reduced_motion_gates_js_scroll",
+      "passed": true,
+      "detail": "JS 滚动统一过 UI.scrollTo 并按 prefers-reduced-motion 在 auto/smooth 间二选一；两页无直调；CSS 兜底块仍在"
+    },
+    {
+      "name": "check_no_javascript_degradation",
+      "passed": true,
+      "detail": "3 个凭据表单均 method=post（无 JS 也不会把密码写进 URL）；两页均有可见 noscript 说明且未被样式隐藏"
+    },
+    {
+      "name": "check_approval_flag_is_surfaced",
+      "passed": true,
+      "detail": "labs/slots 读接口 + 预约回执 status 均下发；管理台复选框/提交/回填/列表四处齐备；用户端按 require_approval 与 status 措辞（写死成功语仅 1 处，在 reserveMsg 内）"
+    },
+    {
+      "name": "check_text_clipping_is_codepoint_safe",
+      "passed": true,
+      "detail": "UI.clip 按码点截断（Array.from + join）且已导出；备注列两页共用唯一一份 UI.noteCell（空备注显式 '—'、被截时有原生 details 可就地看全文）；展开体 white-space:normal；三页无按码元截断的残留写法"
+    },
+    {
+      "name": "check_admin_approval_list_shows_note",
+      "passed": true,
+      "detail": "records() 的 SQL 与契约 schema 都带着 note；管理台待审批表与预约记录表各有「备注」列，两处单元都走唯一一份 UI.noteCell"
+    },
+    {
+      "name": "check_no_html_sink",
+      "passed": true,
+      "detail": "全部 DOM 写入使用 textContent / createElement"
+    },
+    {
+      "name": "check_no_debug_console",
+      "passed": true,
+      "detail": "无 console.log / console.debug"
+    },
+    {
+      "name": "check_dom_ids",
+      "passed": true,
+      "detail": "index.html↔app.js、admin.html↔admin.js 的字面量 id 引用全部可解析"
+    },
+    {
+      "name": "check_shared_assets_exist",
+      "passed": true,
+      "detail": "被引用资源均存在：admin.html、admin.js、app.js、favicon.svg、style.css、theme.js、ui.js"
+    },
+    {
+      "name": "check_theme_bootstrap",
+      "passed": true,
+      "detail": "两页均按 theme.js → style.css 顺序引导，含 color-scheme 与跳转链接"
+    },
+    {
+      "name": "check_random_uuid_guard",
+      "passed": true,
+      "detail": "request_id 统一经 ui.js 的 uid() 取号，含非安全上下文降级"
+    },
+    {
+      "name": "check_css_tokens",
+      "passed": true,
+      "detail": "41 个令牌引用全部可解析，暗色块覆盖 38/44 个令牌，无漂移"
+    },
+    {
+      "name": "check_no_hardcoded_colors_in_components",
+      "passed": true,
+      "detail": "组件层硬编码色值 5 处（仅限打印与日志面板等刻意固定的区域）"
+    },
+    {
+      "name": "check_wcag_contrast",
+      "passed": true,
+      "detail": "两套主题 44 组配色全部达 WCAG AA（正文阈值 4.5:1，部件 3:1）"
+    },
+    {
+      "name": "check_tab_semantics",
+      "passed": true,
+      "detail": "两页共 15 个页签均为 tablist/tab/tabpanel 三件套且互相指认"
+    },
+    {
+      "name": "check_table_contract",
+      "passed": true,
+      "detail": "表格排序与窄屏卡片化的 JS/CSS 契约一致"
+    },
+    {
+      "name": "check_action_cells_rendered",
+      "passed": true,
+      "detail": "两页 2 个行内操作容器均已挂入单元格"
+    },
+    {
+      "name": "check_tab_keyboard",
+      "passed": true,
+      "detail": "wireTabs 覆盖方向键/Home/End、roving tabindex、选中项可见性与手动激活"
+    },
+    {
+      "name": "check_no_styling_in_js",
+      "passed": true,
+      "detail": "JS 侧零色值零内联样式；8 个主题类与 4×2 个图表令牌齐备"
+    },
+    {
+      "name": "check_form_validation_contract",
+      "passed": true,
+      "detail": "场次容量：下限提示 + 请求前本地校验 + 常驻文字错误（非仅颜色）；发布空结果有解释"
+    },
+    {
+      "name": "check_picker_region_contract",
+      "passed": true,
+      "detail": "改期行内展开且随表格重渲染收口；替代时段面板独立在页签之外；不播报服务端未给的候补人数"
+    },
+    {
+      "name": "check_html_structure_balanced",
+      "passed": true,
+      "detail": "两页结构元素逐层显式闭合，隐式闭合会让后续追加的节点落错父级"
+    },
+    {
+      "name": "check_narrow_screen_contract",
+      "passed": true,
+      "detail": "窄屏顶栏两行栅格 + 横滚条位置感知边缘提示，令牌与负边距配套"
+    },
+    {
+      "name": "check_form_validation_ownership",
+      "passed": true,
+      "detail": "用户端四个表单全部 novalidate + 提交前本地校验并写进各自 role=alert 区；密码框不再挂无效的 minlength"
+    },
+    {
+      "name": "check_credential_rule_parity",
+      "passed": true,
+      "detail": "三方对齐：用户名 2..64 字节、密码 8..128 字节、令牌名 ≤80 字节；JS 按 UTF-8 字节、不 trim、不改写提交值，且镜像了『新旧密码不同』『两次输入一致』两条非长度规则"
+    },
+    {
+      "name": "check_admin_text_length_parity",
+      "passed": true,
+      "detail": "管理台 10 处文本上限与服务端逐字节对齐：assetName=180、assetSpec=300、fAction=32、fUser=64、labDesc=1000、labLoc=180、labName=180、noticeBody=500、noticeTitle=120、qUser=64"
+    },
+    {
+      "name": "check_admin_form_validation_ownership",
+      "passed": true,
+      "detail": "管理台 4 个表单 novalidate + 常驻 role=alert 错误位，required 字段全部有本地规则，空位靠 CSS 收起"
+    },
+    {
+      "name": "check_chip_state_not_color_only",
+      "passed": true,
+      "detail": "资源芯片 aria-pressed + 样式表 ✓（按容器限定）；维修中标签独立配色；备注框有名称与常驻长度说明"
+    },
+    {
+      "name": "check_title_never_the_only_carrier",
+      "passed": true,
+      "detail": "全站 title 均为补充说明（可见文字里都有对应内容）；资源选择块有按场次唯一关联的可见标签"
+    },
+    {
+      "name": "check_one_time_secret_handling",
+      "passed": true,
+      "detail": "一次性凭据常驻显示 + 复制（clipboard 与安全上下文判断 + execCommand 退路，退路不靠 display:none）"
+    },
+    {
+      "name": "check_no_core_duplication",
+      "passed": true,
+      "detail": "15 项核心工具全部单点定义于 ui.js"
+    },
+    {
+      "name": "check_ui_bindings_resolve",
+      "passed": true,
+      "detail": "两页共 37 个 UI 导出，解构绑定全部可解析"
+    },
+    {
+      "name": "check_js_syntax",
+      "passed": true,
+      "detail": "app.js / admin.js / theme.js 语法通过 node --check"
+    },
+    {
+      "name": "check_uid_fallback_runtime",
+      "passed": true,
+      "detail": "三条取号路径均通过：{\"native\":\"500 个 v4 UUID 合法且互异\",\"getRandomValues\":\"500 个 v4 UUID 合法且互异\",\"math-random\":\"500 个 v4 UUID 合法且互异\"}"
+    }
+  ]
+}
