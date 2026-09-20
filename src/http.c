@@ -8,6 +8,8 @@
 #include <windows.h>
 static volatile sig_atomic_t stopping=0;
 static unsigned long long app_boot=0;
+/* 安全响应头：CivetWeb additional_header 仅覆盖静态文件回复，handler 自建响应（API 与 /metrics）需自行下发同一组头 */
+static const char *SEC_HEADERS="Content-Security-Policy: default-src 'self'\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nPermissions-Policy: camera=(), microphone=(), geolocation=()\r\n";
 static void on_stop(int sig){(void)sig;stopping=1;}
 static Result invalid(void){return result(400,"INVALID_INPUT","请求参数不正确",NULL);}
 static int origin_ok(struct mg_connection *c,const Config *cfg){
@@ -314,8 +316,8 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
 static int metrics_handler(struct mg_connection *c,void *userdata){
  (void)userdata;
  char *text=metrics_prometheus();
- if(!text){mg_printf(c,"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");return 200;}
- mg_printf(c,"HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",(int)strlen(text));
+ if(!text){mg_printf(c,"HTTP/1.1 500 Internal Server Error\r\n%sContent-Length: 0\r\nConnection: close\r\n\r\n",SEC_HEADERS);return 200;}
+ mg_printf(c,"HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4; charset=utf-8\r\nContent-Length: %d\r\n%sConnection: close\r\n\r\n",(int)strlen(text),SEC_HEADERS);
  mg_write(c,text,(unsigned)strlen(text));
  free(text);
  return 200;
@@ -346,8 +348,8 @@ send:
  serialized=r.body?cJSON_PrintUnformatted(r.body):NULL;
  if(!serialized){r.status=500;cookie[0]=0;}
  const char *out=serialized?serialized:"{\"code\":\"INTERNAL_ERROR\",\"message\":\"Memory error\",\"data\":{}}";
- /* 安全头（CSP/nosniff/XFO/Referrer-Policy）由 serve() 的 additional_header 全局下发，含静态页。 */
- mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
+ /* 安全头五件套：静态页经 serve() 的 additional_header 下发，API 与 /metrics 由 SEC_HEADERS 下发，两处保持一致。 */
+ mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\n%sConnection: keep-alive\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),SEC_HEADERS,cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
  {LARGE_INTEGER mt1;QueryPerformanceCounter(&mt1);double ms=(double)(mt1.QuadPart-mt0.QuadPart)*1000.0/(double)mfreq.QuadPart;metrics_record_request(r.status,ms);
   int lvl=ms>=(double)cfg->slow_ms?2:1;if(r.status>=500)lvl=3;
   log_write(lvl,"ACCESS %s %s %d %.1fms",ri->request_method,ri->local_uri,r.status,ms);}

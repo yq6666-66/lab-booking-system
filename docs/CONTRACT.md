@@ -96,7 +96,7 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 - 记录过滤：GET /api/me/records 支持可选 `status` 参数（CONFIRMED/CANCELLED/NO_SHOW，其他值 400）；GET /api/admin/records 支持可选 `action`（≤32）与 `user`（≤64）参数，仅过滤操作日志列表。
 - 场次开始提醒：服务端扫描线程在每个扫描周期检查「开始时间在 now+remind_sec 窗口内且 reminded_at 为空」的场次，向其全部有效预约用户发送 kind='REMIND' 站内通知，随后置 reminded_at=1 防重；`--remind-sec SEC` 配置窗口（默认 1800，0 关闭）。slots 表经幂等迁移新增 reminded_at 列；notifications.kind 约束扩展为 PROMOTED/NO_SHOW/NOTICE/REMIND（旧库自动重建迁移）。
 - 自动备份：`--backup-interval SEC`（默认 21600=6 小时，0 关闭）配合 `--backup DEST` 目录，服务内后台线程定时执行在线快照 `DEST/lab-backup-YYYYMMDD-HHMMSS.db` 并轮转保留最近 7 份；一次性 `--backup FILE` 语义不变。
-- 安全头：CSP（default-src 'self'）、X-Content-Type-Options、X-Frame-Options、Referrer-Policy 经 CivetWeb additional_header 对全部响应（含静态页）下发；API 响应不再重复携带。
+- 安全头：CSP（default-src 'self'）、X-Content-Type-Options、X-Frame-Options、Referrer-Policy、Permissions-Policy（camera/microphone/geolocation 一律禁用）五头对全部响应下发——静态页经 CivetWeb additional_header，API 与 /metrics 响应由 handler 内共享常量下发（additional_header 不覆盖 handler 自建响应）。
 
 ## 分工
 主Agent：src、依赖、构建、集成。页面Agent仅修改web。测试Agent仅修改tests。任何修改已有文件先在本任务work/backups留备份；不要修改其他Agent拥有的文件。
