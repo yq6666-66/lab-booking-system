@@ -612,10 +612,10 @@ h3::before{content:'';position:absolute;left:-13px;top:4px;bottom:4px;width:3px;
 td{transition:background-color .15s var(--ease),box-shadow .18s var(--ease)}
 @media(min-width:601px){tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--accent)}}
 
-/* ---------- toast：语义徽章（成功 ✓ / 失败 !，伪元素不进文本与读屏） ---------- */
+/* ---------- toast：语义徽章（成功为实心圆点 / 失败 !，伪元素不进文本与读屏） ---------- */
 .toast{padding-left:13px}
-.toast::before{content:'✓';flex:0 0 auto;width:20px;height:20px;margin-top:2px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-size:12px;font-weight:700;line-height:20px;text-align:center}
-.toast.bad::before{content:'!';background:var(--danger);color:var(--danger-fg)}
+.toast::before{content:'';flex:0 0 auto;width:12px;height:12px;margin-top:5px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 18%,transparent)}
+.toast.bad::before{content:'!';width:20px;height:20px;margin-top:2px;background:var(--danger);color:var(--danger-fg);font-size:12px;font-weight:700;line-height:20px;text-align:center;box-shadow:none}
 
 /* ---------- 写操作进行中：按钮内文本隐去、中心旋转加载环 ---------- */
 button.pending{color:transparent!important}
@@ -665,4 +665,63 @@ a:not(.brand):not(.skip-link):not(.quiet):hover{background-size:100% 1.5px}
 @media print{
   .login-layout h1{-webkit-text-fill-color:initial;background:none}
   .topbar{position:static}
+}
+
+/* ==========================================================================
+   动效与微交互层 三（r3 表单与输入体验轮）
+   登录/注册切换滑动、登录页签滑动下划线、面板聚焦联动、候选时段错峰、
+   空态加载圆环、toast 关闭钮旋转、触屏 hover 粘滞消除。
+   ========================================================================== */
+
+@keyframes slide-in{from{opacity:0;transform:translateX(22px)}to{opacity:1;transform:none}}
+@keyframes spin-slow{to{transform:rotate(360deg)}}
+
+/* ---------- 登录 / 注册切换：新表单从右滑入（.login-card 的 rise 只在首载播） ---------- */
+#register-form:not([hidden]){animation:slide-in .38s var(--ease-out)}
+#login-form:not([hidden]){animation:slide-in .38s var(--ease-out) reverse}
+
+/* ---------- 登录页签：与主导航同款的滑动下划线 ---------- */
+.login-tabs{position:relative}
+.login-tabs button{position:relative;transition:color var(--dur-1) var(--ease),background-color .22s var(--ease)}
+.login-tabs button::after{content:'';position:absolute;left:2px;right:2px;bottom:-1px;height:3px;border-radius:3px 3px 0 0;background:var(--accent);transform:scaleX(0);transform-origin:center;transition:transform .3s var(--ease-out)}
+.login-tabs button:hover{color:var(--accent-ink)}
+.login-tabs button[aria-pressed="true"]{border-bottom-color:transparent}
+.login-tabs button[aria-pressed="true"]::after{transform:scaleX(1)}
+
+/* ---------- 面板聚焦联动：表单所在面板边框点亮（含 .filters 查询区） ---------- */
+.panel:focus-within{border-color:var(--accent-line)}
+
+/* ---------- 星期选择复选：hover 胶囊化 ---------- */
+.wd-row .check{padding:5px 10px;border-radius:999px;transition:background-color .18s var(--ease),color .18s var(--ease)}
+.wd-row .check:hover{background:var(--accent-soft);color:var(--accent-ink)}
+
+/* ---------- 替代时段 / 改期候选：按钮错峰入场 + 悬停微抬 ---------- */
+.alt-list>*{animation:pop .3s var(--ease-out) both}
+.alt-list>*:nth-child(2){animation-delay:.04s}
+.alt-list>*:nth-child(3){animation-delay:.08s}
+.alt-list>*:nth-child(4){animation-delay:.12s}
+.alt-list>*:nth-child(n+5){animation-delay:.16s}
+.alt-list>*{transition:transform .18s var(--ease-spring),box-shadow .18s var(--ease)}
+.alt-list>*:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+
+/* ---------- 空态：加载中显示旋转圆环（替代静态 ◌），完成态保持浮动符号 ---------- */
+.empty.busy::before{content:'';width:22px;height:22px;margin:0 auto 12px;border:2px solid var(--accent-line);border-top-color:var(--accent);border-radius:50%;animation:spin-slow .9s linear infinite;background:none;font-size:0;line-height:0}
+
+/* ---------- toast 关闭钮：hover 旋转 ---------- */
+.toast-x{transition:opacity .15s var(--ease),transform .25s var(--ease-spring),background-color .15s var(--ease)}
+.toast-x:hover:not(:disabled){transform:rotate(90deg)}
+
+/* ---------- 触屏设备：消除 hover 粘滞（点按后卡片/按钮停留在悬停态） ---------- */
+@media(hover:none){
+  button:hover:not(:disabled),.card:hover,.slot:hover,.brand:hover,.notify-item:hover,.chips:hover,.alt-list>*:hover,.features span:hover{transform:none}
+  .card:hover,.slot:hover{box-shadow:var(--shadow)}
+  .primary:hover:not(:disabled){box-shadow:none}
+}
+
+/* ---------- 减弱动效追加（r3） ---------- */
+@media(prefers-reduced-motion:reduce){
+  #register-form:not([hidden]),#login-form:not([hidden]),.alt-list>*{animation:none}
+  .empty.busy::before{animation:none}
+  .login-tabs button::after,.toast-x,.wd-row .check{transition:none}
+  .toast-x:hover:not(:disabled){transform:none}
 }
