@@ -121,6 +121,37 @@ Result slot_conflicts(DB *d,Id date_start){
  cJSON_AddNumberToObject(j,"total",(double)cJSON_GetArraySize(out));
  return result(200,"OK","查询成功",j);
 }
+/* -- r48 信用账户概览：全站信用分布 + 最近流水 top + 受限用户名单。
+   管理员快速掌握"谁的信用耗尽、谁在爽约、系统信用健康度"。 -- */
+Result credit_summary(DB *d){
+ /* 1. 信用分布（0/1-2/3-4/5 五档） */
+ cJSON *dist=db_rows(d,
+  "SELECT CASE WHEN credit=0 THEN '0' WHEN credit<=2 THEN '1-2' WHEN credit<=4 THEN '3-4' ELSE '5' END AS band,"
+  "count(*) AS users FROM users WHERE enabled=1 GROUP BY band ORDER BY band","");
+ if(d->error)return db_failure(d);
+ /* 2. 受限用户（近 7 天爽约≥2） */
+ cJSON *restricted=db_rows(d,
+  "SELECT u.id,u.username,u.credit,"
+  "(SELECT count(*) FROM reservations r WHERE r.user_id=u.id AND r.cancel_reason='NO_SHOW' AND r.cancelled_at>?) AS no_shows "
+  "FROM users u WHERE u.enabled=1 AND "
+  "(SELECT count(*) FROM reservations r WHERE r.user_id=u.id AND r.cancel_reason='NO_SHOW' AND r.cancelled_at>?)>=2 "
+  "ORDER BY no_shows DESC LIMIT 20","ii",now_sec()-7*86400,now_sec()-7*86400);
+ if(d->error){cJSON_Delete(dist);return db_failure(d);}
+ /* 3. 最近信用流水 top20 */
+ cJSON *ledger=db_rows(d,
+  "SELECT l.delta,l.reason,l.reservation_id,l.created_at,u.username "
+  "FROM credit_ledger l JOIN users u ON u.id=l.user_id "
+  "ORDER BY l.id DESC LIMIT 20","");
+ if(d->error){cJSON_Delete(dist);cJSON_Delete(restricted);return db_failure(d);}
+ Id total=db_num(d,"SELECT count(*) FROM users WHERE enabled=1","");
+ if(d->error){cJSON_Delete(dist);cJSON_Delete(restricted);cJSON_Delete(ledger);return db_failure(d);}
+ cJSON *j=cJSON_CreateObject();
+ cJSON_AddItemToObject(j,"distribution",dist);
+ cJSON_AddNumberToObject(j,"total_users",(double)total);
+ cJSON_AddItemToObject(j,"restricted_users",restricted);
+ cJSON_AddItemToObject(j,"recent_ledger",ledger);
+ return result(200,"OK","查询成功",j);
+}
 /* 资源利用率：按实验室聚合区间内的开放场次/席位与预约、签到、爽约，利用率=有效预约/总席位。 */
 Result lab_utilization(DB *d,Id start,Id end){
  cJSON *rows=db_rows(d,
