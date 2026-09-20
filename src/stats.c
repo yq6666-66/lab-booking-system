@@ -1,0 +1,245 @@
+/* stats.c —— 统计/导出域（r24 规划 P2-5 自 service.c 拆分；函数体未改，仅移动） */
+#include "service.h"
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+Result stats(DB *d,Id start,Id end){
+ cJSON *days=db_rows(d,"SELECT (s.start_at+28800)/86400 AS day,count(DISTINCT s.id) AS slots,count(DISTINCT CASE WHEN r.status IN('CONFIRMED','HELD') THEN r.id END) AS confirmed,count(DISTINCT CASE WHEN r.status='CANCELLED' AND (r.cancel_reason IS NULL OR r.cancel_reason='USER') THEN r.id END) AS cancelled,count(DISTINCT CASE WHEN r.cancel_reason='NO_SHOW' THEN r.id END) AS no_show,count(DISTINCT CASE WHEN r.checked_in_at IS NOT NULL THEN r.id END) AS checked_in FROM slots s LEFT JOIN reservations r ON r.slot_id=s.id WHERE s.start_at>=? AND s.start_at<? GROUP BY day ORDER BY day","ii",start,end+86400);
+ if(d->error)return db_failure(d);
+ cJSON *waiting=db_rows(d,"SELECT (s.start_at+28800)/86400 AS day,count(*) AS waiting FROM waitlist w JOIN slots s ON s.id=w.slot_id JOIN users u ON u.id=w.user_id WHERE s.start_at>=? AND s.start_at<? AND w.status='WAITING' AND u.enabled=1 GROUP BY day ORDER BY day","ii",start,end+86400);
+ if(d->error){cJSON_Delete(days);return db_failure(d);}
+ cJSON *rows=cJSON_CreateArray(),*totals=cJSON_CreateObject();
+ if(rows&&totals){
+  double ts=0,tc=0,tx=0,tn=0,ti=0,tw=0;cJSON *it;
+  cJSON_ArrayForEach(it,days){
+   cJSON *row=cJSON_CreateObject();if(!row)break;
+   char date[11];date_text((Id)cJSON_GetObjectItemCaseSensitive(it,"day")->valuedouble,date);
+   double w=0;cJSON *jt;cJSON_ArrayForEach(jt,waiting)if((Id)cJSON_GetObjectItemCaseSensitive(jt,"day")->valuedouble==(Id)cJSON_GetObjectItemCaseSensitive(it,"day")->valuedouble){w=cJSON_GetObjectItemCaseSensitive(jt,"waiting")->valuedouble;break;}
+   double s=cJSON_GetObjectItemCaseSensitive(it,"slots")->valuedouble,c=cJSON_GetObjectItemCaseSensitive(it,"confirmed")->valuedouble,x=cJSON_GetObjectItemCaseSensitive(it,"cancelled")->valuedouble,ns=cJSON_GetObjectItemCaseSensitive(it,"no_show")->valuedouble,ci=cJSON_GetObjectItemCaseSensitive(it,"checked_in")->valuedouble;
+   cJSON_AddStringToObject(row,"date",date);cJSON_AddNumberToObject(row,"slots",s);cJSON_AddNumberToObject(row,"confirmed",c);cJSON_AddNumberToObject(row,"cancelled",x);cJSON_AddNumberToObject(row,"no_show",ns);cJSON_AddNumberToObject(row,"checked_in",ci);cJSON_AddNumberToObject(row,"waiting",w);
+   cJSON_AddItemToArray(rows,row);ts+=s;tc+=c;tx+=x;tn+=ns;ti+=ci;tw+=w;
+  }
+  cJSON_AddNumberToObject(totals,"slots",ts);cJSON_AddNumberToObject(totals,"confirmed",tc);cJSON_AddNumberToObject(totals,"cancelled",tx);cJSON_AddNumberToObject(totals,"no_show",tn);cJSON_AddNumberToObject(totals,"checked_in",ti);cJSON_AddNumberToObject(totals,"waiting",tw);
+ }
+ cJSON_Delete(days);cJSON_Delete(waiting);
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"stats",rows);cJSON_AddItemToObject(j,"totals",totals);
+ return result(200,"OK","查询成功",j);
+}
+Result stats_export(DB *d,Id start,Id end){
+ Result r=stats(d,start,end);if(r.status!=200)return r;
+ cJSON *data=cJSON_GetObjectItemCaseSensitive(r.body,"data"),*rows=cJSON_GetObjectItemCaseSensitive(data,"stats"),*totals=cJSON_GetObjectItemCaseSensitive(data,"totals");
+ char a[11],b[11];date_text((start+28800)/86400,a);date_text((end+28800)/86400,b);
+ size_t cap=4096+(size_t)(rows?cJSON_GetArraySize(rows):0)*160;char *csv=malloc(cap);
+ if(!csv){cJSON_Delete(r.body);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
+ int n=snprintf(csv,cap,"\xEF\xBB\xBF" "日期,开放场次,有效预约,已取消,已爽约,已签到,候补人数\n");
+ if(n<0||(size_t)n>=cap)n=0;
+ cJSON *it;cJSON_ArrayForEach(it,rows){
+  if((size_t)n+160>=cap)break;
+  const char *day=jstr(it,"date");
+  n+=snprintf(csv+n,cap-(size_t)n,"%s,%g,%g,%g,%g,%g,%g\n",day?day:"",
+   cJSON_GetObjectItemCaseSensitive(it,"slots")->valuedouble,cJSON_GetObjectItemCaseSensitive(it,"confirmed")->valuedouble,
+   cJSON_GetObjectItemCaseSensitive(it,"cancelled")->valuedouble,cJSON_GetObjectItemCaseSensitive(it,"no_show")->valuedouble,
+   cJSON_GetObjectItemCaseSensitive(it,"checked_in")->valuedouble,cJSON_GetObjectItemCaseSensitive(it,"waiting")->valuedouble);
+ }
+ if(totals&&(size_t)n+160<cap)n+=snprintf(csv+n,cap-(size_t)n,"合计,%g,%g,%g,%g,%g,%g\n",
+  cJSON_GetObjectItemCaseSensitive(totals,"slots")->valuedouble,cJSON_GetObjectItemCaseSensitive(totals,"confirmed")->valuedouble,
+  cJSON_GetObjectItemCaseSensitive(totals,"cancelled")->valuedouble,cJSON_GetObjectItemCaseSensitive(totals,"no_show")->valuedouble,
+  cJSON_GetObjectItemCaseSensitive(totals,"checked_in")->valuedouble,cJSON_GetObjectItemCaseSensitive(totals,"waiting")->valuedouble);
+ cJSON_Delete(r.body);
+ char name[64];snprintf(name,sizeof name,"lab-stats-%s_%s.csv",a,b);
+ cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"filename",name);cJSON_AddStringToObject(j,"content",csv);free(csv);
+ return result(200,"OK","导出完成",j);
+}
+/* 资源利用率：按实验室聚合区间内的开放场次/席位与预约、签到、爽约，利用率=有效预约/总席位。 */
+Result lab_utilization(DB *d,Id start,Id end){
+ cJSON *rows=db_rows(d,
+  "SELECT l.id AS lab_id,l.name AS lab_name,count(s.id) AS slots,CAST(total(s.capacity) AS INTEGER) AS seats,"
+  "(SELECT count(*) FROM reservations r JOIN slots s2 ON s2.id=r.slot_id WHERE s2.lab_id=l.id AND r.status IN('CONFIRMED','HELD') AND s2.start_at>=? AND s2.start_at<?) AS confirmed,"
+  "(SELECT count(*) FROM reservations r JOIN slots s3 ON s3.id=r.slot_id WHERE s3.lab_id=l.id AND r.checked_in_at IS NOT NULL AND s3.start_at>=? AND s3.start_at<?) AS checked_in,"
+  "(SELECT count(*) FROM reservations r JOIN slots s4 ON s4.id=r.slot_id WHERE s4.lab_id=l.id AND r.cancel_reason='NO_SHOW' AND s4.start_at>=? AND s4.start_at<?) AS no_show,"
+  "(SELECT CAST(total(r.checked_out_at-r.checked_in_at)/60 AS INTEGER) FROM reservations r JOIN slots s5 ON s5.id=r.slot_id WHERE s5.lab_id=l.id AND r.checked_out_at IS NOT NULL AND r.checked_in_at IS NOT NULL AND s5.start_at>=? AND s5.start_at<?) AS actual_minutes "
+  "FROM labs l LEFT JOIN slots s ON s.lab_id=l.id AND s.start_at>=? AND s.start_at<? GROUP BY l.id ORDER BY l.id",
+  "iiiiiiiiii",start,end+86400,start,end+86400,start,end+86400,start,end+86400,start,end+86400);
+ if(!rows)return db_failure(d);
+ cJSON *out=cJSON_CreateArray();cJSON *it;
+ cJSON_ArrayForEach(it,rows){
+  cJSON *row=cJSON_CreateObject();if(!row)break;
+  double seats=cJSON_GetObjectItemCaseSensitive(it,"seats")->valuedouble;
+  double confirmed=cJSON_GetObjectItemCaseSensitive(it,"confirmed")->valuedouble;
+  double util=seats>0?confirmed/seats*100.0:0.0;
+  cJSON *lid=cJSON_GetObjectItemCaseSensitive(it,"lab_id");
+  if(lid&&lid->valuestring)cJSON_AddStringToObject(row,"lab_id",lid->valuestring);
+  else if(lid)cJSON_AddNumberToObject(row,"lab_id",lid->valuedouble);
+  cJSON_AddStringToObject(row,"lab_name",jstr(it,"lab_name"));
+  cJSON_AddNumberToObject(row,"slots",cJSON_GetObjectItemCaseSensitive(it,"slots")->valuedouble);
+  cJSON_AddNumberToObject(row,"seats",seats);
+  cJSON_AddNumberToObject(row,"confirmed",confirmed);
+  cJSON_AddNumberToObject(row,"checked_in",cJSON_GetObjectItemCaseSensitive(it,"checked_in")->valuedouble);
+  cJSON_AddNumberToObject(row,"no_show",cJSON_GetObjectItemCaseSensitive(it,"no_show")->valuedouble);
+  cJSON_AddNumberToObject(row,"utilization",((int)(util*10+0.5))/10.0);
+  {double actual=cJSON_GetObjectItemCaseSensitive(it,"actual_minutes")->valuedouble;
+   double seat_min=seats*60.0;
+   cJSON_AddNumberToObject(row,"actual_minutes",(int)actual);
+   cJSON_AddNumberToObject(row,"seat_minutes",(int)seat_min);
+   cJSON_AddNumberToObject(row,"utilization_actual",seat_min>0?((int)(actual/seat_min*1000.0+0.5))/10.0:0.0);}
+  cJSON_AddItemToArray(out,row);
+ }
+ cJSON_Delete(rows);
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"utilization",out);
+ return result(200,"OK","查询成功",j);
+}
+/* r21 资源声明占用查询：区间内各资源的声明次数与最近声明记录（管理端资源页签展示）。 */
+Result asset_claim_report(DB *d,Id start,Id end){
+ cJSON *rows=db_rows(d,
+  "SELECT a.id AS asset_id,a.name AS asset_name,a.total,count(c.reservation_id) AS claims,"
+  "MAX(s.start_at) AS last_start "
+  "FROM assets a LEFT JOIN asset_claims c ON c.asset_id=a.id "
+  "LEFT JOIN reservations r ON r.id=c.reservation_id AND r.status IN('CONFIRMED','HELD') "
+  "LEFT JOIN slots s ON s.id=r.slot_id AND s.start_at>=? AND s.start_at<? "
+  "GROUP BY a.id ORDER BY a.id","ii",start,end+86400);
+ if(!rows)return db_failure(d);
+ cJSON *out=cJSON_CreateArray();cJSON *it;
+ cJSON_ArrayForEach(it,rows){
+  cJSON *row=cJSON_CreateObject();if(!row)break;
+  cJSON *aid=cJSON_GetObjectItemCaseSensitive(it,"asset_id");
+  if(aid&&aid->valuestring)cJSON_AddStringToObject(row,"asset_id",aid->valuestring);
+  else cJSON_AddNumberToObject(row,"asset_id",aid?aid->valuedouble:0);
+  cJSON_AddStringToObject(row,"asset_name",jstr(it,"asset_name"));
+  cJSON_AddNumberToObject(row,"claims",cJSON_GetObjectItemCaseSensitive(it,"claims")->valuedouble);
+  cJSON_AddNumberToObject(row,"last_start",cJSON_GetObjectItemCaseSensitive(it,"last_start")?cJSON_GetObjectItemCaseSensitive(it,"last_start")->valuedouble:0);
+  cJSON_AddItemToArray(out,row);
+ }
+ cJSON_Delete(rows);
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"claims",out);
+ return result(200,"OK","查询成功",j);
+}
+/* r22 声明占用报表 CSV 导出：复用 asset_claim_report 的结果，输出带 BOM 的 CSV（对齐 stats_export / utilization_export）。
+   仅导出报表已有字段，避免为导出而改动既有响应契约。 */
+Result asset_claim_export(DB *d,Id start,Id end){
+ Result r=asset_claim_report(d,start,end);if(r.status!=200)return r;
+ cJSON *data=cJSON_GetObjectItemCaseSensitive(r.body,"data"),*rows=cJSON_GetObjectItemCaseSensitive(data,"claims");
+ char a[11],b[11];date_text((start+28800)/86400,a);date_text((end+28800)/86400,b);
+ size_t cap=4096+(size_t)(rows?cJSON_GetArraySize(rows):0)*160;char *csv=malloc(cap);
+ if(!csv){cJSON_Delete(r.body);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
+ int n=snprintf(csv,cap,"\xEF\xBB\xBF" "资源编号,资源名称,声明次数,最近占用日期\n");
+ if(n<0||(size_t)n>=cap)n=0;
+ Id total=0;cJSON *it;
+ cJSON_ArrayForEach(it,rows){
+  if((size_t)n+160>=cap)break;
+  cJSON *aid=cJSON_GetObjectItemCaseSensitive(it,"asset_id");
+  const char *idtext=(aid&&aid->valuestring)?aid->valuestring:"";
+  const char *nm=jstr(it,"asset_name");
+  double claims=cJSON_GetObjectItemCaseSensitive(it,"claims")?cJSON_GetObjectItemCaseSensitive(it,"claims")->valuedouble:0;
+  cJSON *ls=cJSON_GetObjectItemCaseSensitive(it,"last_start");
+  char ld[11]="";if(ls&&ls->valuedouble>0)date_text(((Id)ls->valuedouble+28800)/86400,ld);
+  n+=snprintf(csv+n,cap-(size_t)n,"%s,%s,%g,%s\n",idtext,nm?nm:"",claims,ld);
+  total+=(Id)claims;
+ }
+ if(rows&&(size_t)n+64<cap)n+=snprintf(csv+n,cap-(size_t)n,"合计,,%lld,\n",(long long)total);
+ cJSON_Delete(r.body);
+ char name[72];snprintf(name,sizeof name,"lab-asset-claims-%s_%s.csv",a,b);
+ cJSON *j2=cJSON_CreateObject();cJSON_AddStringToObject(j2,"filename",name);cJSON_AddStringToObject(j2,"content",csv);free(csv);
+ return result(200,"OK","导出完成",j2);
+}
+Result calendar_export(DB *d,const User *u){
+ cJSON *rows=db_rows(d,"SELECT r.id,r.checked_in_at,s.start_at,s.end_at,l.name AS lab FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id WHERE r.user_id=? AND r.status IN('CONFIRMED','HELD') ORDER BY s.start_at","i",u->id);
+ if(!rows)return db_failure(d);
+ size_t cap=1024+(size_t)(rows?cJSON_GetArraySize(rows):0)*400;char *cal=malloc(cap);
+ if(!cal){cJSON_Delete(rows);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
+ int n=snprintf(cal,cap,"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//LabBooking//CN\r\n");
+ cJSON *it;cJSON_ArrayForEach(it,rows){
+  Id st=(Id)cJSON_GetObjectItemCaseSensitive(it,"start_at")->valuedouble;
+  Id en=(Id)cJSON_GetObjectItemCaseSensitive(it,"end_at")->valuedouble;
+  Id rid=(Id)cJSON_GetObjectItemCaseSensitive(it,"id")->valuedouble;
+  cJSON *ci=cJSON_GetObjectItemCaseSensitive(it,"checked_in_at");
+  const char *lab=jstr(it,"lab");
+  char ds[24],de[24],tstat[32];
+  time_t tu=(time_t)st;strftime(ds,sizeof ds,"%Y%m%dT%H%M%SZ",gmtime(&tu));
+  tu=(time_t)en;strftime(de,sizeof de,"%Y%m%dT%H%M%SZ",gmtime(&tu));
+  snprintf(tstat,sizeof tstat," · %s",(ci&&cJSON_IsNumber(ci)&&ci->valuedouble>0)?"已签到":"未签到");
+  char sum[160];snprintf(sum,sizeof sum,"实验室预约：%s%s",lab?lab:"",tstat);
+  if((size_t)n+460>=cap)break;
+  n+=snprintf(cal+n,cap-(size_t)n,"BEGIN:VEVENT\r\nUID:lab-booking-%lld@lab-booking\r\nDTSTART:%s\r\nDTEND:%s\r\nSUMMARY:%s\r\nEND:VEVENT\r\n",(long long)rid,ds,de,sum);
+ }
+ cJSON_Delete(rows);
+ n+=snprintf(cal+n,cap-(size_t)n,"END:VCALENDAR\r\n");
+ char name[40];snprintf(name,sizeof name,"lab-schedule.ics");
+ cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"filename",name);cJSON_AddStringToObject(j,"content",cal);free(cal);
+ return result(200,"OK","导出完成",j);
+}
+/* r14 资源使用统计：区间内某资源的声明次数（按有效预约、按日聚合），用于资源维度闭环分析。 */
+Result asset_usage(DB *d,Id aid,Id start,Id end){
+ cJSON *a=db_first(d,"SELECT id,name,spec,total,status FROM assets WHERE id=?","i",aid);
+ if(d->error)return db_failure(d);
+ if(!a)return result(404,"NOT_FOUND","资源不存在",NULL);
+ cJSON *days=db_rows(d,"SELECT (s.start_at+28800)/86400 AS day,count(*) AS claims FROM asset_claims c JOIN reservations r ON r.id=c.reservation_id AND r.status IN('CONFIRMED','HELD') JOIN slots s ON s.id=r.slot_id WHERE c.asset_id=? AND s.start_at>=? AND s.start_at<? GROUP BY day ORDER BY day","iii",aid,start,end+86400);
+ if(!days){cJSON_Delete(a);return db_failure(d);}
+ cJSON *out=cJSON_CreateArray();cJSON *it;
+ cJSON_ArrayForEach(it,days){
+  cJSON *row=cJSON_CreateObject();if(!row)break;
+  char date[11];date_text((Id)cJSON_GetObjectItemCaseSensitive(it,"day")->valuedouble,date);
+  cJSON_AddStringToObject(row,"date",date);
+  cJSON_AddNumberToObject(row,"claims",cJSON_GetObjectItemCaseSensitive(it,"claims")->valuedouble);
+  cJSON_AddItemToArray(out,row);
+ }
+ cJSON_Delete(days);
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"asset",a);cJSON_AddItemToObject(j,"usage",out);
+ return result(200,"OK","查询成功",j);
+}
+Result utilization_export(DB *d,Id start,Id end){ Result r=lab_utilization(d,start,end);if(r.status!=200)return r;
+ cJSON *rows=cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(r.body,"data"),"utilization");
+ char a[11],b[11];date_text((start+28800)/86400,a);date_text((end+28800)/86400,b);
+ size_t cap=2048+(size_t)(rows?cJSON_GetArraySize(rows):0)*160;char *csv=malloc(cap);
+ if(!csv){cJSON_Delete(r.body);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
+ int n=snprintf(csv,cap,"\xEF\xBB\xBF" "实验室,开放场次,总席位,有效预约,已签到,已爽约,利用率%%\n");
+ if(n<0||(size_t)n>=cap)n=0;
+ cJSON *it;cJSON_ArrayForEach(it,rows){
+  if((size_t)n+200>=cap)break;
+  n+=snprintf(csv+n,cap-(size_t)n,"%s,%g,%g,%g,%g,%g,%g\n",jstr(it,"lab_name"),
+   cJSON_GetObjectItemCaseSensitive(it,"slots")->valuedouble,cJSON_GetObjectItemCaseSensitive(it,"seats")->valuedouble,
+   cJSON_GetObjectItemCaseSensitive(it,"confirmed")->valuedouble,cJSON_GetObjectItemCaseSensitive(it,"checked_in")->valuedouble,
+   cJSON_GetObjectItemCaseSensitive(it,"no_show")->valuedouble,cJSON_GetObjectItemCaseSensitive(it,"utilization")->valuedouble);
+ }
+ cJSON_Delete(r.body);
+ char name[64];snprintf(name,sizeof name,"lab-utilization-%s_%s.csv",a,b);
+ cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"filename",name);cJSON_AddStringToObject(j,"content",csv);free(csv);
+ return result(200,"OK","导出完成",j);
+}
+/* -- r23 日历导出（对标 LibreBooking ICS）：以 API 令牌做免登录访问，输出 ICS 文本。
+      时间统一用 UTC（带 Z 后缀），客户端会按本地时区正确呈现。 -- */
+static void ics_stamp(Id t,char out[32]){
+ time_t tt=(time_t)t;struct tm g;
+ #ifdef _WIN32
+ gmtime_s(&g,&tt);
+ #else
+ gmtime_r(&tt,&g);
+ #endif
+ /* 取模限定各字段范围，既保证语义不变也让编译器的格式截断分析能通过 */
+ snprintf(out,32,"%04d%02d%02dT%02d%02d%02dZ",
+  (g.tm_year+1900)%10000,(g.tm_mon+1)%100,(g.tm_mday)%100,g.tm_hour%100,g.tm_min%100,g.tm_sec%100);
+}
+Result calendar_ics(DB *d,const User *u){
+ cJSON *rows=db_rows(d,"SELECT r.id,r.slot_id,l.name AS lab_name,s.start_at,s.end_at,r.status FROM reservations r JOIN slots s ON s.id=r.slot_id JOIN labs l ON l.id=s.lab_id WHERE r.user_id=? AND r.status IN('CONFIRMED','PENDING') ORDER BY s.start_at LIMIT 500","i",u->id);
+ if(d->error)return db_failure(d);
+ size_t cap=2048+(size_t)(rows?cJSON_GetArraySize(rows):0)*420;char *ics=malloc(cap);
+ if(!ics){cJSON_Delete(rows);return result(500,"INTERNAL_ERROR","内存不足",NULL);}
+ int n=snprintf(ics,cap,"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//lab-booking//r23//CN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:lab-booking\r\n");
+ if(n<0||(size_t)n>=cap)n=0;
+ char nows[32];ics_stamp(now_sec(),nows);
+ cJSON *it;cJSON_ArrayForEach(it,rows){
+  if((size_t)n+420>=cap)break;
+  Id t0=(Id)cJSON_GetObjectItemCaseSensitive(it,"start_at")->valuedouble;
+  Id t1=(Id)cJSON_GetObjectItemCaseSensitive(it,"end_at")->valuedouble;
+  char s0[32],s1[32];ics_stamp(t0,s0);ics_stamp(t1,s1);
+  const char *lab=jstr(it,"lab_name"),*stt=jstr(it,"status");
+  n+=snprintf(ics+n,cap-(size_t)n,
+   "BEGIN:VEVENT\r\nUID:lab-%s-%s@lab-booking\r\nDTSTAMP:%s\r\nDTSTART:%s\r\nDTEND:%s\r\nSUMMARY:%s (%s)\r\nEND:VEVENT\r\n",
+   jstr(it,"id"),jstr(it,"slot_id"),nows,s0,s1,lab?lab:"lab",(!stt||!strcmp(stt,"PENDING"))?"PENDING":"CONFIRMED");
+ }
+ n+=snprintf(ics+n,cap-(size_t)n,"END:VCALENDAR\r\n");
+ cJSON_Delete(rows);
+ char name[72];snprintf(name,sizeof name,"lab-booking-%lld.ics",(long long)u->id);
+ cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"filename",name);cJSON_AddStringToObject(j,"content",ics);free(ics);
+ return result(200,"OK","导出完成",j);
+}

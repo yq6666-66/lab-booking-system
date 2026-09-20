@@ -123,7 +123,7 @@ jobs:
           x86_64-w64-mingw32-gcc -std=c11 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
             -DNO_SSL -DNO_CGI -DSQLITE_THREADSAFE=1 -DWATCHDOG_MS=50 \
             -Isrc -Ivendor/civetweb/include -Ivendor/cjson -Ivendor/sqlite -Ivendor/sodium/libsodium-win64/include -Ivendor/unity/src \
-            vendor/unity/src/unity.c src/util.c src/db.c src/service.c src/ratelimit.c src/log.c tests/unit.c \
+            vendor/unity/src/unity.c src/util.c src/db.c src/service.c src/booking.c src/asset.c src/stats.c src/token.c src/ratelimit.c src/log.c tests/unit.c \
             vendor/civetweb/src/civetweb.c vendor/cjson/cJSON.c vendor/sqlite/sqlite3.c \
             -Lvendor/sodium/libsodium-win64/lib -lsodium -lws2_32 -ladvapi32 -lwinpthread -o build/asan-unit.exe
       - name: 运行 ASan 单元测试

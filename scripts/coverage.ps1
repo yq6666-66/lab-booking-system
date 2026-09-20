@@ -13,7 +13,7 @@ try {
   $o='build/cov_'+[IO.Path]::GetFileNameWithoutExtension($s)+'.o'
   if(-not (Test-Path $o)){ & gcc $base $includes $cov -c $s -o $o; if($LASTEXITCODE -ne 0){throw "compile $s"} }
  }
- $ownArgs=@('src/main.c','src/util.c','src/db.c','src/service.c','src/http.c','src/ratelimit.c','src/metrics.c','src/log.c')
+ $ownArgs=@('src/main.c','src/util.c','src/db.c','src/service.c','src/booking.c','src/asset.c','src/stats.c','src/token.c','src/http.c','src/ratelimit.c','src/metrics.c','src/log.c')
  # 显式对象编译：gcno/gcda 落在 build/ 下，路径确定
  $owncov=@()
  foreach($s in $ownArgs){

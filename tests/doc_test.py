@@ -71,7 +71,7 @@ def register_checks():
         for _status, codes in ERROR_CODE_RE.findall(docs_src):
             for c in codes.split("/"): declared.add(c.strip())
         declared = {c for c in declared if not c.isdigit()}
-        src_all = server_src + read("src/service.c") + read("src/db.c") + read("src/ratelimit.c")
+        src_all = server_src + "".join(read(f"src/{m}.c") for m in ("service","booking","asset","stats","token")) + read("src/db.c") + read("src/ratelimit.c")
         absent = sorted(c for c in declared if f'"{c}"' not in src_all)
         if absent:
             raise AssertionError(f"契约声明但源码未使用的错误码：{absent}")

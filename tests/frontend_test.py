@@ -42,6 +42,17 @@ def read(rel):
         raise AssertionError(f"缺少前端文件：web/{rel}")
     return target.read_text(encoding="utf-8", errors="replace")
 
+
+def read_service_all():
+    """服务端 service 域源码聚合（r24 规划 P2-5 拆分为 5 个文件后，跨文件一致性检查仍读全量）。"""
+    parts=[]
+    for name in ("service","booking","asset","stats","token"):
+        target=ROOT/"src"/f"{name}.c"
+        if not target.is_file():
+            raise AssertionError(f"缺少服务端源文件：src/{name}.c")
+        parts.append(target.read_text(encoding="utf-8", errors="replace"))
+    return "\n".join(parts)
+
 def strip_uid_block(src):
     return UID_BLOCK_RE.sub("", src)
 
@@ -799,7 +810,7 @@ def check_credential_rule_parity():
     且不得对密码 trim（空格是合法口令字符）。HTML 的 maxlength 数的是 UTF-16 码元，
     它只能当第一道粗筛（码元超了字节一定超），真正的字节判定只有 JS 与服务端能做。"""
     http_c = read("../src/http.c")
-    service_c = read("../src/service.c")
+    service_c = read_service_all()
     js, html = read("app.js"), read("index.html")
     problems = []
 
@@ -967,7 +978,7 @@ def check_admin_text_length_parity():
     超长的中文前缀被切碎成另一个词，页面拿到的是「查无此人」而不是错误。
     这里把五个数字全部从 C 源码抠出来，与 admin.js 的 LIMITS、admin.html 的 maxlength 对表。"""
     http_c = read("../src/http.c")
-    service_c = read("../src/service.c")
+    service_c = read_service_all()
     js, html = read("admin.js"), read("admin.html")
     problems = []
 
@@ -1247,7 +1258,7 @@ def check_approval_flag_is_surfaced():
        写死的「预约成功」只能作为非 PENDING 分支存在（全站只出现一次）。"""
     problems = []
     http = read_c("http.c")
-    service = read_c("service.c")
+    service = read_service_all()
     db = read_c("db.c")
     admin_html = read("admin.html")
     admin_js = read("admin.js")
@@ -1376,7 +1387,7 @@ def check_admin_approval_list_shows_note():
     ③ 管理台「待审批预约」表有「备注」列，单元走共用出口 UI.noteCell，不另写一份截断；
     ④ 管理台「预约记录」表同样带这一列。"""
     problems = []
-    service = read_c("service.c")
+    service = read_service_all()
     admin_js = read("admin.js")
     contract = (ROOT / "tests" / "contract_test.py").read_text(encoding="utf-8", errors="replace")
 
