@@ -140,10 +140,10 @@ para("The system guarantees concurrent correctness with single-writer transactio
      "asset maintenance work orders with availability windows and qualification grants, self-managed API access tokens, a standalone admin "
      "console (slot adjustment, user management, announcements and runtime logs), time-windowed check-in, session start reminders, automatic "
      "backup rotation, a no-show credit constraint, time-overlap detection, and hardened browser attack surface via global security headers.", font="Times New Roman")
-para("The system passes five layers of automated verification: 24 unit tests, 70 integration assertion groups (including a 720-request "
+para("The system passes five layers of automated verification: 24 unit tests, 79 integration assertion groups (including a 720-request "
      "concurrent-contention experiment with no overbooking observed across all trials, 30 crash-recovery trials all correct, and five "
-     "cross-rule combination checks), contract tests over 48 endpoints, gray-box/documentation tests, fuzz and soak stability experiments, "
-     "and a three-channel continuous integration gate (build and test, static analysis, AddressSanitizer memory safety). A timing "
+     "cross-rule combination checks), contract tests over 52 endpoints, gray-box/documentation tests, fuzz and soak stability experiments, "
+     "and a four-channel continuous integration gate (build and test, static analysis, AddressSanitizer memory safety). A timing "
      "side-channel experiment shows the login path responds to valid and invalid accounts within a 1.07x ratio, substantially flattening the "
      "observable timing difference available for account enumeration. Connection reuse and statement caching raise read throughput by up to "
      "541% (about 6.4x) and cut p50 latency by 87%.", font="Times New Roman")
@@ -249,7 +249,7 @@ li("BR14 预约提前量：开始前不足提前量（--lead-time，默认关闭
 li("BR15 候补优先级与抢占：候补与抢占的优先级由服务端按角色裁定（普通用户 0、管理员 10，不接受客户端自报）；满员时高优先级用户可直接预约并抢占未签到、优先级更低的有效预约，被抢占者获得信用补偿并收到通知；")
 li("BR16 信用账户：用户持有信用余额（基准 5，上限 5），签到与被抢占补偿 +1、爽约额外 −1、管理员可发放；余额为零时拒绝新的预约与候补；每周回补至基准（只补不扣），全部变动记录流水；")
 li("BR17 资源可用时段窗：可为资源配置按星期与时刻的可用窗口，窗口外的资源声明被拒绝；")
-li("BR18 资源维护工单：开启工单即置资源为维修中（重复开启拒绝），关闭后恢复可用；维修中资源拒绝新的声明（既有声明不受影响）；")
+li("BR18 资源维护工单：开启工单即置资源为维修中（重复开启拒绝），关闭后恢复可用；维修中资源拒绝新的声明（既有声明不受影响）；工单开/关时自动通知该资源全部未来有效声明的持有者（响应附受影响计数）；")
 li("BR19 候补递补三档策略：默认可执行 FIFO——按（优先级降序,编号升序）扫描队列，停用者跳过、临时时间冲突者暂跳并保留原序号，只递补第一个当前可执行的候选；strict 回退为队首阻塞语义；weighted（老化加权）按 score = 1000×优先级 + 200×(信用−5) + 60×log₂(1+等待小时数) 降序扫描——等待每翻倍 +60 分、同档 1 点信用差约需 8 小时等待追平、管理员不被老化越级，冲突暂跳语义与前两档一致；")
 li("BR20 限时保留（HELD）：--hold-window 启用后候补递补先落 HELD 态并写入保留截止（min(当前+窗口, 开场)），用户在截止前确认才转 CONFIRMED，超时由扫描器回收为 EXPIRED 并重新递补；占容口径为 CONFIRMED + HELD；")
 li("BR21 资格授权：开启资格要求的资源仅对持有效资格的用户开放声明，未持资格返回 QUALIFICATION_REQUIRED；资格由管理员授予与撤销。")
@@ -346,7 +346,7 @@ h2("5.2 HTTP 接入与会话安全")
 para("api() 处理器依次执行 Host 白名单、方法检查、健康探测、Origin 校验、请求体上限与 JSON 合法性检查（含重复键拒绝）、数据库连接获取、"
      "会话认证与 CSRF 校验后才进入业务分发。登录接口前置防爆破闸门：同一用户名连续失败达到阈值（默认 5 次）后锁定 900 秒，期间正确口令"
      "同样返回 429；已登录用户的全部写操作经过每用户令牌桶（默认突发 30、每秒补充 1）限速。路由计数口径：分派器共 63 个路由分支"
-     "（其中 24 个带路径参数），另有 Prometheus 抓取端点 /metrics 为独立处理器；契约测试覆盖其中 48 个端点的响应封套与字段类型"
+     "（其中 24 个带路径参数），另有 Prometheus 抓取端点 /metrics 为独立处理器；契约测试覆盖其中 52 个端点的响应封套与字段类型"
      "（计数以仓库 tests/contract_test.py 的 SCHEMAS 键数为准）。管理端点集中做角色断言，静态资源与 API 共享全局安全响应头。")
 h2("5.3 事务与去重核心")
 para("booking() 是全部写操作的汇聚点，其主干为：BEGIN IMMEDIATE → 用户可用性检查（含爽约信用受限与时间重叠检测）→ 回执查询（命中即重放/"
@@ -367,9 +367,9 @@ para("签到接口校验本人、CONFIRMED 状态与窗口期，以服务端时�
      "签退—签到时长聚合为实机时，是资源利用率实机时口径的数据来源。提醒任务复用同一线程循环：命中提醒窗口的场次向全部有效预约者写入 "
      "REMIND 通知并以 reminded_at 防重，重复扫描不会产生重复通知。")
 h2("5.6 管理控制台与运营功能实现")
-para("管理控制台为独立页面（admin.html + admin.js），以十一个页签组织实验室管理（含预约审批开关）、场次发布、场次管理（开始前调整时间与容量）、全员记录"
-     "（动作与用户双维筛选，含 PENDING 待审批）、用户管理（前缀搜索、分页、停用/启用、重置密码一次性展示、信用发放、近 7 天爽约计数与受限标记）、统计图表、运行指标、"
-     "通知发布（全员或指定用户）、通知历史与运行日志（尾部读取、级别与行数筛选）；资源管理页签覆盖维护工单、可用时段窗与资格授权。控制台概览如图 5-1 所示，用户管理如图 5-2 所示，"
+para("管理控制台为独立页面（admin.html + admin.js），以十二个页签组织实验室管理（含预约审批开关）、场次发布、场次管理（开始前调整时间与容量）、全员记录"
+     "（动作与用户双维筛选，含 PENDING 待审批，支持批量审批——部分成功语义，容量满条目入 failed[]）、用户管理（前缀搜索、分页、停用/启用、重置密码一次性展示、信用发放、近 7 天爽约计数与受限标记）、统计图表、运行指标、"
+     "通知发布（全员或指定用户）、通知历史与运行日志（尾部读取、级别与行数筛选）；资源管理页签覆盖维护工单、可用时段窗与资格授权；全员记录表内置管理员强制操作——「强制取消」（ADMIN 原因+递补+通知）与「代签退」（保实机时口径）。控制台概览如图 5-1 所示，用户管理如图 5-2 所示，"
      "统计图表如图 5-3 所示。资源管理页签维护实验室设备清单（名称/规格/数量/三态状态）；统计页的趋势图由前端以纯 DOM API 生成 SVG 双系列柱状图，不引入任何图表库。统计页还提供按实验室的资源利用率表与 CSV 导出。可观测性方面新增 Prometheus 标准文本抓取端点（/metrics，计数器与延迟直方图累积 bucket），运维生态可直接接入。运营侧实现了自动备份线程"
      "（Backup API 导出 + 按保留数量轮转）、30 天历史归档与演示数据生成器（固定随机种子，可复现地生成过去若干天的场次、预约、签到与"
      "爽约历史，并内置结构性容量保护保证重复执行不破坏不变量）。")
@@ -384,7 +384,7 @@ para("个人与全体记录支持 page/page_size/has_more 分页与状态筛选�
 # ---------- 第6章 ----------
 h1("6 系统测试")
 h2("6.1 测试策略与环境")
-para("测试体系分五层：（1）Unity 单元测试 24 个，不经 HTTP 直接链接业务层与数据层；（2）集成实验 70 项断言组（编号 T01–T78 另加 CLI 数据库"
+para("测试体系分五层：（1）Unity 单元测试 24 个，不经 HTTP 直接链接业务层与数据层；（2）集成实验 79 项断言组（编号 T01–T78 另加 CLI 数据库"
      "检查，以测试运行器 record() 调用数为准），以独立 Python 客户端"
      "驱动真实服务进程，覆盖功能、安全、并发、故障恢复、运营能力与跨规则组合语义；（3）契约测试（52 个端点逐项校验响应封套与字段类型）与灰盒/文档一致性测试；"
      "（4）模糊稳健性实验与浸泡稳定性实验；（5）真实浏览器端到端验收。所有实验使用独立临时端口与全新数据库副本，原始证据（数据库、日志、"
@@ -401,7 +401,7 @@ cap("表 6-1 源文件行覆盖率（单元 + 接口与 CLI 走查，gcov 实测
 tbl(["源文件", "db.c", "http.c", "log.c", "main.c", "metrics.c", "ratelimit.c", "service.c", "util.c"],
     [["行覆盖率 %", 86.55, 89.94, 84.62, 82.56, 95.24, 86.76, 81.48, 98.08]])
 h2("6.3 功能、安全与运营回归")
-para("集成实验共 70 项断言组（T01–T69 及 CLI 数据库检查），覆盖登录授权、占用唯一、候补 FIFO 与重入队尾、重放幂等、越权与 CSRF/Origin、"
+para("集成实验共 79 项断言组（T01–T78 及 CLI 数据库检查），覆盖登录授权、占用唯一、候补 FIFO 与重入队尾、重放幂等、越权与 CSRF/Origin、"
      "畸形与超长输入、过期场次、外部写锁退避、禁用候补跳过、替代时段对账、统计对账、会话清理、签到窗口、分页参数、CSV 导出、改密会话失效、"
      "混合负载连接复用，以及运营扩展的角色登录、场次调整、通知发布、用户管理、场次提醒、自动备份、爽约信用、时间重叠、历史归档、日志查看、"
      "资源管理、利用率统计、资源声明配额、周期性发布、每周配额、签退、预约提前量与改期、审批流、API 令牌、维护工单、可用时段窗、信用账户、"
@@ -424,6 +424,10 @@ li("T51–T52 审批流与待审批列表：require_approval 实验室预约落 
 li("T53–T62 运营深化：API 令牌签发/使用/吊销、维护工单开闭与重复拒绝、可用时段窗外拒绝（WINDOW_CONFLICT）、信用流水与发放边界、抢占补偿与通知、批量连场原子性、资格授予/撤销与 QUALIFICATION_REQUIRED、可执行 FIFO 暂跳保留序号、HELD 超时回收重递补；")
 li("T63–T67 跨规则组合验证（对应契约「语义澄清」节）：审批×HELD（PENDING 不占容量、批准重校、递补绕审批落 HELD 后确认）、优先级×可执行 FIFO（高优先级冲突者被暂跳、低优先级递补；strict 对照整体停止）、抢占×信用（确定性余额控制下补偿 +1 未触顶并可再预约）、维护×资源声明（新声明 409、既有保留、恢复后可声明）、改期×周配额（本周有效预约总数守恒、改期不放水）。")
 li("T74 差分属性测试：weighted 递补与参考模型（评分公式+可执行扫描）在 12 组随机场景（随机等待时长/信用/跨场冲突/停用者/管理员混入）下逐场一致——策略实现的性质级验证；")
+li("T75 建议 queue_ahead 数值等价断言：预取计算值与精确口径在四场景下逐值对拍——r30 预取优化的正确性证明；")
+li("T76 批量审批部分成功语义：容量满条目入 failed[]（含 APPROVAL_CAPACITY 码）不影响其余条目，整体一个事务；")
+li("T77 维护影响通知：开/关工单时受影响声明持有者逐场收到站内通知、响应附 affected 计数、过去场次不计入；")
+li("T78 管理员强制操作：force-cancel（ADMIN 原因+FIFO 递补+通知）、force-complete（代签退+幂等）、已签到不可直接取消；")
 li("T70–T73 策略与治理：weighted 老化（同档久等者反超 id 序、信用压制、管理员不越级）、转正概率（经验分布与手算一致、样本不足 null）、公平性审计（与 SQL 对账、Jain 手算一致、越权 403）、每日候补上限（409 与日界重置）；")
 li("T68–T69 凭据生命周期与约束感知建议：停用/改密/重置密码同事务吊销 API 令牌且旧令牌 401；建议端点逐场次给出可预约/可候补与原因——满员可候补（SLOT_FULL）、周配额满不阻塞候补（BR13）、信用为零全部阻塞。")
 h2("6.4 并发争抢实验")
@@ -450,7 +454,7 @@ tbl(["实验", "场景", "并发", "基线 rps", "优化 rps", "吞吐提升", "
      ["E2", "same-slot", 20, 136.6, 203.0, "+49%", "-40.4%"],
      ["E2", "diff-slot", 20, 128.0, 209.0, "+63%", "-56.1%"]])
 para("在优化对比之外，另以混合负载实验考察写入密集场景的尾延迟与稳定性：6 个并发客户端在 20 秒内混发预约、取消、候补、审批、改期与读请求共 2,320 次，全程零请求错误、零 5xx（200/400/409 分别为 1,198/381/741，4xx 均为预期内的满员与冲突拒绝）；整体延迟 p50=14.5ms、p95=53.6ms、p99=91.8ms、最大 178.7ms。写前日志在实验窗口内由 0.12MB 增至 2.24MB，属写入集中期的正常表现，未见异常增长。该实验为本机回环环境的实测证据，脚本与报告见 scripts/mixed_load.py 与 docs/evidence/load/。", indent=True)
-para("在端点层面另做一次 N+1 查询消除：约束感知建议端点最初对 7 天窗口内每场次分别执行排位与概率查询（每请求约数百条 SQL），改为按（场次×优先级）分组计数与按星期分桶的历史释放两条预取查询后，在 104 场次、40 场满员带候补的负载下吞吐由 118 提升至 179 次/秒（+51%），且行为等价性由建议与概率的既有断言（T69/T71）逐值验证。", indent=True)
+para("在端点层面另做一次 N+1 查询消除：约束感知建议端点最初对 7 天窗口内每场次分别执行排位与概率查询（每请求约数百条 SQL），改为按（场次×优先级）分组计数与按星期分桶的历史释放两条预取查询后，在 104 场次、40 场满员带候补的负载下吞吐由 118 提升至 179 次/秒（+51%），且行为等价性由建议与概率的既有断言（T69/T71）逐值验证。公平审计端点同样消除了 N+1 查询（每用户 7 个相关子查询改为 6 条 GROUP BY 预聚合）。", indent=True)
 h2("6.7 候补策略与冲突检测算法对比实验")
 para("候补策略对比：以三档策略 × 四档负载（ρ = 预约请求数 / 总容量 = 0.7、1.0、1.3、1.6，过载递增）的真实服务矩阵实验评估递补效果（每格确定性场景：12 场次×容量 3、随机负载用户、结构化候补三角色——队首带跨场冲突者、低信用次早者、高信用第三者；释放由确定性取消触发）。结果见表 6-4：严格 FIFO 在队首冲突时空置全部释放名额（转正 0）；可执行与加权档均能完成递补，且二者把名额交给不同人——可执行档按入队序给出（等待约 7,200 秒），加权档按评分给出（等待约 3,600 秒，平均等待时长减半，归属高信用短等待者）。Jain 公平指数三档一致（0.73～0.82），表明单名额归属的差异在用户总量层面不放大不公平。")
 cap("表 6-4 三策略×四档负载矩阵（节选；完整数据 docs/evidence/experiment/strategy_matrix.md）")
@@ -492,9 +496,9 @@ li("（10）整型实参经变参按 8 字节读取（未定义行为）：转�
    "修复为调用处显式宽化。这是项目第 11 例参数传递缺陷，也是\u201c未定义行为不等于立刻崩溃\u201d的真实样本。")
 para("上述缺陷均由自动化测试或浏览器验收先行暴露，修复后以新增回归用例固化，验证了\u201c测试驱动发现—最小复现—修复—回归固化\u201d流程的有效性。")
 h2("6.10 浏览器端到端验收")
-para("以真实 Chromium 浏览器完成多轮端到端验收：走通登录（含管理员入口）、查询、预约、候补、取消补位（两段式确认）、签到（含倒计时与"
+para("以真实 Chromium 浏览器完成八用例端到端验收（含 case8 管理端强制取消按钮 UI→DB 全链）：走通登录（含管理员入口）、查询、预约、候补、取消补位（两段式确认）、签到（含倒计时与"
      "状态机）、预约审批（PENDING 徽标与管理端批准）、资源声明、通知已读与分页、记录状态筛选、改密与会话下线、API 令牌面板、分页、统计图表与 CSV 下载、容量显示与替代时段改约（改期面板）、指标面板，以及管理控制台"
-     "全部十一个页签（场次调整、用户停用与受限标记、通知发布与送达、运行日志筛选等）。截图存证于 docs/evidence/ui-r3/、ui-r5/ 与后续轮次归档。")
+     "全部十二个页签（场次调整、用户停用与受限标记、通知发布与送达、运行日志筛选等）。截图存证于 docs/evidence/ui-r3/、ui-r5/ 与后续轮次归档。")
 
 # ---------- 第7章 ----------
 h1("7 总结与展望")
