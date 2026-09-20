@@ -2,6 +2,20 @@
 
 本项目遵循语义化版本。所有重要变更记录于此。
 
+## [1.16.0] - 2026-09-20
+
+第四十一轮（前端集成）：feat/frontend-opt-r1 分支合并 + 管理员强制操作按钮。
+
+### 新增
+- **前端 agent 交付合并**（feat/frontend-opt-r1，23 轮迭代）：新 ui.js 共用基座（表单校验/分页/通知面板/多行文本截断）、theme.js 深色主题、favicon.svg、admin.html 全面重构（#gate 认证门/#topbar 工具栏/12 页签含待审批专页）、style.css 全面改版（自适应/深色模式/无障碍）。
+- **管理员强制操作按钮**（r41 集成补全）：全员记录表新增"操作"列——CONFIRMED/HELD/PENDING 行显示「强制取消」（data-rid + data-force-cancel 属性，E2E case8 集成点），已签到行另显示「代签退」（data-force-complete）。确认弹窗→API 调用→表格刷新。
+
+### 修复
+- **E2E 适配前端重构**：ensure_admin_ready() 辅助（等待 #gate 隐藏+#app 可见，适配新认证门）；case1 补 gate 等待；case2/3/6 补前置；case8 改为先切记录页再检测按钮+日期过滤+重试；loadRecords 改为多行（修复单行长函数语法错误——根因是 UI.noteCell 调用产生的隐藏字符）。
+
+### 变更
+- E2E 8/8（case8 从守卫跳过变为真正执行 rid=4 强制取消→DB 终态验证）；LAB_VERSION 1.15.0 → 1.16.0。
+
 ## [未发布] - r40
 
 第四十轮（全量验证终章）：安装部署与性能复验。

@@ -74,6 +74,17 @@ def shot(page, tag: str) -> None:
         pass  # 截图失败不影响结果收集
 
 
+def ensure_admin_ready(page):
+    """r41 前端重构后 admin.html 有 #gate 认证门：确保 #app 可见（tab 操作的前置）。"""
+    try:
+        page.locator("#gate").wait_for(state="hidden", timeout=8000)
+    except Exception:
+        pass
+    try:
+        page.locator("#app").wait_for(state="visible", timeout=8000)
+    except Exception:
+        pass  # 兼容无 gate 的旧版
+
 def first_visible(page, selectors, timeout=2000):
     """按候选顺序返回第一个可见控件；全部不可见则抛错（附全部候选便于定位）。
 
@@ -145,6 +156,11 @@ def case1(env):
     expect(page.locator("#login-subtitle")).to_contain_text("管理员账号", timeout=5000)
     fill_login(page, "admin", admin_tab=False)
     page.wait_for_url("**/admin.html", timeout=15000)
+    # r41 前端重构后 admin.html 有 #gate 认证门：等 #gate 隐藏（认证通过）或 #app 可见
+    try:
+        page.locator("#gate").wait_for(state="hidden", timeout=10000)
+    except Exception:
+        pass  # 兼容无 gate 的旧版
     page.locator("#app").wait_for(state="visible", timeout=10000)
     expect(page.locator("h1", has_text="运行概览")).to_be_visible(timeout=5000)
     cards = page.locator(".cards article.card")
@@ -155,6 +171,7 @@ def case1(env):
 def case2(env):
     """场次修改流：进 Tab → 实验室+今天 → 查询出表格行 → 第一行修改容量为 5 → 保存。"""
     page = env["admin_page"]
+    ensure_admin_ready(page)
     first_visible(page, ["#tabs button[data-tab='slots']", "#tabs button:has-text('场次管理')"], 3000).click()
     sel = first_visible(page, ["#slot-lab", "#slots-lab", "#query-lab", "select:visible"], 3000)
     sel.select_option(label=env["lab_name"])
@@ -189,6 +206,7 @@ def case2(env):
 def case3(env):
     """通知发布流：进 Tab → 全体用户 → 标题/正文 → 发送 → 提示含「已发送给」。"""
     page = env["admin_page"]
+    ensure_admin_ready(page)
     first_visible(page, ["#tabs button[data-tab='notify']", "#tabs button[data-tab='broadcast']", "#tabs button:has-text('通知发布')"], 3000).click()
     audience = False
     try:  # 受众优先：下拉框里的「全体用户」选项
@@ -338,7 +356,8 @@ def case6(env):
     """r13：管理端「资源管理」新增维修中资源 → 用户端预约页资源 chips 立即可见。"""
     admin_page, user_page, base = env["admin_page"], env["user_page"], env["base"]
     admin_page.goto(base + "/admin.html")
-    admin_page.get_by_role("button", name="资源管理").click()
+    ensure_admin_ready(admin_page)
+    first_visible(admin_page, ["#tabs button[data-tab='assets']", "#tabs button:has-text('资源管理')"], 5000).click()
     admin_page.wait_for_timeout(600)
     admin_page.evaluate("""() => { const f = document.querySelector('#asset-form');
       f.elements.name.value = 'E2E 示波器'; f.elements.spec.value = '4 通道';
@@ -438,9 +457,20 @@ def case7(env):
 
 def case8(env):
     """r36 预写：管理端批量审批与强制操作按钮（前端交付后自动启用）。
-    守卫：检测页面上是否存在 data-force-cancel 选择器；不存在则跳过（记 skipped 而非 failed），
-    前端 agent 交付包含 [data-force-cancel] 按钮后零改动生效。"""
+    守卫：先确保在 admin.html 并进入记录页（按钮只在记录表渲染），再检测 data-force-cancel；
+    不存在则跳过（记 skipped 而非 failed），前端 agent 交付后零改动生效。"""
     admin_page = env["admin_page"]
+    base = env["base"]
+    # 先确保在 admin.html 且通过认证门
+    if "/admin.html" not in admin_page.url:
+        admin_page.goto(base + "/admin.html", wait_until="domcontentloaded")
+    ensure_admin_ready(admin_page)
+    # 切到记录页（按钮只在记录表行内渲染）
+    try:
+        first_visible(admin_page, ["#tabs button[data-tab='records']", "#tabs button:has-text('全员记录')"], 5000).click()
+        admin_page.wait_for_timeout(1000)
+    except Exception:
+        pass
     # 守卫：按钮不存在时返回 skipped 标记
     has_btn = admin_page.evaluate("() => !!document.querySelector('[data-force-cancel]')")
     if not has_btn:
@@ -473,11 +503,22 @@ def case8(env):
         sid = c.execute("SELECT id FROM slots WHERE lab_id=? AND start_at=?", (int(env["lab"]), cd)).fetchone()[0]
         c.execute("INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(2,?,'CONFIRMED','DIRECT',?)", (sid, now))
         rid = c.execute("SELECT id FROM reservations WHERE slot_id=? AND status='CONFIRMED' ORDER BY id DESC LIMIT 1", (sid,)).fetchone()[0]
-    # UI 点击路径：进入全员记录 → 找到该行 → 点击强制取消按钮
-    admin_page.evaluate("() => { const t = document.querySelector('[data-tab=records]'); if (t) t.click(); }")
+    # UI 点击路径：进入全员记录 → 设置日期为记录所在日 → 找到该行 → 点击强制取消按钮
+    import datetime as _dt
+    slot_date = _dt.datetime.fromtimestamp(cd, tz=_dt.timezone(_dt.timedelta(hours=8))).strftime("%Y-%m-%d")
+    admin_page.evaluate(f"() => {{ const t = document.querySelector('[data-tab=records]'); if (t) t.click(); }}")
+    admin_page.wait_for_timeout(600)
+    try:
+        admin_page.fill("#admin-date", slot_date)
+        admin_page.dispatch_event("#admin-date", "change")
+    except Exception:
+        pass
     admin_page.wait_for_timeout(800)
     btn = admin_page.query_selector(f"[data-rid='{rid}'] [data-force-cancel], [data-force-cancel][data-rid='{rid}']")
-    require(btn is not None, f"记录行未找到强制取消按钮: rid={rid}")
+    if btn is None:
+        admin_page.wait_for_timeout(1500)
+        btn = admin_page.query_selector(f"[data-rid='{rid}'] [data-force-cancel], [data-force-cancel][data-rid='{rid}']")
+    require(btn is not None, f"记录行未找到强制取消按钮: rid={rid} date={slot_date}")
     btn.click()
     admin_page.wait_for_timeout(600)
     st, b = api(adm_ck, adm_cs, "GET", "/api/admin/records?page=1&page_size=50")

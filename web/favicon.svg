@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="实验室预约">
+  <rect width="64" height="64" rx="14" fill="#176d58"/>
+  <path d="M20 14v18.5L13.4 43a5 5 0 0 0 4.2 7.6h28.8A5 5 0 0 0 50.6 43L44 32.5V14z" fill="none" stroke="#ffffff" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M17.5 14h29" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <path d="M18.5 36h27" stroke="#d6a24f" stroke-width="4" stroke-linecap="round"/>
+</svg>
