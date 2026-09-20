@@ -6,7 +6,60 @@
 #include <stdio.h>
 #include <stdlib.h>
 void event(DB *d,Id actor,const char *action,Id entity,const char *request){db_run(d,"INSERT INTO operation_events(actor_id,action,entity_id,request_id,created_at) VALUES(?,?,?,?,?)","isisi",actor,action,entity,request,now_sec());}
-int notify(DB *d,Id user,const char *kind,const char *title,const char *body,Id slot,Id reservation){return db_run(d,"INSERT INTO notifications(user_id,kind,title,body,slot_id,reservation_id,created_at) VALUES(?,?,?,?,?,?,?)","isssiii",user,kind,title,body,slot,reservation,now_sec());}
+/* -- r24 P2-6 通知渠道插件化 + outbox：inbox 为默认且必需渠道（站内信，行为与拆分前一致）；
+      出站渠道经渠道表（函数指针）派发，默认关闭、零行为变化。--notify-file 开启 file 渠道后：
+      notify() 在业务事务内同写 outbox（payload 快照），业务提交后由扫描周期派发到文件（JSONL），
+      失败记 attempts/last_error 等待下轮重试；派发在自动提交模式运行，绝不影响业务事务。 -- */
+static const char *notify_file=NULL;
+void notify_configure(const Config *cfg){notify_file=cfg?cfg->notify_file:NULL;}
+typedef struct{const char *name;void (*send)(const char *target,const char *payload,char *err,size_t errsz);}OutboxChannel;
+static void outbox_file_send(const char *target,const char *payload,char *err,size_t errsz){
+ FILE *f=fopen(target,"a");
+ if(!f){snprintf(err,errsz,"open failed");return;}
+ fputs(payload,f);fputc('\n',f);
+ if(ferror(f)){snprintf(err,errsz,"write failed");fclose(f);return;}
+ if(fclose(f)!=0){snprintf(err,errsz,"close failed");return;}
+}
+static const OutboxChannel OUTBOX_CHANNELS[]={{"file",outbox_file_send}};
+int notify(DB *d,Id user,const char *kind,const char *title,const char *body,Id slot,Id reservation){
+ if(!db_run(d,"INSERT INTO notifications(user_id,kind,title,body,slot_id,reservation_id,created_at) VALUES(?,?,?,?,?,?,?)","isssiii",user,kind,title,body,slot,reservation,now_sec()))return 0;
+ if(!notify_file)return 1;
+ Id nid=sqlite3_last_insert_rowid(d->sql);
+ cJSON *p=cJSON_CreateObject();
+ if(p){
+  cJSON_AddStringToObject(p,"channel","file");
+  cJSON_AddNumberToObject(p,"user_id",(double)user);
+  cJSON_AddStringToObject(p,"kind",kind?kind:"");
+  cJSON_AddStringToObject(p,"title",title?title:"");
+  cJSON_AddStringToObject(p,"body",body?body:"");
+  if(slot)cJSON_AddNumberToObject(p,"slot_id",(double)slot);
+  if(reservation)cJSON_AddNumberToObject(p,"reservation_id",(double)reservation);
+  char *s=cJSON_PrintUnformatted(p);
+  if(s){db_run(d,"INSERT INTO outbox(notification_id,channel,payload,created_at) VALUES(?,?,?,?)","issi",nid,"file",s,now_sec());cJSON_free(s);}
+  cJSON_Delete(p);
+ }
+ return 1;
+}
+/* 提交后派发：仅扫描线程在自动提交模式调用；单行失败记 last_error/attempts 后继续下一行，
+   任何派发错误都不外泄（d->error 复位），保证业务路径不受出站渠道健康度影响。 */
+static void outbox_dispatch(DB *d){
+ if(!notify_file)return;
+ cJSON *rows=db_rows(d,"SELECT id,channel,payload FROM outbox WHERE sent_at IS NULL ORDER BY id LIMIT 100","");
+ if(!rows||d->error){cJSON_Delete(rows);d->error=0;return;}
+ cJSON *it;cJSON_ArrayForEach(it,rows){
+  Id id=0;if(!parse_id(jstr(it,"id"),&id))continue;
+  const char *chn=jstr(it,"channel");
+  const OutboxChannel *ch=NULL;
+  for(size_t i=0;i<sizeof OUTBOX_CHANNELS/sizeof *OUTBOX_CHANNELS;i++)if(chn&&!strcmp(OUTBOX_CHANNELS[i].name,chn)){ch=&OUTBOX_CHANNELS[i];break;}
+  char err[96]="";
+  if(ch)ch->send(notify_file,jstr(it,"payload"),err,sizeof err);
+  else snprintf(err,sizeof err,"unknown channel");
+  if(!err[0])db_run(d,"UPDATE outbox SET sent_at=?,attempts=attempts+1 WHERE id=?","ii",now_sec(),id);
+  else db_run(d,"UPDATE outbox SET attempts=attempts+1,last_error=? WHERE id=?","si",err,id);
+ }
+ cJSON_Delete(rows);
+ d->error=0;
+}
 void slot_when(DB *d,Id slot,char out[40]){
  Id st=db_num(d,"SELECT start_at FROM slots WHERE id=?","i",slot);
  if(!st){snprintf(out,40,"场次 %lld",(long long)slot);return;}
@@ -154,6 +207,7 @@ int sweep_once(const Config *config){
  DB d={0};int count=0;
  if(!db_open(&d,config->db_path)){db_close(&d);return 0;}
  Id now=now_sec();
+ outbox_dispatch(&d); /* r24 P2-6：先派发此前业务已提交的 outbox 行（自动提交，非业务事务内） */
  /* r24 HELD 超时回收：保留截止已过（或时段已开始）的待确认预约转 EXPIRED，
     释放后立即对同一场次重新递补，形成"超时即让位"的自然重试环。默认 hold_window=0 时无 HELD，此块空转。 */
  {cJSON *held=db_rows(&d,"SELECT r.id,r.user_id,r.slot_id FROM reservations r JOIN slots s ON s.id=r.slot_id WHERE r.status='HELD' AND ((r.hold_deadline IS NOT NULL AND r.hold_deadline<=?) OR s.start_at<=?)","ii",now,now);
@@ -206,6 +260,7 @@ int sweep_once(const Config *config){
    }
   }
  }
+ outbox_dispatch(&d); /* r24 P2-6：扫描自身事务提交后立即派发，缩短出站延迟 */
  db_close(&d);return count;
 }
 /* -- r11 用户管理与运营增强 -- */

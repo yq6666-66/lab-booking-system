@@ -278,7 +278,12 @@ Result booking(DB *d,const Config *cfg,const User *u,const char *action,Id targe
     if(!db_run(d,"INSERT OR IGNORE INTO asset_claims(reservation_id,asset_id,created_at) VALUES(?,?,?)","iii",rid,aid2,now_sec()))goto failed;
    }
   }
-  event(d,u->id,"RESERVE",rid,key);r=ok_id("reservation_id",rid);
+  event(d,u->id,"RESERVE",rid,key);
+  { /* r21 审批回执：带落库 status，页面据此区分已确认与待审批（前端门禁 check_approval_flag_is_surfaced） */
+   cJSON *j=cJSON_CreateObject();jid(j,"reservation_id",rid);
+   cJSON_AddStringToObject(j,"status",need_appr?"PENDING":"CONFIRMED");
+   r=result(200,"OK","操作成功",j);
+  }
  }else if(!strcmp(action,"wait")){
   Id capacity=(Id)cJSON_GetObjectItemCaseSensitive(slot,"capacity")->valuedouble;
   if(db_num(d,"SELECT count(*) FROM reservations WHERE slot_id=? AND user_id=? AND status IN('CONFIRMED','HELD')","ii",sid,u->id)){r=result(409,"ALREADY_RESERVED","你已预约该场次",NULL);goto save;}

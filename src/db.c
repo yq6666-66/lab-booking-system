@@ -109,7 +109,7 @@ static cJSON *rowsv(DB *d,const char *sql,const char *fmt,va_list a){
    if(t==SQLITE_NULL)cJSON_AddNullToObject(r,n);
    else if(t==SQLITE_INTEGER){
     if(!strcmp(n,"id")||(len>3&&!strcmp(n+len-3,"_id")))jid(r,n,sqlite3_column_int64(s,i));
-    else if(!strcmp(n,"enabled")||!strcmp(n,"lab_enabled")||!strcmp(n,"occupied"))cJSON_AddBoolToObject(r,n,sqlite3_column_int(s,i));
+    else if(!strcmp(n,"enabled")||!strcmp(n,"lab_enabled")||!strcmp(n,"occupied")||!strcmp(n,"require_approval"))cJSON_AddBoolToObject(r,n,sqlite3_column_int(s,i));
     else cJSON_AddNumberToObject(r,n,(double)sqlite3_column_int64(s,i));
    }else cJSON_AddStringToObject(r,n,(const char*)sqlite3_column_text(s,i));
   }

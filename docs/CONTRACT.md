@@ -9,13 +9,13 @@
 - 管理控制台：`/admin.html`（独立页面，静态文件）。页面加载时经 GET /api/me 校验会话与角色，非管理员跳回 `/`；全部管理操作仍走上列 /api/admin/* 端点，服务端 403 鉴权不变。登录页提供「用户登录 / 管理员登录」双入口，管理员入口提交 role_hint="ADMIN"，成功后跳转控制台。
 - GET /api/me -> 同上。POST /api/logout -> OK。
 - GET /api/health -> data `{status:"ok",version,uptime_s}`。
-- GET /api/labs -> data `{labs:[{id,name,location,description,enabled}]}`。
-- GET /api/slots?lab_id=1&date=YYYY-MM-DD -> data `{slots:[{id,lab_id,start_at,end_at,enabled,lab_enabled,occupied,waiting_count,my_reservation_id,my_checked_in_at,my_waitlist_id}],checkin_window}`。my_reservation_id/my_checked_in_at/my_waitlist_id 可为 null；checkin_window 为签到窗口秒数，页面据此判断何时显示签到按钮。
+- GET /api/labs -> data `{labs:[{id,name,location,description,enabled,require_approval}]}`（r43 补齐：审批开关对用户端/管理台列表可见，布尔输出）。
+- GET /api/slots?lab_id=1&date=YYYY-MM-DD -> data `{slots:[{id,lab_id,start_at,end_at,enabled,lab_enabled,require_approval,capacity,confirmed_count,waiting_count,my_reservation_id,my_checked_in_at,my_waitlist_id}],checkin_window}`（r43 补齐 require_approval 布尔，提交前可说明该场次需审批）。my_reservation_id/my_checked_in_at/my_waitlist_id 可为 null；checkin_window 为签到窗口秒数，页面据此判断何时显示签到按钮。
 - GET /api/me/records?page=&page_size= -> data `{reservations:[{id,slot_id,lab_id,lab_name,username,start_at,end_at,status,source,cancel_reason,checked_in_at,note}],waitlist:[{id,slot_id,lab_name,username,start_at,end_at,status,position}],events:[],page,page_size,has_more}`。page_size 取值 1..200（默认 20），has_more 表示是否还有下一页。
 - GET /api/admin/records?date=YYYY-MM-DD&page=&page_size= -> 同上但所有用户；records 与 waitlist 均附 username，events 含 id/actor/action/entity_id/created_at/request_id。支持可选 `status` 参数（CONFIRMED/CANCELLED/NO_SHOW/PENDING，其他值 400）过滤预约列表，不传 `date` 时不按日期过滤（用于跨天场景，如待审批列表）。
 - GET /api/admin/stats?start_date=&end_date=（最多31个日期）-> data `{stats:[{date,slots,confirmed,cancelled,no_show,checked_in,waiting}],totals:{slots,confirmed,cancelled,no_show,checked_in,waiting}}`。按北京日聚合；仅返回有场次的日期。slots为开放场次数；confirmed为该日有效预约数；cancelled为其中用户主动取消数；no_show为签到超时释放数；checked_in为已签到数；waiting为有效候补人数。
 - GET /api/admin/stats/export?start_date=&end_date= -> data `{filename,content}`（最多31天）。content 为带 BOM 的 CSV 文本（日期/开放场次/有效预约/已取消/已爽约/已签到/候补人数，末行为合计），由页面下载为 .csv 文件。
-- POST /api/reservations `{slot_id,request_id}` -> data `{reservation_id}`。
+- POST /api/reservations `{slot_id,request_id}` -> data `{reservation_id,status}`（r43 补齐：status 为落库状态 PENDING/CONFIRMED，页面据此区分待审批与已确认；同编号重放按回执原样返回）。
 - POST /api/reservations/{id}/cancel `{request_id}` -> data `{reservation_id,promoted_reservation_id}`（无补位null）。
 - POST /api/waitlist `{slot_id,request_id}` -> data `{waitlist_id}`。
 - POST /api/waitlist/{id}/withdraw `{request_id}` -> data `{waitlist_id}`。
@@ -96,7 +96,7 @@ CONFIRMED/CANCELLED（cancel_reason 取 USER 或 NO_SHOW，未取消时为 NULL�
 - 记录过滤：GET /api/me/records 支持可选 `status` 参数（CONFIRMED/CANCELLED/NO_SHOW，其他值 400）；GET /api/admin/records 支持可选 `action`（≤32）与 `user`（≤64）参数，仅过滤操作日志列表。
 - 场次开始提醒：服务端扫描线程在每个扫描周期检查「开始时间在 now+remind_sec 窗口内且 reminded_at 为空」的场次，向其全部有效预约用户发送 kind='REMIND' 站内通知，随后置 reminded_at=1 防重；`--remind-sec SEC` 配置窗口（默认 1800，0 关闭）。slots 表经幂等迁移新增 reminded_at 列；notifications.kind 约束扩展为 PROMOTED/NO_SHOW/NOTICE/REMIND（旧库自动重建迁移）。
 - 自动备份：`--backup-interval SEC`（默认 21600=6 小时，0 关闭）配合 `--backup DEST` 目录，服务内后台线程定时执行在线快照 `DEST/lab-backup-YYYYMMDD-HHMMSS.db` 并轮转保留最近 7 份；一次性 `--backup FILE` 语义不变。
-- 安全头：CSP（default-src 'self'）、X-Content-Type-Options、X-Frame-Options、Referrer-Policy 经 CivetWeb additional_header 对全部响应（含静态页）下发；API 响应不再重复携带。
+- 安全头：CSP（default-src 'self'）、X-Content-Type-Options、X-Frame-Options、Referrer-Policy、Permissions-Policy（camera/microphone/geolocation 一律禁用）五头对全部响应下发——静态页经 CivetWeb additional_header，API 与 /metrics 响应由 handler 内共享常量下发（additional_header 不覆盖 handler 自建响应）。
 
 ## 分工
 主Agent：src、依赖、构建、集成。页面Agent仅修改web。测试Agent仅修改tests。任何修改已有文件先在本任务work/backups留备份；不要修改其他Agent拥有的文件。

@@ -276,7 +276,7 @@ static void test_checkin_business(void){
  new_key(k);r=booking(&db,NULL,&u1,"checkin",rid,NULL,k);TEST_ASSERT_EQUAL_INT(200,r.status); /* 重复签到幂等 */
  cJSON *ci2=cJSON_GetObjectItemCaseSensitive(rdata(r),"checked_in_at");TEST_ASSERT_TRUE(cJSON_IsNumber(ci2));TEST_ASSERT_EQUAL_INT64(when,(Id)ci2->valuedouble);drop(r);
  new_key(k);r=booking(&db,NULL,&u2,"checkin",rid,NULL,k);TEST_ASSERT_EQUAL_INT(403,r.status);drop(r); /* 非本人 */
- Config cfg={"build/unit-test.db",NULL,0,900,30,30,1,5,900,500,NULL,NULL,NULL,NULL,0,0,0,0,0,0,0,0,0};
+ Config cfg={"build/unit-test.db",NULL,0,900,30,30,1,5,900,500,NULL,NULL,NULL,NULL,0,0,0,0,0,0,0,0,0,NULL};
  TEST_ASSERT_EQUAL_INT(0,sweep_once(&cfg)); /* 已签到不被判爽约 */
  TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM reservations WHERE id=? AND status='CONFIRMED' AND checked_in_at IS NOT NULL","i",rid));
 }
@@ -491,6 +491,49 @@ static void test_v2_to_v3_migration(void){
  db_close(&db);remove_files(path);
  fresh_seed(); /* 恢复主测试库，保证后续/全局状态干净 */
 }
+/* r24 P2-6：outbox 出站渠道——同事务登记、扫描派发至文件（JSONL）、失败记 attempts/last_error 可重试、
+   渠道关闭时零行为变化（无 outbox 行）。派发经 sweep_once 真实路径驱动。 */
+static void test_outbox_channel_dispatch(void){
+ fresh_seed();
+ User admin=make_user("admin");
+ static char target[128];
+ snprintf(target,sizeof target,"build/outbox-demo.jsonl");
+ remove(target);
+ Config off={0};Config good={0};good.db_path=DBPATH;good.notify_file=target;
+ /* notifications.slot_id/reservation_id 有外键（foreign_keys=ON，生产调用点均传真实行 id），先造真实行 */
+ Id slot_id=db_num(&db,"SELECT id FROM slots WHERE start_at>? ORDER BY start_at LIMIT 1","i",now_sec()+86400);
+ TEST_ASSERT_TRUE(slot_id>0);
+ db_run(&db,"INSERT INTO reservations(user_id,slot_id,status,source,created_at) VALUES(?,?,'CONFIRMED','DIRECT',?)","iii",admin.id,slot_id,now_sec());
+ Id resv_id=sqlite3_last_insert_rowid(db.sql);
+ /* 渠道默认关闭：notify 只写 inbox，不产生 outbox 行（行为与旧版一致） */
+ notify_configure(&off);
+ TEST_ASSERT_TRUE(notify(&db,admin.id,"NOTICE","渠道关闭","不应登记 outbox",slot_id,resv_id)>0);
+ TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM outbox",""));
+ /* 开启 file 渠道：notify 同事务写 inbox + outbox 快照 */
+ good.db_path=DBPATH;notify_configure(&good);
+ TEST_ASSERT_TRUE(notify(&db,admin.id,"PROMOTED","出站演示","payload-body",slot_id,resv_id)>0);
+ TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM outbox WHERE sent_at IS NULL",""));
+ TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM notifications WHERE kind='PROMOTED'","")); /* inbox 主路径不受影响 */
+ /* 派发目标不可写（指向目录）→ attempts 递增、last_error 记录、行保持 pending（可重试且不影响业务）
+    （一次 sweep_once 含扫描前后两次派发机会，故 attempts>=1 即为失败被记账） */
+ Config bad=good;bad.notify_file="build";
+ notify_configure(&bad);
+ TEST_ASSERT_EQUAL_INT(0,sweep_once(&bad));
+ TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM outbox WHERE sent_at IS NULL AND attempts>=1 AND last_error IS NOT NULL",""));
+ /* 目标恢复可用 → 下轮扫描派发成功：文件含 JSONL 一行，行置 sent_at */
+ notify_configure(&good);
+ TEST_ASSERT_EQUAL_INT(0,sweep_once(&good));
+ TEST_ASSERT_EQUAL_INT64(1,db_num(&db,"SELECT count(*) FROM outbox WHERE sent_at IS NOT NULL",""));
+ FILE *f=fopen(target,"rb");
+ TEST_ASSERT_NOT_NULL(f);
+ char buf[512]={0};size_t got=fread(buf,1,sizeof buf-1,f);fclose(f);
+ TEST_ASSERT_TRUE(got>0);
+ TEST_ASSERT_TRUE(strstr(buf,"\"kind\":\"PROMOTED\"")!=NULL&&strstr(buf,"\"title\":\"出站演示\"")!=NULL);
+ TEST_ASSERT_EQUAL_INT64(0,db_num(&db,"SELECT count(*) FROM outbox WHERE sent_at IS NULL","")); /* 无残留 pending */
+ remove(target);
+ notify_configure(&off); /* 还原默认关闭，避免影响其他用例 */
+ fresh_seed();
+}
 int main(void){
  setvbuf(stdout,NULL,_IONBF,0); /* 崩溃时也能看到已完成用例，便于定位 */
  UnityBegin("tests/unit.c");
@@ -519,6 +562,7 @@ int main(void){
  RUN_TEST(test_stmt_cache_and_eviction);
  RUN_TEST(test_thread_connection_reuse);
  RUN_TEST(test_statement_watchdog);
+ RUN_TEST(test_outbox_channel_dispatch);
  db_close(&db);remove_files(DBPATH);
  return UnityEnd();
 }
