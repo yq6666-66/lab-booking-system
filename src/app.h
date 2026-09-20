@@ -6,7 +6,7 @@
 #include "cJSON.h"
 typedef sqlite3_int64 Id;
 typedef struct { sqlite3 *sql; int error; void *cache; } DB;
-typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *restore_from; const char *fault; const char *fault_request; int remind_sec; int backup_interval; int quota_weekly; int lead_time; int hold_window; int waitlist_strict; long long fake_now; int waitlist_strategy; int waitlist_daily_limit; } Config;
+typedef struct { const char *db_path; const char *web_path; int port; int checkin_window; int sweep_interval; int rate_burst; int rate_refill_sec; int login_max_fails; int login_lockout; int slow_ms; const char *backup_dest; const char *restore_from; const char *fault; const char *fault_request; int remind_sec; int backup_interval; int quota_weekly; int lead_time; int hold_window; int waitlist_strict; long long fake_now; int waitlist_strategy; int waitlist_daily_limit; const char *notify_file; } Config;
 #define LAB_VERSION "1.16.0"
 typedef struct { Id id; int admin; char username[65]; char csrf[65]; } User;
 typedef struct { int status; cJSON *body; } Result;
@@ -27,6 +27,9 @@ Id now_sec(void);
 /* r24 统一时间源：默认取系统时间，可通过 --fake-now 固定，使 hold_deadline 等边界可确定性测试 */
 Id clock_now(void);
 void clock_configure(const Config *cfg);
+/* r24 P2-6 通知出站渠道：默认关闭（--notify-file=<路径> 开启 file 渠道演示出站），
+   关闭时 notify() 行为与既有完全一致 */
+void notify_configure(const Config *cfg);
 Id date_start(const char *date);
 void date_text(Id day,char out[11]);
 int parse_id(const char *s,Id *out);
@@ -59,6 +62,8 @@ Result credit_history(DB *db,const User *u,int page,int size);
 Result suggestion_list(DB *db,const User *u,const Config *cfg,Id lab,Id start);
 /* r26 公平性审计：按用户候补聚合 + 全站 Jain 公平指数 */
 Result fairness_admin(DB *db,int days);
+/* r45 管理台聚合概览：一次调用返回首屏数据（今日统计/待审批/候补top/趋势/日志） */
+Result admin_dashboard(DB *db);
 Result admin_credit_grant(DB *db,const User *actor,Id target,const cJSON *body);
 Result asset_windows_list(DB *db,Id asset);
 Result asset_window_admin(DB *db,const User *actor,Id asset,const cJSON *body);

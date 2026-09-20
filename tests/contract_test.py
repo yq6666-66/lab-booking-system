@@ -113,9 +113,9 @@ def arr(spec): return ("array", spec)
 
 USER_OBJ = {"id": T_ID, "username": T_STR, "role": T_STR}
 LOGIN_DATA = {"user": USER_OBJ, "csrf_token": T_STR}
-LAB_OBJ = {"id": T_ID, "name": T_STR, "location": T_STR, "description": T_STR, "enabled": T_BOOL}
+LAB_OBJ = {"id": T_ID, "name": T_STR, "location": T_STR, "description": T_STR, "enabled": T_BOOL, "require_approval": T_BOOL}
 SLOT_OBJ = {"id": T_ID, "lab_id": T_ID, "start_at": T_INT, "end_at": T_INT, "enabled": T_BOOL, "lab_enabled": T_BOOL,
-            "capacity": T_INT, "confirmed_count": T_INT, "waiting_count": T_INT, "my_reservation_id": nb(T_ID),
+            "capacity": T_INT, "require_approval": T_BOOL, "confirmed_count": T_INT, "waiting_count": T_INT, "my_reservation_id": nb(T_ID),
             "my_checked_in_at": nb(T_INT), "my_waitlist_id": nb(T_ID)}
 RES_ROW = {"id": T_ID, "slot_id": T_ID, "lab_id": T_ID, "lab_name": T_STR, "username": T_STR, "start_at": T_INT, "end_at": T_INT,
            "status": T_STR, "source": T_STR, "cancel_reason": nb(T_STR), "checked_in_at": nb(T_INT),
@@ -162,13 +162,14 @@ SCHEMAS = [
     ("GET",  "/api/slots?lab_id=1&date={today}", {"slots": arr(SLOT_OBJ), "checkin_window": T_INT}),
     ("GET",  "/api/suggestions?lab_id={lid}&date={today}", {"suggestions": arr(SUG_ROW)}),
     ("GET",  "/api/admin/fairness?days=28", {"users": arr(FAIR_ROW), "jain_index": T_NUM, "days": T_INT, "jain_definition": T_STR, "wait_definition": T_STR}),
+    ("GET",  "/api/admin/dashboard", {"today": T_ANY, "pending_approvals": T_INT, "top_waitlists": T_ANY, "trend_7d": T_ANY, "recent_events": T_ANY}),
     ("GET",  "/api/me/records?page=1&page_size=5", ME_RECORDS),
     ("GET",  "/api/me/notifications?page=1&page_size=5",
              {"notifications": arr(NOTIFY_ROW), "unread_count": T_INT, **PAGED}),
     ("POST", "/api/me/notifications/read",     {"updated": T_INT}),
     ("GET",  "/api/me/sessions",               {"sessions": arr(SESSION_ROW)}),
     ("POST", "/api/me/password",               {"revoked_sessions": T_INT, "revoked_tokens": T_INT}),
-    ("POST", "/api/reservations",              {"reservation_id": T_ID}),
+    ("POST", "/api/reservations",              {"reservation_id": T_ID, "status": T_STR}),
     ("POST", "/api/reservations/{rid}/cancel", {"reservation_id": T_ID, "promoted_reservation_id": nb(T_ID)}),
     ("POST", "/api/waitlist",                  {"waitlist_id": T_ID, "queue_ahead": T_INT, "promote_probability": nb(T_NUM)}),
     ("POST", "/api/waitlist/{wid2}/withdraw",  {"waitlist_id": T_ID}),

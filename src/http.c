@@ -8,6 +8,8 @@
 #include <windows.h>
 static volatile sig_atomic_t stopping=0;
 static unsigned long long app_boot=0;
+/* 安全响应头：CivetWeb additional_header 仅覆盖静态文件回复，handler 自建响应（API 与 /metrics）需自行下发同一组头 */
+static const char *SEC_HEADERS="Content-Security-Policy: default-src 'self'\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nPermissions-Policy: camera=(), microphone=(), geolocation=()\r\n";
 static void on_stop(int sig){(void)sig;stopping=1;}
 static Result invalid(void){return result(400,"INVALID_INPUT","请求参数不正确",NULL);}
 static int origin_ok(struct mg_connection *c,const Config *cfg){
@@ -180,7 +182,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   if(!rl_consume(u.id))return result(429,"RATE_LIMITED","操作过于频繁，请稍后再试",NULL);}
  if(!post){
   if(!strcmp(path,"/api/me"))return result(200,"OK","查询成功",user_data(&u));
-  if(!strcmp(path,"/api/labs")){cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"labs",db_rows(d,"SELECT id,name,location,description,enabled FROM labs ORDER BY id",""));return result(200,"OK","查询成功",j);}
+  if(!strcmp(path,"/api/labs")){cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"labs",db_rows(d,"SELECT id,name,location,description,enabled,require_approval FROM labs ORDER BY id",""));return result(200,"OK","查询成功",j);}
   { /* /api/labs/{id}/assets：登录用户查看实验室资源清单（不含已停用资源） */
    size_t n=strlen(path);
    if(n>17&&!strncmp(path,"/api/labs/",10)&&!strcmp(path+n-7,"/assets")){
@@ -193,7 +195,7 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
   if(!strcmp(path,"/api/slots")){
    char a[40],dt[32];Id lab=0;query(ri,"lab_id",a,sizeof a);query(ri,"date",dt,sizeof dt);Id start=date_start(dt);if(!parse_id(a,&lab)||start<0)return invalid();
    cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"slots",db_rows(d,
-    "SELECT s.id,s.lab_id,s.start_at,s.end_at,s.enabled,s.capacity,l.enabled AS lab_enabled,(SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') AS confirmed_count,(SELECT count(*) FROM waitlist w JOIN users wu ON wu.id=w.user_id WHERE w.slot_id=s.id AND w.status='WAITING' AND wu.enabled=1) AS waiting_count,(SELECT id FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_reservation_id,(SELECT checked_in_at FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_checked_in_at,(SELECT id FROM waitlist w WHERE w.slot_id=s.id AND w.status='WAITING' AND w.user_id=?) AS my_waitlist_id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.lab_id=? AND s.start_at>=? AND s.start_at<? ORDER BY s.start_at",
+    "SELECT s.id,s.lab_id,s.start_at,s.end_at,s.enabled,s.capacity,l.enabled AS lab_enabled,l.require_approval,(SELECT count(*) FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED') AS confirmed_count,(SELECT count(*) FROM waitlist w JOIN users wu ON wu.id=w.user_id WHERE w.slot_id=s.id AND w.status='WAITING' AND wu.enabled=1) AS waiting_count,(SELECT id FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_reservation_id,(SELECT checked_in_at FROM reservations r WHERE r.slot_id=s.id AND r.status='CONFIRMED' AND r.user_id=?) AS my_checked_in_at,(SELECT id FROM waitlist w WHERE w.slot_id=s.id AND w.status='WAITING' AND w.user_id=?) AS my_waitlist_id FROM slots s JOIN labs l ON l.id=s.lab_id WHERE s.lab_id=? AND s.start_at>=? AND s.start_at<? ORDER BY s.start_at",
     "iiiiii",u.id,u.id,u.id,lab,start,start+86400));
    cJSON_AddNumberToObject(j,"checkin_window",(double)cfg->checkin_window);return result(200,"OK","查询成功",j);
   }
@@ -206,6 +208,10 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
    if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
    char dd[12]={0};int days=28;if(query(ri,"days",dd,sizeof dd)){Id n=0;if(!parse_id(dd,&n)||n<1||n>90)return invalid();days=(int)n;}
    return fairness_admin(d,days);
+  }
+  if(!strcmp(path,"/api/admin/dashboard")){ /* r45 聚合概览（一次调用替代前端串行 5 个端点） */
+   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   return admin_dashboard(d);
   }
   if(!strcmp(path,"/api/me/records")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char st[24]={0};query(ri,"status",st,sizeof st);
    const char *status=NULL;
@@ -314,8 +320,8 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
 static int metrics_handler(struct mg_connection *c,void *userdata){
  (void)userdata;
  char *text=metrics_prometheus();
- if(!text){mg_printf(c,"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");return 200;}
- mg_printf(c,"HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",(int)strlen(text));
+ if(!text){mg_printf(c,"HTTP/1.1 500 Internal Server Error\r\n%sContent-Length: 0\r\nConnection: close\r\n\r\n",SEC_HEADERS);return 200;}
+ mg_printf(c,"HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4; charset=utf-8\r\nContent-Length: %d\r\n%sConnection: close\r\n\r\n",(int)strlen(text),SEC_HEADERS);
  mg_write(c,text,(unsigned)strlen(text));
  free(text);
  return 200;
@@ -346,8 +352,8 @@ send:
  serialized=r.body?cJSON_PrintUnformatted(r.body):NULL;
  if(!serialized){r.status=500;cookie[0]=0;}
  const char *out=serialized?serialized:"{\"code\":\"INTERNAL_ERROR\",\"message\":\"Memory error\",\"data\":{}}";
- /* 安全头（CSP/nosniff/XFO/Referrer-Policy）由 serve() 的 additional_header 全局下发，含静态页。 */
- mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
+ /* 安全头五件套：静态页经 serve() 的 additional_header 下发，API 与 /metrics 由 SEC_HEADERS 下发，两处保持一致。 */
+ mg_printf(c,"HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %lu\r\nCache-Control: no-store\r\n%sConnection: keep-alive\r\n%s\r\n",r.status,r.status==200?"OK":"Error",(unsigned long)strlen(out),SEC_HEADERS,cookie);mg_write(c,out,strlen(out));cJSON_free(serialized);cJSON_Delete(r.body);
  {LARGE_INTEGER mt1;QueryPerformanceCounter(&mt1);double ms=(double)(mt1.QuadPart-mt0.QuadPart)*1000.0/(double)mfreq.QuadPart;metrics_record_request(r.status,ms);
   int lvl=ms>=(double)cfg->slow_ms?2:1;if(r.status>=500)lvl=3;
   log_write(lvl,"ACCESS %s %s %d %.1fms",ri->request_method,ri->local_uri,r.status,ms);}
@@ -384,7 +390,7 @@ int serve(const Config *cfg){
  char port[48];snprintf(port,sizeof port,"127.0.0.1:%d",cfg->port);
  const char *opts[]={"listening_ports",port,"document_root",cfg->web_path,"num_threads","8","enable_directory_listing","no","request_timeout_ms","5000","enable_keep_alive","yes","keep_alive_timeout_ms","15000",
   "static_file_cache_control","no-cache",
-  "additional_header","Content-Security-Policy: default-src 'self'\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer",NULL};
+  "additional_header","Content-Security-Policy: default-src 'self'\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nPermissions-Policy: camera=(), microphone=(), geolocation=()",NULL};
  struct mg_callbacks callbacks;memset(&callbacks,0,sizeof callbacks);mg_init_library(0);
  rl_configure(cfg);log_init("data/logs/app.log",5*1024*1024);app_boot=GetTickCount64();
  rl_configure(cfg);

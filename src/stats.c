@@ -243,3 +243,58 @@ Result calendar_ics(DB *d,const User *u){
  cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"filename",name);cJSON_AddStringToObject(j,"content",ics);free(ics);
  return result(200,"OK","导出完成",j);
 }
+/* -- r45 管理台聚合概览：一次调用返回首屏所需的全部数据。
+   5 条并行安全的 SQL：今日统计 / 待审批数 / 候补 top / 近 7 日趋势 / 最近操作日志。
+   比前端串行调 5 个端点少 4 个 HTTP 往返。 -- */
+Result admin_dashboard(DB *d){
+ Id now=now_sec();
+ Id day0=(now+28800)/86400*86400-28800; /* 北京今日 0 点 */
+ /* 1. 今日统计 */
+ cJSON *today=db_rows(d,
+  "SELECT count(DISTINCT s.id) AS slots,"
+  "count(DISTINCT CASE WHEN r.status IN('CONFIRMED','HELD') THEN r.id END) AS confirmed,"
+  "count(DISTINCT CASE WHEN r.checked_in_at IS NOT NULL THEN r.id END) AS checked_in,"
+  "(SELECT count(*) FROM waitlist w JOIN users u ON u.id=w.user_id WHERE w.status='WAITING' AND u.enabled=1) AS waiting_total "
+  "FROM slots s LEFT JOIN reservations r ON r.slot_id=s.id WHERE s.start_at>=? AND s.start_at<?",
+  "ii",day0,day0+86400);
+ if(d->error)return db_failure(d);
+ /* 2. 待审批数 */
+ Id pending=db_num(d,"SELECT count(*) FROM reservations WHERE status='PENDING'","");
+ if(d->error){cJSON_Delete(today);return db_failure(d);}
+ /* 3. 候补 top5（场次+人数） */
+ cJSON *top_wait=db_rows(d,
+  "SELECT s.id AS slot_id,l.name AS lab_name,s.start_at,s.capacity,count(*) AS waiting "
+  "FROM waitlist w JOIN slots s ON s.id=w.slot_id JOIN labs l ON l.id=s.lab_id JOIN users u ON u.id=w.user_id "
+  "WHERE w.status='WAITING' AND u.enabled=1 AND s.start_at>? "
+  "GROUP BY s.id ORDER BY waiting DESC LIMIT 5","i",now);
+ if(d->error){cJSON_Delete(today);return db_failure(d);}
+ /* 4. 近 7 日预约趋势 */
+ cJSON *trend=db_rows(d,
+  "SELECT (s.start_at+28800)/86400 AS day,"
+  "count(DISTINCT CASE WHEN r.status IN('CONFIRMED','HELD') THEN r.id END) AS confirmed,"
+  "count(DISTINCT CASE WHEN r.checked_in_at IS NOT NULL THEN r.id END) AS checked_in "
+  "FROM slots s LEFT JOIN reservations r ON r.slot_id=s.id "
+  "WHERE s.start_at>=? AND s.start_at<? GROUP BY day ORDER BY day",
+  "ii",day0-6*86400,day0+86400);
+ if(d->error){cJSON_Delete(today);cJSON_Delete(top_wait);return db_failure(d);}
+ /* 5. 最近 10 条操作日志 */
+ cJSON *recent=db_rows(d,
+  "SELECT e.action,e.entity_id,e.created_at,u.username AS actor FROM operation_events e "
+  "LEFT JOIN users u ON u.id=e.actor_id ORDER BY e.id DESC LIMIT 10","");
+ if(d->error){cJSON_Delete(today);cJSON_Delete(top_wait);cJSON_Delete(trend);return db_failure(d);}
+ /* 趋势日期格式化 */
+ cJSON *it;cJSON_ArrayForEach(it,trend){
+  cJSON *dj=cJSON_GetObjectItemCaseSensitive(it,"day");
+  if(dj&&cJSON_IsNumber(dj)){char date[11];date_text((Id)dj->valuedouble,date);
+   cJSON_DeleteItemFromObject(it,"day");cJSON_AddStringToObject(it,"date",date);}}
+ /* 组装 */
+ cJSON *j=cJSON_CreateObject();
+ cJSON *tj=today&&today->child?cJSON_DetachItemFromArray(today,0):cJSON_CreateObject();
+ cJSON_AddItemToObject(j,"today",tj);
+ cJSON_AddNumberToObject(j,"pending_approvals",(double)pending);
+ cJSON_AddItemToObject(j,"top_waitlists",top_wait);
+ cJSON_AddItemToObject(j,"trend_7d",trend);
+ cJSON_AddItemToObject(j,"recent_events",recent);
+ cJSON_Delete(today);
+ return result(200,"OK","查询成功",j);
+}
