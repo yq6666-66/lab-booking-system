@@ -2,6 +2,21 @@
 
 本项目遵循语义化版本。所有重要变更记录于此。
 
+## [1.17.0] - 2026-09-21
+
+第四十三/四十六轮（r24 规划收尾）：service.c 模块化拆分 + 通知渠道插件化/outbox 派发 + 审批开关暴露补齐。
+
+### 新增
+- **P2-6 通知渠道插件化 + outbox 派发**：`notify()` 前置 inbox 站内渠道（行为不变）；出站渠道以函数指针表组织，内置 `file` 渠道（`--notify-file=<路径>` 开启，JSONL 追加）。开启后业务事务内同写 outbox 快照（表 v5 预留），sweep 周期在自动提交模式下派发；失败记 `attempts`/`last_error` 可重试，派发错误绝不影响业务事务。默认关闭零行为变化、零新增端点。
+- **单元测试 25 项**：新增 outbox 渠道用例（关闭零行为/同事务登记/目标不可写失败记账可重试/恢复后派发成功）。
+
+### 变更
+- **P2-5 service.c 模块化拆分**（plan-r24 遗留项）：按域拆为 `booking.c`（预约/候补/审批）、`asset.c`（资源/时段/维护/资格）、`stats.c`（统计/导出）、`token.c`（令牌/信用）+ 内部共享头 `service.h`；`service.c` 保留平台域（通知/会话/用户/扫描/审计助手）。函数体逐行移动（行多重集审计零差异），仅 6 个跨模块助手去 static、业务常量上移；构建/覆盖率/CI 与前端·文档门禁的源码读取点同步。
+- **审批开关暴露补齐**（修复 frontend 门禁 `check_approval_flag_is_surfaced` 长期红项）：`GET /api/labs`、`GET /api/slots` 带出 `require_approval`（布尔），`POST /api/reservations` 回执带落库 `status`（PENDING/CONFIRMED）；db.c 布尔白名单与契约两件套同步（响应均为加法字段，向后兼容）。
+
+### 修复
+- **asset_window_ok int 绑定 UB**：`wd` 未按全库惯例转 `(Id)` 即进入 `db_num` 可变参数（va_arg 按 8 字节读取）；单文件时代被恰好零扩展的寄存器代码生成掩盖，拆分后暴露并由 T57 复现定位。LAB_VERSION 1.16.0 → 1.17.0。
+
 ## [1.16.0] - 2026-09-20
 
 第四十一轮（前端集成）：feat/frontend-opt-r1 分支合并 + 管理员强制操作按钮。

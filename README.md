@@ -1,7 +1,7 @@
 # 实验室资源管理与预约候补一体化系统
 
 [![CI](https://github.com/yq6666-66/lab-booking-system/actions/workflows/ci.yml/badge.svg)](https://github.com/yq6666-66/lab-booking-system/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v1.16.0-blue)](https://github.com/yq6666-66/lab-booking-system/releases/tag/v1.16.0)
+[![Release](https://img.shields.io/badge/release-v1.17.0-blue)](https://github.com/yq6666-66/lab-booking-system/releases/tag/v1.17.0)
 ![language](https://img.shields.io/badge/language-C11-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -118,7 +118,8 @@ python tests/benchmark.py              # 性能基准
    ▼
 CivetWeb HTTP 服务（8 工作线程 · #gate 认证门 · CSRF/Origin/Host · 限流）
    ▼
-业务层 service.c（单写者事务 · 三档候补策略 · 审批 · 信用 · 强制操作）
+业务层 service.c（通知渠道+outbox · 会话/用户/扫描）+ booking.c（预约/候补/审批）
+   │         asset.c（资源/时段/维护） stats.c（统计/导出） token.c（令牌/信用）
    │         ratelimit.c（令牌桶）   metrics.c（计数+延迟直方图）   log.c（分级+轮转）
    ▼
 数据访问 db.c（参数绑定 · 语句 LRU 缓存 · 线程连接复用 · schema v5 幂等迁移）

@@ -68,6 +68,8 @@ Result admin_dashboard(DB *db);
 Result notifications_export(DB *db,const User *u);
 /* r47 场次冲突检测：跨实验室同时段重叠对（含已约人数） */
 Result slot_conflicts(DB *db,Id date_start);
+/* r48 信用账户概览：分布+受限用户+最近流水 */
+Result credit_summary(DB *db);
 Result admin_credit_grant(DB *db,const User *actor,Id target,const cJSON *body);
 Result asset_windows_list(DB *db,Id asset);
 Result asset_window_admin(DB *db,const User *actor,Id asset,const cJSON *body);
