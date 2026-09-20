@@ -18,6 +18,7 @@
   --dur-1:.16s;--dur-2:.3s;--dur-3:.55s;
   --ease:cubic-bezier(.4,0,.2,1);--ease-out:cubic-bezier(.22,1,.36,1);--ease-spring:cubic-bezier(.34,1.56,.64,1);
   --vt-x:92%;--vt-y:44px;
+  --bg-tint:radial-gradient(1100px 460px at 50% -160px,color-mix(in srgb,var(--accent) 6%,transparent),transparent 72%);
   --scroll-shade:rgba(24,50,45,.20);--hscroll-cover:var(--bg);
   --hscroll-layers:
     linear-gradient(to right,var(--hscroll-cover) 60%,rgba(0,0,0,0)) 0 0/16px 100% no-repeat local,
@@ -41,7 +42,8 @@
   --chart-bar-1:#3fb191;--chart-bar-2:#d9b978;--chart-grid:#33453f;--chart-text:#a8b8b0;
   --shadow:0 1px 2px rgba(0,0,0,.45);
   --shadow-lift:0 8px 22px rgba(0,0,0,.55);
-  --scroll-shade:rgba(156,171,164,.20)
+  --scroll-shade:rgba(156,171,164,.20);
+  --bg-tint:radial-gradient(1100px 460px at 50% -160px,color-mix(in srgb,var(--accent) 9%,transparent),transparent 72%)
 }
 *,*::before,*::after{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text)}
@@ -564,4 +566,103 @@ details.suggest>summary:hover{color:var(--accent)}
 /* ---------- 打印：入场动画的 opacity:0 起始帧不得带进纸面 ---------- */
 @media print{
   *,*::before,*::after{animation:none!important;transition:none!important}
+}
+
+/* ==========================================================================
+   动效与微交互层 二（r44 视觉质感轮）
+   同样只追加、不改动上方任何锁定片段。核心是「质感」而非「更多动画」：
+   吸附式毛玻璃顶栏、页面顶部微光、卡片高光描边、页签滑动下划线、
+   toast 语义徽章、加载 spinner、图表生长、渐变标题。全部令牌化，
+   在文末 reduce/print 追加块统一关停。
+   ========================================================================== */
+
+@keyframes drop{from{opacity:0;transform:translateY(-14px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes tag-blink{50%{opacity:.55}}
+@keyframes danger-pulse{50%{box-shadow:0 0 0 5px color-mix(in srgb,var(--danger) 25%,transparent)}}
+@keyframes bar-grow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes checkin-glow{0%,100%{box-shadow:inset 0 0 0 1px var(--warn-edge)}50%{box-shadow:inset 0 0 0 1px var(--warn-edge),0 0 14px color-mix(in srgb,var(--warn-line) 35%,transparent)}}
+
+/* ---------- 顶栏：吸附 + 毛玻璃（窄屏回退静态，滚动定位由 scroll-padding 补偿） ---------- */
+html{scroll-padding-top:104px}
+.topbar{position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(12px) saturate(1.5);-webkit-backdrop-filter:blur(12px) saturate(1.5)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.topbar{background:var(--surface)}}
+.skip-link{z-index:50}
+@media(max-width:600px){.topbar{position:static}html{scroll-padding-top:0}}
+
+/* ---------- 页面背景：顶部一道极淡的品牌色微光 ---------- */
+body{background-color:var(--bg);background-image:var(--bg-tint);background-repeat:no-repeat;background-position:top center}
+
+/* ---------- 面板质感：顶部 1px 高光；登录卡聚焦时整体点亮 ---------- */
+.panel{box-shadow:var(--shadow),inset 0 1px 0 color-mix(in srgb,var(--surface-3) 55%,transparent)}
+.login-card:focus-within{border-color:var(--accent-line);box-shadow:var(--shadow-lift)}
+
+/* ---------- 区块标题：左侧 accent 竖条（绝对定位，不产生布局位移） ---------- */
+h3{position:relative}
+h3::before{content:'';position:absolute;left:-13px;top:4px;bottom:4px;width:3px;border-radius:3px;background:var(--accent);opacity:.7;animation:fade .45s var(--ease-out) both}
+
+/* ---------- 页签：hover 胶囊 + 选中下划线从左滑入（替换静态 border 底线） ---------- */
+.tabs button{transition:color var(--dur-1) var(--ease),background-color .22s var(--ease)}
+.tabs button:hover{background:var(--accent-soft)}
+.tabs button::after{content:'';position:absolute;left:9px;right:9px;bottom:0;height:3px;border-radius:3px 3px 0 0;background:var(--accent);transform:scaleX(0);transform-origin:left center;transition:transform .3s var(--ease-out)}
+.tabs button[aria-current],.tabs button[aria-selected="true"]{border-bottom-color:transparent}
+.tabs button[aria-current]::after,.tabs button[aria-selected="true"]::after{transform:scaleX(1)}
+
+/* ---------- 表格：悬停行左缘 accent 指示条 ---------- */
+td{transition:background-color .15s var(--ease),box-shadow .18s var(--ease)}
+@media(min-width:601px){tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--accent)}}
+
+/* ---------- toast：语义徽章（成功 ✓ / 失败 !，伪元素不进文本与读屏） ---------- */
+.toast{padding-left:13px}
+.toast::before{content:'✓';flex:0 0 auto;width:20px;height:20px;margin-top:2px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-size:12px;font-weight:700;line-height:20px;text-align:center}
+.toast.bad::before{content:'!';background:var(--danger);color:var(--danger-fg)}
+
+/* ---------- 写操作进行中：按钮内文本隐去、中心旋转加载环 ---------- */
+button.pending{color:transparent!important}
+button.pending::after{content:'';position:absolute;left:50%;top:50%;width:15px;height:15px;margin:-8px 0 0 -8px;border:2px solid var(--accent-line);border-top-color:var(--accent);border-radius:50%;transform:none;animation:spin .7s linear infinite}
+
+/* ---------- 空状态 / 失败态：浮动符号 + 出场轻晃 ---------- */
+.empty{animation:pop .3s var(--ease-out)}
+.empty::before{content:'◌';display:block;font-size:30px;line-height:1;margin:0 0 10px;color:var(--accent-line);animation:float 3.4s ease-in-out infinite}
+.failed{animation:nudge .5s var(--ease)}
+
+/* ---------- 一次性凭据 / 通知面板 / 替代时段：出现即弹入或落下 ---------- */
+.secret{animation:pop .3s var(--ease-spring)}
+.notify-panel{animation:drop .34s var(--ease-spring)}
+.alt-area:not([hidden]){animation:pop .3s var(--ease-out)}
+
+/* ---------- 表单控件与校验反馈 ---------- */
+input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
+.field-invalid{animation:nudge .35s var(--ease)}
+.btn-danger{animation:danger-pulse 1.3s ease-in-out infinite}
+#approvals-badge{animation:tag-blink 2.2s ease-in-out infinite}
+
+/* ---------- 待签到卡片：柔和呼吸提醒（覆盖原静态 inset 光晕，相位统一） ---------- */
+.slot.checkin{animation:checkin-glow 2.8s ease-in-out infinite}
+
+/* ---------- 统计柱状图：柱体自底生长、坐标文字随后淡入 ---------- */
+.chart-bar-1,.chart-bar-2{transform-box:fill-box;transform-origin:bottom center;animation:bar-grow .7s var(--ease-out) both}
+.chart-text{animation:fade .5s .35s var(--ease-out) both}
+
+/* ---------- 登录标题：缓慢流动的渐变强调色（不支持 clip-text 的内核整条跳过） ---------- */
+@supports ((-webkit-background-clip:text) or (background-clip:text)){
+  .login-layout h1{background:linear-gradient(100deg,var(--text-strong) 32%,var(--accent) 50%,var(--text-strong) 68%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:rise .55s .06s var(--ease-out) both,gradient-pan 7s linear infinite}
+}
+
+/* ---------- 文字链接：下划线从左滑入（跳过品牌与跳转链） ---------- */
+a:not(.brand):not(.skip-link):not(.quiet){text-decoration:none;background:linear-gradient(var(--accent),var(--accent)) no-repeat left bottom/0 1.5px;transition:background-size .25s var(--ease-out),color var(--dur-1) var(--ease)}
+a:not(.brand):not(.skip-link):not(.quiet):hover{background-size:100% 1.5px}
+
+/* ---------- 减弱动效追加：本轮的常驻循环动效一并关停（spinner 属加载状态指示，保留） ---------- */
+@media(prefers-reduced-motion:reduce){
+  .empty::before,.btn-danger,#approvals-badge,.slot.checkin{animation:none}
+  .chart-bar-1,.chart-bar-2,.chart-text{animation:none}
+  .tabs button::after{transition:none}
+  a:not(.brand):not(.skip-link):not(.quiet){transition:none}
+}
+
+/* ---------- 打印追加：渐变标题回实色，避免透明字印白纸 ---------- */
+@media print{
+  .login-layout h1{-webkit-text-fill-color:initial;background:none}
+  .topbar{position:static}
 }
