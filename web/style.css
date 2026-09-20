@@ -15,6 +15,9 @@
   --radius:12px;--radius-sm:7px;--radius-lg:14px;
   --shadow:0 1px 2px rgba(24,50,45,.05);
   --shadow-lift:0 6px 18px rgba(24,50,45,.10);
+  --dur-1:.16s;--dur-2:.3s;--dur-3:.55s;
+  --ease:cubic-bezier(.4,0,.2,1);--ease-out:cubic-bezier(.22,1,.36,1);--ease-spring:cubic-bezier(.34,1.56,.64,1);
+  --vt-x:92%;--vt-y:44px;
   --scroll-shade:rgba(24,50,45,.20);--hscroll-cover:var(--bg);
   --hscroll-layers:
     linear-gradient(to right,var(--hscroll-cover) 60%,rgba(0,0,0,0)) 0 0/16px 100% no-repeat local,
@@ -381,3 +384,184 @@ details.suggest .suggest-body{padding:0 22px 20px}
 .slot.skeleton i.b{width:100%;height:40px;margin-top:auto}
 .failed{display:flex;flex-direction:column;align-items:center;gap:12px}
 .failed button{align-self:center}
+
+/* ==========================================================================
+   动效与微交互层（r43 界面美化）
+   统一放在样式表末尾：靠级联「后写覆盖」增强既有规则，不改动上方任何门禁
+   锁定的片段（.panel/.tabs/th/td::before/窄屏块等）。全部动效在文末的
+   prefers-reduced-motion 追加块里整体关停；入场动画只用 opacity/transform，
+   不引起布局位移，保证「布局结构稳定」。
+   ========================================================================== */
+
+html{scroll-behavior:smooth}
+
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+@keyframes shine{from{transform:translateX(-120%) skewX(-18deg)}to{transform:translateX(320%) skewX(-18deg)}}
+@keyframes nudge{0%,100%{transform:translateX(0)}22%{transform:translateX(-5px)}48%{transform:translateX(4px)}74%{transform:translateX(-2px)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse-ring{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--danger) 45%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(34px,-26px) scale(1.1)}}
+@keyframes gradient-pan{to{background-position:200% 0}}
+@keyframes vt-reveal{from{clip-path:circle(0 at var(--vt-x) var(--vt-y))}to{clip-path:circle(150% at var(--vt-x) var(--vt-y))}}
+@keyframes row-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes chip-pop{0%{transform:scale(1)}45%{transform:scale(1.08)}100%{transform:scale(1)}}
+
+/* ---------- 按钮：悬停轻抬 + 按压回弹 + 主按钮流光 ---------- */
+button{position:relative;overflow:hidden;transition:background var(--dur-1) var(--ease),color var(--dur-1) var(--ease),box-shadow .2s var(--ease),border-color var(--dur-1) var(--ease),transform .18s var(--ease-spring)}
+button:hover:not(:disabled){transform:translateY(-1px)}
+button:active:not(:disabled){transform:translateY(0) scale(.975);transition-duration:.06s}
+/* 文字型小按钮不做位移，避免表头/页签/toast 关闭钮 hover 时跳动 */
+.th-sort:hover,.tabs button:hover,.login-tabs button:hover,.toast-x:hover{transform:none}
+.primary{overflow:hidden}
+.primary::after{content:'';position:absolute;top:-20%;bottom:-20%;left:0;width:36%;background:linear-gradient(105deg,transparent,rgba(255,255,255,.3),transparent);transform:translateX(-120%) skewX(-18deg);pointer-events:none}
+.primary:hover:not(:disabled)::after{animation:shine .75s var(--ease)}
+.primary:hover:not(:disabled){box-shadow:0 4px 14px color-mix(in srgb,var(--accent) 30%,transparent)}
+.icon-btn:hover:not(:disabled){border-color:var(--accent-line)}
+
+/* ---------- 链接与品牌 ---------- */
+a{transition:color var(--dur-1) var(--ease)}
+.brand{transition:transform var(--dur-2) var(--ease-spring),color var(--dur-1) var(--ease)}
+.brand:hover{transform:translateY(-1px)}
+
+/* ---------- 输入控件：焦点光环 + 悬停描边 ---------- */
+input,select,textarea{transition:border-color var(--dur-1) var(--ease),box-shadow var(--dur-1) var(--ease),background-color var(--dur-1) var(--ease);caret-color:var(--accent)}
+select{cursor:pointer}
+input:hover:not(:disabled),select:hover:not(:disabled),textarea:hover:not(:disabled){border-color:var(--accent-line)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent-line);border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+
+/* ---------- 眉题：短横线入场 ---------- */
+.eyebrow{display:inline-flex;align-items:center;gap:9px}
+.eyebrow::before{content:'';width:20px;height:2px;border-radius:2px;background:var(--accent);animation:dash-in .6s var(--ease-out) both}
+@keyframes dash-in{from{width:0;opacity:0}to{width:20px;opacity:1}}
+
+/* ---------- 页面入场：标题区 / 登录成功后整区淡入 ---------- */
+.page-heading{animation:rise var(--dur-3) var(--ease-out) both}
+#app-view:not([hidden]),#app:not([hidden]){animation:fade .4s var(--ease-out)}
+
+/* ---------- 页签面板：切换（display 恢复）时自动重放入场 ---------- */
+[role=tabpanel]{animation:panel-in .32s var(--ease-out)}
+@keyframes panel-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ---------- 登录页氛围：漂浮光斑 + 卡片顶部流光条 + 内容错峰入场 ---------- */
+.login-layout{position:relative;overflow:hidden}
+.login-layout::before,.login-layout::after{content:'';position:absolute;border-radius:50%;filter:blur(70px);pointer-events:none;z-index:0;animation:drift 18s var(--ease) infinite alternate}
+.login-layout::before{width:420px;height:420px;left:-90px;top:-70px;background:radial-gradient(circle,color-mix(in srgb,var(--accent) 24%,transparent),transparent 70%)}
+.login-layout::after{width:360px;height:360px;right:-70px;bottom:-90px;background:radial-gradient(circle,color-mix(in srgb,var(--gold) 20%,transparent),transparent 70%);animation-delay:-9s}
+.login-layout>*{position:relative;z-index:1}
+.login-layout .eyebrow{animation:rise .5s var(--ease-out) both}
+.login-layout h1{animation:rise .55s .06s var(--ease-out) both}
+.login-layout .intro{animation:rise .55s .14s var(--ease-out) both}
+.features span{animation:rise .5s var(--ease-out) both;transition:transform .2s var(--ease-spring),color var(--dur-1) var(--ease)}
+.features span:nth-child(1){animation-delay:.24s}
+.features span:nth-child(2){animation-delay:.34s}
+.features span:nth-child(3){animation-delay:.44s}
+.features span:hover{transform:translateY(-2px);color:var(--accent-hover)}
+.login-card{animation:rise .6s .18s var(--ease-out) both;position:relative;overflow:hidden;transition:box-shadow .25s var(--ease),border-color .25s var(--ease)}
+.login-card:hover{box-shadow:var(--shadow-lift);border-color:var(--accent-line)}
+.login-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--gold),var(--accent));background-size:200% 100%;animation:gradient-pan 6s linear infinite}
+
+/* ---------- 管理台认证门：转圈提示 ---------- */
+#gate .muted::after{content:'';display:inline-block;width:13px;height:13px;margin-left:9px;border:2px solid var(--accent-line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px}
+
+/* ---------- 概览卡：错峰入场 + 悬停抬升 ---------- */
+.card{transition:transform .22s var(--ease-spring),box-shadow .22s var(--ease),border-color .22s var(--ease)}
+.card:hover{transform:translateY(-3px);border-color:var(--accent-line);box-shadow:var(--shadow-lift)}
+.card strong{font-variant-numeric:tabular-nums}
+.cards>.card{animation:rise .45s var(--ease-out) both}
+.cards>.card:nth-child(2){animation-delay:.05s}
+.cards>.card:nth-child(3){animation-delay:.1s}
+.cards>.card:nth-child(4){animation-delay:.15s}
+.cards>.card:nth-child(5){animation-delay:.2s}
+.cards>.card:nth-child(6){animation-delay:.25s}
+
+/* ---------- 场次卡：错峰入场（骨架屏与真实卡片同构重放） ---------- */
+.slot-grid>.slot{animation:rise .45s var(--ease-out) both}
+.slot-grid>.slot:nth-child(2){animation-delay:.04s}
+.slot-grid>.slot:nth-child(3){animation-delay:.08s}
+.slot-grid>.slot:nth-child(4){animation-delay:.12s}
+.slot-grid>.slot:nth-child(5){animation-delay:.16s}
+.slot-grid>.slot:nth-child(6){animation-delay:.2s}
+.slot-grid>.slot:nth-child(7){animation-delay:.24s}
+.slot-grid>.slot:nth-child(8){animation-delay:.28s}
+.slot-grid>.slot:nth-child(n+9){animation-delay:.3s}
+.slot{transition:border-color .18s var(--ease),box-shadow .25s var(--ease),transform .25s var(--ease-spring)}
+.slot-time{font-variant-numeric:tabular-nums}
+
+/* ---------- 芯片：悬停轻抬 + 选中回弹 ---------- */
+.chips{transition:background-color .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease),transform .18s var(--ease-spring)}
+.chips:hover:not(.chip-maint):not(.on){border-color:var(--accent-line);transform:translateY(-1px)}
+.chips.on{animation:chip-pop .32s var(--ease-spring)}
+/* 记录页筛选芯片的选中态走 aria-current（不是 .on），回弹要一并覆盖 */
+.chips[aria-current='true']{animation:chip-pop .32s var(--ease-spring)}
+
+/* ---------- 表格：行入场（排序/翻页重放）+ 悬停底色渐变 ---------- */
+tbody tr{animation:row-in .26s var(--ease-out) both;transition:background-color .15s var(--ease)}
+tbody tr:nth-child(2){animation-delay:.03s}
+tbody tr:nth-child(3){animation-delay:.06s}
+tbody tr:nth-child(4){animation-delay:.09s}
+tbody tr:nth-child(5){animation-delay:.12s}
+tbody tr:nth-child(6){animation-delay:.15s}
+tbody tr:nth-child(7){animation-delay:.18s}
+tbody tr:nth-child(n+8){animation-delay:.21s}
+td,th{transition:background-color .15s var(--ease)}
+
+/* ---------- toast：右侧弹入（spring）+ 错误提示追加抖动 ---------- */
+.toast{animation:toast-in .34s var(--ease-spring)}
+@keyframes toast-in{from{opacity:0;transform:translateX(30px) scale(.96)}to{opacity:1;transform:none}}
+.toast.bad{animation:toast-in .34s var(--ease-spring),nudge .45s .34s var(--ease)}
+
+/* ---------- 未读角标：呼吸脉冲（box-shadow 不改布局） ---------- */
+.badge{animation:pulse-ring 2.6s var(--ease) infinite}
+/* 角标脉冲环要溢出按钮边界，通知按钮不能被全局 overflow:hidden 裁掉 */
+#notify-btn{overflow:visible}
+
+/* ---------- 重试区：入场轻晃提醒 ---------- */
+.retry-area{animation:nudge .5s .1s var(--ease) both}
+
+/* ---------- 通知中心：条目错峰入场 + 悬停右移 ---------- */
+.notify-item{animation:rise .3s var(--ease-out) both;transition:transform .18s var(--ease),box-shadow .18s var(--ease),border-color .18s var(--ease)}
+.notify-item:hover{transform:translateX(3px);box-shadow:var(--shadow)}
+.notify-item:nth-child(2){animation-delay:.04s}
+.notify-item:nth-child(3){animation-delay:.08s}
+.notify-item:nth-child(4){animation-delay:.12s}
+.notify-item:nth-child(5){animation-delay:.16s}
+.notify-item:nth-child(n+6){animation-delay:.2s}
+
+/* ---------- 建议面板：悬停描边 + 展开体入场 ---------- */
+details.suggest{transition:box-shadow .22s var(--ease),border-color .22s var(--ease)}
+details.suggest:hover{border-color:var(--accent-line);box-shadow:var(--shadow)}
+details.suggest[open] .suggest-body{animation:rise .3s var(--ease-out) both}
+details.suggest>summary{transition:color var(--dur-1) var(--ease)}
+details.suggest>summary:hover{color:var(--accent)}
+
+/* ---------- 分页 / 行内小按钮 ---------- */
+.pager button{transition:background var(--dur-1) var(--ease),color var(--dur-1) var(--ease),transform .18s var(--ease-spring)}
+
+/* ---------- 滚动条细化（Webkit + Firefox），与令牌同色 ---------- */
+.table-wrap,.log-view,.tabs{scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}
+.table-wrap::-webkit-scrollbar,.log-view::-webkit-scrollbar,.tabs::-webkit-scrollbar{width:10px;height:10px}
+.table-wrap::-webkit-scrollbar-thumb,.log-view::-webkit-scrollbar-thumb,.tabs::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:99px;border:2px solid transparent;background-clip:content-box}
+.table-wrap::-webkit-scrollbar-thumb:hover,.log-view::-webkit-scrollbar-thumb:hover,.tabs::-webkit-scrollbar-thumb:hover{background:var(--accent-line);border:2px solid transparent;background-clip:content-box}
+.table-wrap::-webkit-scrollbar-track,.log-view::-webkit-scrollbar-track,.tabs::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- 主题切换：View Transitions 圆形扩散（theme.js 传入 --vt-x/--vt-y） ---------- */
+::view-transition-old(root),::view-transition-new(root){mix-blend-mode:normal}
+::view-transition-old(root){animation:none;z-index:1}
+::view-transition-new(root){animation:vt-reveal .6s var(--ease-out) both;z-index:2}
+
+/* ---------- 减弱动效：把本层新增的悬停位移与主题过渡一并关停 ---------- */
+@media(prefers-reduced-motion:reduce){
+  button:hover:not(:disabled),.card:hover,.slot:hover,.chips:hover:not(.chip-maint),.notify-item:hover,.brand:hover,.features span:hover{transform:none!important}
+  .login-layout::before,.login-layout::after{animation:none}
+  .badge{animation:none}
+  .primary:hover:not(:disabled)::after{animation:none}
+  .login-card::before{animation:none}
+  ::view-transition-old(root),::view-transition-new(root){animation:none!important}
+}
+
+/* ---------- 打印：入场动画的 opacity:0 起始帧不得带进纸面 ---------- */
+@media print{
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
