@@ -87,6 +87,40 @@ Result notifications_export(DB *d,const User *u){
  cJSON *j=cJSON_CreateObject();cJSON_AddStringToObject(j,"filename",name);cJSON_AddStringToObject(j,"content",csv);free(csv);
  return result(200,"OK","导出完成",j);
 }
+/* -- r47 场次冲突检测：找出指定日期内跨实验室同时段重叠的场次对。
+   管理员排课时用来避免"同一批学生被迫二选一"的隐性冲突。 -- */
+Result slot_conflicts(DB *d,Id date_start){
+ cJSON *rows=db_rows(d,
+  "SELECT a.id AS slot_a,b.id AS slot_b,la.name AS lab_a,lb.name AS lab_b,"
+  "a.start_at,a.end_at,"
+  "(SELECT count(*) FROM reservations r WHERE r.slot_id=a.id AND r.status IN('CONFIRMED','HELD')) AS taken_a,"
+  "(SELECT count(*) FROM reservations r WHERE r.slot_id=b.id AND r.status IN('CONFIRMED','HELD')) AS taken_b "
+  "FROM slots a JOIN slots b ON a.id<b.id AND a.start_at<b.end_at AND b.start_at<a.end_at "
+  "JOIN labs la ON la.id=a.lab_id JOIN labs lb ON lb.id=b.lab_id "
+  "WHERE a.start_at>=? AND a.start_at<? AND a.enabled=1 AND b.enabled=1 AND la.enabled=1 AND lb.enabled=1 "
+  "AND a.lab_id<>b.lab_id "
+  "ORDER BY a.start_at LIMIT 100",
+  "ii",date_start,date_start+86400);
+ if(d->error)return db_failure(d);
+ cJSON *out=cJSON_CreateArray();
+ cJSON *it;cJSON_ArrayForEach(it,rows){
+  cJSON *item=cJSON_CreateObject();
+  cJSON *sa=cJSON_GetObjectItemCaseSensitive(it,"slot_a"),*sb=cJSON_GetObjectItemCaseSensitive(it,"slot_b");
+  Id a=0,b=0;parse_id(jstr(it,"slot_a"),&a);parse_id(jstr(it,"slot_b"),&b);
+  jid(item,"slot_a",a);jid(item,"slot_b",b);
+  cJSON_AddStringToObject(item,"lab_a",jstr(it,"lab_a"));
+  cJSON_AddStringToObject(item,"lab_b",jstr(it,"lab_b"));
+  cJSON_AddNumberToObject(item,"start_at",cJSON_GetObjectItemCaseSensitive(it,"start_at")->valuedouble);
+  cJSON_AddNumberToObject(item,"end_at",cJSON_GetObjectItemCaseSensitive(it,"end_at")->valuedouble);
+  cJSON_AddNumberToObject(item,"taken_a",cJSON_GetObjectItemCaseSensitive(it,"taken_a")->valuedouble);
+  cJSON_AddNumberToObject(item,"taken_b",cJSON_GetObjectItemCaseSensitive(it,"taken_b")->valuedouble);
+  cJSON_AddItemToArray(out,item);
+ }
+ cJSON_Delete(rows);
+ cJSON *j=cJSON_CreateObject();cJSON_AddItemToObject(j,"conflicts",out);
+ cJSON_AddNumberToObject(j,"total",(double)cJSON_GetArraySize(out));
+ return result(200,"OK","查询成功",j);
+}
 /* 资源利用率：按实验室聚合区间内的开放场次/席位与预约、签到、爽约，利用率=有效预约/总席位。 */
 Result lab_utilization(DB *d,Id start,Id end){
  cJSON *rows=db_rows(d,

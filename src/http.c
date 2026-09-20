@@ -213,6 +213,12 @@ static Result dispatch(DB *d,struct mg_connection *c,const Config *cfg,const cJS
    if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
    return admin_dashboard(d);
   }
+  if(!strcmp(path,"/api/admin/slots/conflicts")){ /* r47 场次冲突检测 */
+   if(!u.admin)return result(403,"FORBIDDEN","需要管理员权限",NULL);
+   char dt[32]={0};if(!query(ri,"date",dt,sizeof dt))return invalid();
+   Id ds=date_start(dt);if(ds<0)return invalid();
+   return slot_conflicts(d,ds);
+  }
   if(!strcmp(path,"/api/me/records")){int pg=1,ps=20;if(!pager(ri,&pg,&ps))return invalid();char st[24]={0};query(ri,"status",st,sizeof st);
    const char *status=NULL;
    if(st[0]){if(strcmp(st,"CONFIRMED")&&strcmp(st,"CANCELLED")&&strcmp(st,"NO_SHOW")&&strcmp(st,"PENDING"))return invalid();status=st;}
