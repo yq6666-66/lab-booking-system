@@ -1,158 +1,179 @@
-# 基于 C 语言的实验室资源管理与预约候补一体化系统
+# 实验室资源管理与预约候补一体化系统
 
 [![CI](https://github.com/yq6666-66/lab-booking-system/actions/workflows/ci.yml/badge.svg)](https://github.com/yq6666-66/lab-booking-system/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/release-v1.16.0-blue)](https://github.com/yq6666-66/lab-booking-system/releases/tag/v1.16.0)
 ![language](https://img.shields.io/badge/language-C11-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
-高校开放实验室资源管理与预约候补一体化系统（软件工程毕业设计）。**C11 + CivetWeb + SQLite + cJSON + libsodium** 实现的 B/S 系统：固定一小时场次、容量制预约、FIFO 候补自动补位、限时签到与爽约回收、站内通知、实验室资源（设备）清单、预约时资源声明与同时段配额、资源利用率与实机时统计、周期性场次发布、每周预约配额、iCalendar 日历导出、Prometheus /metrics 端点、预约改期与备注、管理端待审批专页签、声明占用与利用率 CSV 导出、X-API-Token 只读程序化访问、候补优先级与抢占、可执行 FIFO 递补（暂跳临时冲突者）、HELD 限时保留、信用账户、资源可用时段与维护工单、跨时段连续预约、日历 ICS 导出、备份恢复与完整性验证、请求去重与中断恢复。技术核心是**并发事务一致性、幂等请求去重、进程中断恢复验证**——全部结论由自动化实验实测支撑，详见[测试报告](docs/TEST_REPORT.md)。
+高校开放实验室的一站式资源管理平台——**预约、候补、签到、审批、信用、公平审计**全闭环，纯 C 实现。
 
-## 功能特性
+> **技术核心**：单写者事务保证并发零超卖 · 持久化回执实现幂等重试 · 故障注入验证崩溃恢复 · 三档候补策略（含老化加权）· Jain 公平指数量化治理
 
-**预约与候补**
-- 按实验室与日期查询开放场次，场次带容量（1..200 席位），界面实时显示"已约 X/Y"；
-- 预约即时生效；满员可加入候补（FIFO），取消/爽约释放后**在同一事务内按顺序连续补位直至满员或队列空**；
-- 尚有余位时候补请求被引导直接预约；候补者账号禁用自动跳过；
-- 预约撞满时返回同实验室 7 天内最多 3 个空闲替代时段，页面一键改约；建议面板逐场次解释"可预约/可候补"与原因，并给出基于历史释放分布的候补转正概率；
-- 候补递补三档策略 `--waitlist-strategy`：strict / executable（默认，队首冲突暂跳保留序号）/ **weighted 老化加权**（score=1000×优先级+200×信用+60×log₂(等待)，消除同档饿死）；HELD 限时保留 `--hold-window` 与一键确认；每用户每日候补上限 `--waitlist-daily-limit`。
+---
 
-**签到与爽约**
-- 场次开始后进入签到窗口（`--checkin-window`，默认 15 分钟），仅本人可签到，同编号重放幂等；
-- 独立签到页集中展示当日场次与剩余窗口，支持一键签到与最近签到回顾；
-- 超时未签到由服务端扫描线程（`--sweep-interval`，默认 30 秒）在单事务内标记爽约、释放名额并补位；
-- 补位产生的预约以补位时刻为签到起点，避免刚补位即被回收。
+## 核心能力
 
-**账号与安全**
-- libsodium 密码哈希、随机令牌会话、CSRF + Origin + Host 三重校验、16KB 请求体上限；
-- 自助改密（其他会话立即失效）、在线会话列表与强制下线、过期会话自动清理；
-- 登录防爆破（默认 5 次失败锁定 900 秒）与写操作令牌桶限速（默认突发 30、每秒补 1），超限 429。
+### 预约与候补
 
-**管理与运维**
-- 管理员维护实验室、按日期区间与容量批量发布场次（单次最多 14 天），可对已发布场次随时调整容量（不低于已确认预约数）或停用；
-- 管理员可发布全员广播或定向站内通知，用户在通知中心查看并标记已读；通知发送历史可回溯（含接收人与已读状态）；
-- 用户管理：列表与前缀搜索、停用（立即下线并禁止登录）/启用、重置密码（随机新口令仅显示一次，全部会话失效）；
-- 场次开始提醒：开场前 `--remind-sec`（默认 30 分钟）窗口内向有效预约用户自动发送站内提醒；
-- 公平性约束：同用户时段重叠检测（409 TIME_CONFLICT）；爽约信用（近 7 天爽约 ≥2 次限制预约，管理端可见、可定向管理）；
-- 公平性审计：`/api/admin/fairness` 按用户聚合候补入队/转正/退出/平均等待，并给出全站 Jain 公平指数；
-- 管理员强制操作：全员记录表内置「强制取消」（ADMIN 原因+FIFO 递补+通知）与「代签退」（保实机时），UI 一键操作（v1.16.0）；
-- 深色主题与无障碍：前端基座重构（ui.js/theme.js），深色模式自适应、prefers-reduced-motion 尊重、表单无 JS 降级（v1.16.0）；
-- 运行日志：控制台可按级别/行数查看服务日志尾部；历史归档自动清理 30 天前候补与请求回执；
-- 演示数据：`--demo-days N` 为过去 N 天生成可复现的预约/签到/爽约/候补历史（固定随机种子），统计页开箱有料；
-- 自动备份：`--backup-interval`（默认 6 小时）定时在线快照并轮转保留最近 7 份；
-- 全部响应（含静态页）下发 CSP / nosniff / X-Frame-Options / Referrer-Policy 安全头；
-- 逐日预约统计（开放/有效/取消/爽约/已签到/候补）与 CSV 导出（带 BOM、合计行）；
-- 操作审计日志（支持按动作与操作者筛选）与请求回执：同编号同参数重放返回原结果、同编号换参数 409 冲突，网络失败可安全重试；
-- 运行指标端点：请求计数、状态分类、忙碌次数、登录次数与毫秒级延迟直方图。
+| 能力 | 说明 |
+|---|---|
+| 容量制预约 | 场次 1–200 席位，实时显示"已约 X/Y" |
+| 三档候补策略 | `strict` / `executable`（默认，暂跳冲突保留序号）/ **`weighted`** 老化加权 |
+| 老化加权评分 | score = 1000×优先级 + 200×(信用−5) + 60×log₂(等待小时)——等待翻倍 +60 分，消除同档饿死 |
+| HELD 限时保留 | `--hold-window` 启用后递补先落 HELD，用户截止前一键确认 |
+| 知情候补 | 建议面板逐场次解释"可约/可候补"与原因，附**历史转正概率**（5 周经验分布） |
+| 替代时段 | 撞满时返回同实验室 7 天内空闲场次，页面一键改约 |
+| 原子改期 | 同实验室改期在单事务内完成新槽校验+迁移+旧槽补位 |
+| 每日候补上限 | `--waitlist-daily-limit`（北京日界重置） |
 
-## 界面预览
+### 审批与信用
 
-| 预约与替代时段 | 管理工作台 |
-| --- | --- |
-| ![预约](docs/evidence/ui-r5/01-capacity-alternatives.png) | ![管理](docs/evidence/ui-r5/02-admin-metrics.png) |
+| 能力 | 说明 |
+|---|---|
+| 预约审批流 | 实验室可开启 `require_approval`，新预约落 PENDING 不占容量，批准时事务内重校 |
+| 批量审批 | 部分成功语义——容量满条目入 `failed[]` 不影响其余 |
+| 信用账户 | 签到 +1 / 被抢占补偿 +1 / 爽约额外 −1 / 每周回补至基准 5 |
+| 优先级抢占 | 管理员满员时可抢占未签到且优先级更低者，补偿 +1 信用 |
+| 管理员强制操作 | 「强制取消」（ADMIN 原因+FIFO 递补+通知）/「代签退」（保实机时） |
 
-更多截图见 [docs/evidence/ui-r3/](docs/evidence/ui-r3/) 与 [docs/evidence/ui-r5/](docs/evidence/ui-r5/)。
+### 资源管理
+
+| 能力 | 说明 |
+|---|---|
+| 资源声明配额 | 预约可声明 ≤5 项设备，同时段配额事务内校验（BR12） |
+| 维护工单 | 开/关工单自动通知受影响声明持有者（`affected` 计数） |
+| 可用时段窗 | 按星期+时刻配置设备可用窗口 |
+| 资格授权 | 设备可开启"需资格"开关，管理员授予/撤销 |
+| 利用率统计 | 场次口径 + **实机时口径**（签到-签退时长聚合） |
+
+### 公平与治理
+
+| 能力 | 说明 |
+|---|---|
+| 公平性审计 | 按用户聚合候补入队/转正/退出/平均等待，全站 **Jain 公平指数** |
+| 时间重叠检测 | 同用户有效预约在时间轴上不得重叠 |
+| 爽约限制 | 近 7 天爽约 ≥2 次限制新预约，窗口滑动自动恢复 |
+
+### 前端体验（v1.16.0）
+
+- **深色主题**：`prefers-color-scheme` 自适应 + 手动切换
+- **共用基座 ui.js**：表单校验、分页、通知面板、多行文本截断
+- **管理台重构**：认证门（#gate）、12 页签、待审批专页、强制操作按钮
+- **无障碍**：`prefers-reduced-motion` 尊重、表单无 JS 安全降级
+
+---
 
 ## 快速开始
 
-环境要求：Windows x64、MinGW-w64 GCC（C11）、PowerShell；运行测试另需 Python 3.9+。
-
 ```powershell
-# 1. 构建（vendor 依赖源码已入库，无需联网；自动运行 24 个单元测试）
+# 构建（vendor 依赖已入库，无需联网；自动运行 24 个单元测试）
 powershell -File scripts/build.ps1
-#    可选：powershell -File scripts/build.ps1 -Analyze  # gcc 静态分析
-#    可选：powershell -File scripts/build.ps1 -Harden    # FORTIFY+SSP 加固构建
 
-# 2. 一键启动演示服务（首次自动初始化演示库，监听 http://127.0.0.1:8080）
+# 一键启动演示（首次自动初始化，浏览器访问 http://127.0.0.1:8080）
 powershell -File scripts/start-demo.ps1 -Password 'Demo-Lab-2026'
-#    -Reset 参数可清空旧演示数据重新开始
 ```
-
-> 部署提示：可执行文件依赖同目录下的 `build/libsodium-26.dll`（构建脚本已就位）。
-> 迁移到其他机器时请将 `lab-booking.exe`、`libsodium-26.dll` 与 `web/` 一起复制；
-> `tests/install_test.ps1` 会按此清单在空目录完整演练一遍部署流程。
 
 | 演示账号 | 说明 |
-| --- | --- |
-| `admin` | 管理员（实验室管理、场次发布、统计导出、运行指标） |
-| `user01` ~ `user20` | 普通用户（预约/候补/签到/通知/改密/会话管理） |
+|---|---|
+| `admin` | 管理员（12 页签控制台 `/admin.html`） |
+| `user01` ~ `user20` | 普通用户（预约/候补/签到/通知/令牌） |
 
-密码均为初始化时 `-Password` 参数设定的值（上面示例为 `Demo-Lab-2026`）。
+> 部署：`lab-booking.exe` + `libsodium-26.dll` + `web/` 三件套即可迁移；`tests/install_test.ps1` 在空目录完整演练。
 
-**管理员入口**：登录页顶部可切换「用户登录 / 管理员登录」双入口，管理员入口登录成功后自动进入独立控制台 `http://127.0.0.1:8080/admin.html`（概览卡片 + 实验室管理 / 场次发布 / 全员记录 / 统计导出 / 运行指标）；普通用户走管理员入口会得到 403 提示且不建立会话。
+管理员登录走独立入口（登录页双 Tab），普通用户走管理员入口得 403 不建立会话。
 
-手工启动方式与全部命令行参数（签到窗口、扫描间隔、限流与防爆破阈值等）见 [docs/CONTRACT.md](docs/CONTRACT.md) 与 [README 运行章节](#快速开始)。
+---
 
-## 系统测试
+## 测试矩阵
+
+| 通道 | 规模 | 结果 |
+|---|---|---|
+| 集成实验 | 79 项断言（T01–T78 + CLI） | ✅ 全绿 |
+| 并发争抢 | 720 次（1/5/10/20 并发 × 20 轮） | ✅ 零超卖 |
+| 故障注入 | 30 次（三类中断点 × 10 轮） | ✅ 恢复正确 |
+| 契约测试 | 52 端点 + 14 错误场景 | ✅ |
+| E2E 浏览器 | 8 用例（Playwright） | ✅ |
+| 单元测试 | 24 用例（Unity） | ✅ |
+| 浸泡稳定性 | 60s + 300s（51,140 请求） | ✅ 零错误 |
+| 模糊稳健性 | 240 次恶意输入 | ✅ 零 5xx |
+| 文档一致性 | 7 项 | ✅ |
+| 安装部署 | 8 步全流程 | ✅ |
+| CI 门禁 | 四通道（构建/契约/静态分析/ASan） | ✅ |
 
 ```powershell
-python tests/integration.py --quick --output tests/results-quick   # 快速回归（约 1 分钟）
-python tests/integration.py --full  --output tests/results-full    # 完整实验（并发+故障注入）
-python tests/benchmark.py --output docs/evidence/benchmark         # 性能基准实验
-powershell -File scripts/build.ps1 -Harden                          # 加固构建后可复跑全量
+python tests/integration.py --quick    # 快速回归（~1 分钟）
+python tests/integration.py --full     # 完整实验（并发+故障注入）
+python tests/benchmark.py              # 性能基准
 ```
 
-最近一轮完整实验（79 项断言组 T01–T78 及 CLI 检查）全部通过，亮点数据：
+详细报告：[docs/TEST_REPORT.md](docs/TEST_REPORT.md) · 断言清单：[tests/README.md](tests/README.md)
 
-- **并发正确性**：1/5/10/20 并发 × 20 轮共 720 次争抢请求，每轮有效预约恰好 1 个（容量制下零超卖），其余全部收到明确 409；
-- **中断恢复**：事务提交前/提交后两类故障注入各 10 次，重启后状态与重试行为全部正确；
-- **签到爽约闭环**：超时回收、FIFO 补位、双向通知全链路验证；
-- **静态保障**：`gcc -fanalyzer` 零告警 + 绑定参数类型静态核查；本机工具链无 ASan 运行库的限制与 FORTIFY+SSP 替代方案在报告中如实记录。
-
-详细数据：[docs/TEST_REPORT.md](docs/TEST_REPORT.md) · 断言清单：[tests/README.md](tests/README.md) · CI 由 GitHub Actions 在每次推送时自动执行（构建 + 单元测试 + 快速集成 + 静态分析）。
+---
 
 ## 系统架构
 
 ```
-浏览器（原生 HTML/JS/CSS）
-   │  JSON over HTTP（回环地址）
+浏览器（原生 HTML/JS/CSS · ui.js 基座 + theme.js 深色主题）
+   │  JSON over HTTP（回环地址 127.0.0.1）
    ▼
-CivetWeb HTTP 服务（多工作线程）
-   │  会话认证 → CSRF/Origin/Host 校验 → 限流防爆破 → 请求计时
+CivetWeb HTTP 服务（8 工作线程 · #gate 认证门 · CSRF/Origin/Host · 限流）
    ▼
-业务层 src/service.c（事务、容量校验、FIFO 补位、去重回执、签到爽约、通知）
-   │                    src/ratelimit.c（限流）  src/metrics.c（指标）
+业务层 service.c（单写者事务 · 三档候补策略 · 审批 · 信用 · 强制操作）
+   │         ratelimit.c（令牌桶）   metrics.c（计数+延迟直方图）   log.c（分级+轮转）
    ▼
-数据访问 src/db.c（参数绑定、schema v3 幂等迁移、完整性检查）
+数据访问 db.c（参数绑定 · 语句 LRU 缓存 · 线程连接复用 · schema v5 幂等迁移）
    ▼
-SQLite（WAL · synchronous=FULL · 外键 · 容量不变量）
+SQLite（WAL · synchronous=FULL · 外键 · 17 表 · 容量不变量）
 ```
+
+---
 
 ## 文档
 
 | 文档 | 内容 |
-| --- | --- |
-| [docs/答辩技术手册.md](docs/答辩技术手册.md) | 答辩速查：架构与机制深挖、代码导航、实验数据、高频问题预答 |
-| [docs/CONTRACT.md](docs/CONTRACT.md) | 接口契约：端点、数据模型、事务与一致性规则、错误码 |
-| [docs/TEST_REPORT.md](docs/TEST_REPORT.md) | 测试报告：实验设计、数据与结论 |
-| [tests/README.md](tests/README.md) | 测试执行方法与断言范围 |
-| [docs/PROGRESS.md](docs/PROGRESS.md) | 实施进度清单（五轮迭代） |
-| [docs/CHANGELOG.md](docs/CHANGELOG.md) | 版本变更记录 |
-| [docs/dependencies.lock.json](docs/dependencies.lock.json) | 第三方依赖版本与 SHA256 |
-| [docs/evidence/](docs/evidence/) | 实验数据、基准结果、验收截图 |
+|---|---|
+| [答辩技术手册](docs/答辩技术手册.md) | 架构深挖 · 代码导航 · 实验数据 · 高频问题预答 |
+| [接口契约](docs/CONTRACT.md) | 52 端点 · 数据模型 · 事务规则 · 组合语义基准 |
+| [测试报告](docs/TEST_REPORT.md) | 实验设计 · 数据 · 结论 |
+| [UAT 验收](docs/UAT.md) | 六路径走查 · 发布回归清单 |
+| [变更日志](docs/CHANGELOG.md) | 16 个版本 · 42 轮迭代 |
+| [断言清单](tests/README.md) | T01–T78 全量描述 |
+| [证据归档](docs/evidence/) | 基准结果 · 验收截图 · 实验数据 |
+
+---
 
 ## 目录结构
 
 ```
-src/      C 源码（main / util / db / service / http / ratelimit / metrics）
-web/      浏览器静态页面（原生 HTML/JS/CSS）
-vendor/   第三方依赖源码与许可证（已入库，克隆即可构建）
-scripts/  构建脚本、依赖获取（复现用）、演示启动脚本
-tests/    集成与可靠性实验、单元测试、性能基准（Python 标准库）
-docs/     契约、测试报告、进度、证据、课题与论文材料
-data/     运行数据库（不入库）
+src/          C 源码（main · util · db · service · http · ratelimit · metrics · log）
+web/          前端（index · admin · app · admin · ui · theme · style · favicon）
+vendor/       第三方依赖源码（已入库，克隆即可构建）
+scripts/      构建 · 依赖获取 · 演示启动 · 混合负载实验
+tests/        集成实验 · 契约 · 单元 · E2E · 基准 · 浸泡 · 模糊 · 属性测试
+docs/         契约 · 测试报告 · 进度 · 答辩材料 · 论文 · 证据
+data/         运行数据库（.gitignore）
 ```
+
+---
 
 ## 第三方组件
 
 | 组件 | 版本 | 许可证 | 用途 |
-| --- | --- | --- | --- |
-| [CivetWeb](https://github.com/civetweb/civetweb) | commit 588860e | MIT（详见 vendor/civetweb/LICENSE.md） | 嵌入式 HTTP 服务 |
+|---|---|---|---|
+| [CivetWeb](https://github.com/civetweb/civetweb) | commit 588860e | MIT | 嵌入式 HTTP 服务 |
 | [SQLite](https://www.sqlite.org/) | 3.53.4 | Public Domain | 嵌入式数据库 |
 | [cJSON](https://github.com/DaveGamble/cJSON) | 1.7.19 | MIT | JSON 解析 |
-| [libsodium](https://libsodium.org/) | 1.0.22 | ISC | 密码哈希与安全随机数 |
-| [Unity](https://github.com/ThrowTheSwitch/Unity) | 2.7.2 | MIT | 单元测试框架 |
+| [libsodium](https://libsodium.org/) | 1.0.22 | ISC | Argon2id 密码哈希 |
+| [Unity](https://github.com/ThrowTheSwitch/Unity) | 2.7.19 | MIT | 单元测试框架 |
 
-固定版本与校验值见 [docs/dependencies.lock.json](docs/dependencies.lock.json)；对上游的一处兼容性修复记录于 [docs/UPSTREAM_PATCHES.md](docs/UPSTREAM_PATCHES.md)。
+固定版本与 SHA256 见 [docs/dependencies.lock.json](docs/dependencies.lock.json)。
+
+---
 
 ## 许可证
 
-本项目代码以 [MIT License](LICENSE) 发布。第三方组件沿用其各自许可证（见上表），均已随源码附带许可证文本。
+[MIT License](LICENSE) · 第三方组件沿用各自许可证（见上表）
+
+---
+
+*本项目为软件工程毕业设计，42 轮迭代全部由自动化测试驱动。*
