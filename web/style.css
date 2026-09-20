@@ -829,3 +829,23 @@ details.suggest>summary .count{background:var(--accent-soft);color:var(--accent-
   .btn-danger::after{animation:none;transform:scaleX(1)}
   .reschedule-row,.cell-more-body,.chart-grid{animation:none}
 }
+
+/* ==========================================================================
+   动效与微交互层 七（r7 首屏编排与收尾轮）
+   顶栏首帧下落、页签条随入、选中强调加强；配套 favicon 冒泡动画（另文件）。
+   ========================================================================== */
+
+@keyframes bar-drop{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:none}}
+
+/* ---------- 首屏编排：顶栏先落，页签条随后淡入（只播首帧/显示瞬间，不随交互重放） ---------- */
+.topbar{animation:bar-drop .5s var(--ease-out) both}
+.tabs{animation:fade .45s .1s var(--ease-out) both}
+/* 窄屏吸顶页签与动画同存：动画 both 结束后 transform 残留为 none，不影响 sticky */
+
+/* ---------- 选中强调加强 ---------- */
+::selection{background:color-mix(in srgb,var(--accent) 28%,transparent);color:var(--text-strong)}
+
+/* ---------- 减弱动效追加（r7） ---------- */
+@media(prefers-reduced-motion:reduce){
+  .topbar,.tabs{animation:none}
+}
