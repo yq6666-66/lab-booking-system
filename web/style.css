@@ -725,3 +725,51 @@ a:not(.brand):not(.skip-link):not(.quiet):hover{background-size:100% 1.5px}
   .login-tabs button::after,.toast-x,.wd-row .check{transition:none}
   .toast-x:hover:not(:disabled){transform:none}
 }
+
+/* ==========================================================================
+   动效与微交互层 四（r4 排版与信息层级轮）
+   全站数字等宽、页脚渐变分隔与淡入、未读通知圆点、日志面板终端装饰、
+   标签圆角统一、排序按钮悬停胶囊、一次性凭据高亮。
+   ========================================================================== */
+
+@keyframes footer-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes glow-pan{to{background-position:200% 0}}
+
+/* ---------- 数字排版：表格 / 分页 / 角标全部等宽数字，列内跳动不再 ---------- */
+td,th{font-variant-numeric:tabular-nums}
+.pager,.badge{font-variant-numeric:tabular-nums}
+
+/* ---------- 区块标题字距微调 ---------- */
+h2{letter-spacing:-.2px}
+
+/* ---------- 页脚：渐变分隔线 + 随页淡入 ---------- */
+footer{border-top:0;background:linear-gradient(90deg,transparent,var(--border) 18%,var(--border) 82%,transparent) top/100% 1px no-repeat;padding-top:25px;animation:footer-in .6s .25s var(--ease-out) both}
+
+/* ---------- 未读通知：右上角实体圆点（颜色之外的第二重视觉标记） ---------- */
+.notify-item{position:relative}
+.notify-item.unread::after{content:'';position:absolute;top:12px;right:12px;width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 20%,transparent)}
+
+/* ---------- 日志面板：终端窗口装饰（顶部三圆点 + 标题条） ---------- */
+.log-view{position:relative;padding-top:34px}
+.log-view::before{content:'● ● ●';position:absolute;top:11px;left:14px;font-size:9px;letter-spacing:5px;color:var(--muted);opacity:.8}
+.log-view::after{content:'';position:absolute;top:15px;left:52px;right:14px;height:1px;background:var(--chart-grid)}
+
+/* ---------- 状态标签：圆角与内边距统一 ---------- */
+.tag{border-radius:6px;padding:4px 9px}
+
+/* ---------- 表头排序按钮：悬停胶囊 ---------- */
+.th-sort{border-radius:6px;padding:2px 7px;margin:-2px -5px;transition:color var(--dur-1) var(--ease),background-color .18s var(--ease)}
+.th-sort:hover{background:var(--accent-soft);text-decoration:none}
+.th-sort:hover::after{opacity:.85}
+.th-sort.asc::after,.th-sort.desc::after{animation:sort-bounce .3s var(--ease-spring)}
+@keyframes sort-bounce{40%{transform:translateY(2px)}70%{transform:translateY(-1px)}100%{transform:none}}
+
+/* ---------- 一次性凭据：明文区缓慢流光，强调「仅此一次」 ---------- */
+.secret code{background:linear-gradient(100deg,var(--surface) 40%,var(--accent-soft) 50%,var(--surface) 60%) no-repeat;background-size:220% 100%;animation:glow-pan 5s linear infinite}
+
+/* ---------- 减弱动效追加（r4） ---------- */
+@media(prefers-reduced-motion:reduce){
+  footer{animation:none}
+  .th-sort.asc::after,.th-sort.desc::after{animation:none}
+  .secret code{animation:none;background:var(--surface)}
+}
