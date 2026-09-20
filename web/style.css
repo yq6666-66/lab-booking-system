@@ -773,3 +773,29 @@ footer{border-top:0;background:linear-gradient(90deg,transparent,var(--border) 1
   .th-sort.asc::after,.th-sort.desc::after{animation:none}
   .secret code{animation:none;background:var(--surface)}
 }
+
+/* ==========================================================================
+   动效与微交互层 五（r5 移动端体验轮）
+   窄屏页签条吸顶 + 毛玻璃、触控目标加大、iOS 聚焦防缩放（输入 ≥16px）、
+   系统点按高亮交给自定义按压反馈、底部安全区。
+   ========================================================================== */
+
+/* ---------- 触控基础：去掉系统灰色点按高亮（按压反馈由全局 scale 承担） ---------- */
+button,.chips,a{ -webkit-tap-highlight-color:transparent }
+
+/* ---------- 窄屏专属 ---------- */
+@media(max-width:600px){
+  /* 页签条吸顶：窄屏顶栏回退静态后，12 页签导航改为自己吸顶 + 毛玻璃底 */
+  .tabs{position:sticky;top:0;z-index:30;background-color:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(12px) saturate(1.4);-webkit-backdrop-filter:blur(12px) saturate(1.4);margin-top:16px}
+  @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.tabs{background-color:var(--bg)}}
+  /* 触摸目标：行内操作按钮与可切换芯片加高到 ~40px 可点区 */
+  td button{padding:9px 13px;font-size:13px}
+  .slot-assets .chips,#rec-filter .chips{padding:7px 13px}
+  /* iOS Safari：输入字号 <16px 时聚焦会自动放大整页 */
+  input,select,textarea{font-size:16px}
+  /* 底部安全区（全面屏手势条） */
+  footer{padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+  .toasts{bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+}
+
+/* ---------- 减弱动效追加（r5）：吸顶页签无动画，无需追加；毛玻璃不受影响 ---------- */
