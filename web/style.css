@@ -799,3 +799,33 @@ button,.chips,a{ -webkit-tap-highlight-color:transparent }
 }
 
 /* ---------- 减弱动效追加（r5）：吸顶页签无动画，无需追加；毛玻璃不受影响 ---------- */
+
+/* ==========================================================================
+   动效与微交互层 六（r6 状态反馈细节轮）
+   危险操作二次确认的 3 秒倒计时进度条、建议面板计数徽章、顶栏身份胶囊、
+   改期候选行 / 备注展开 / 图表网格渐现。
+   ========================================================================== */
+
+@keyframes confirm-countdown{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+
+/* ---------- 二次确认：底部 3 秒倒计时条（与 confirmAction 的自动恢复窗口同步） ---------- */
+.btn-danger::after{content:'';position:absolute;left:0;top:auto;bottom:0;width:100%;height:2px;background:var(--danger-fg);opacity:.75;transform-origin:left center;animation:confirm-countdown 3s linear forwards}
+/* 仅在确认窗口内显示：危险样式被 confirmAction 移除后（恢复原类）倒计时条随规则一起消失 */
+
+/* ---------- 建议面板：可行动计数徽章化 ---------- */
+details.suggest>summary .count{background:var(--accent-soft);color:var(--accent-ink);border-radius:999px;padding:3px 10px;font-size:12px}
+
+/* ---------- 顶栏身份：胶囊化（纯 CSS，不改 DOM） ---------- */
+#identity{background:var(--surface-3);border-radius:999px;padding:5px 12px;font-size:12px;transition:background-color .2s var(--ease)}
+#identity:hover{background:var(--accent-soft)}
+
+/* ---------- 渐现：改期候选行 / 备注展开全文 / 图表网格线 ---------- */
+.reschedule-row{animation:row-in .3s var(--ease-out) both}
+.cell-more-body{animation:fade .25s var(--ease-out) both}
+.chart-grid{animation:fade .45s var(--ease-out) both}
+
+/* ---------- 减弱动效追加（r6） ---------- */
+@media(prefers-reduced-motion:reduce){
+  .btn-danger::after{animation:none;transform:scaleX(1)}
+  .reschedule-row,.cell-more-body,.chart-grid{animation:none}
+}
