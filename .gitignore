@@ -18,3 +18,6 @@ __pycache__/
 *.gcov
 debug-*.db*
 tests/results-*/
+
+# 论文初稿不入库：由 docs/thesis/thesis_gen.py 本地生成（桌面交付），仓库只留生成器与大纲
+docs/thesis/*.docx

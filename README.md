@@ -257,8 +257,8 @@ SQLite（WAL · synchronous=FULL · 外键 · 17 表 · 容量不变量）
 
 | 文档 | 内容 |
 |---|---|
-| [毕业论文初稿](docs/thesis/毕业论文初稿.docx) | 程序化生成（thesis_gen.py）· 七章 · 全部实验数据入文 |
 | [答辩演示](docs/thesis/答辩演示.pptx) | 15 页 PPT + [演示脚本](docs/thesis/答辩演示脚本.md)（9 分钟走查） |
+| [论文生成器](docs/thesis/thesis_gen.py) | 程序化生成毕业论文（七章 · 全部实验数据入文；初稿本地生成不入库） |
 | [答辩技术手册](docs/答辩技术手册.md) | 架构深挖 · 代码导航 · 实验数据 · 高频问题预答 |
 | [竞品对比分析](docs/COMPETITIVE_ANALYSIS.md) | GitHub 20+ 同类项目六维对标 |
 | [优化蓝图](docs/plans/opt-blueprints-r2/README.md) | Phase 1/2 设计（outbox/OpenAPI/QR/TOTP）与实证参考 |
@@ -279,7 +279,7 @@ web/          前端（index · admin · app · admin · ui · theme · style ·
 vendor/       第三方依赖源码（已入库，克隆即可构建）
 scripts/      构建 · 依赖获取 · 演示启动 · 混合负载实验
 tests/        集成实验 · 契约 · 单元 · E2E · 基准 · 浸泡 · 模糊 · 属性测试
-docs/         契约 · 测试报告 · 进度 · 答辩材料 · 论文 · 证据
+docs/         契约 · 测试报告 · 进度 · 答辩材料 · 证据
 data/         运行数据库（.gitignore）
 ```
 

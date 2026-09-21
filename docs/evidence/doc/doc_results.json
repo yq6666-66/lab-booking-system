@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-09-21T11:59:31.044135+00:00",
+  "timestamp_utc": "2026-09-21T14:10:36.327055+00:00",
   "checks_total": 7,
   "checks_passed": 7,
   "all_passed": true,
@@ -22,7 +22,7 @@
     {
       "name": "README.md 引用的本地文件均存在",
       "passed": true,
-      "detail": "9 个本地引用全部存在"
+      "detail": "14 个本地引用全部存在"
     },
     {
       "name": "关键文档齐全",
