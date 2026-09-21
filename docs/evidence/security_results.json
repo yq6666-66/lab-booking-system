@@ -3,14 +3,14 @@
   "injection_all_rejected": true,
   "user_count_unchanged": true,
   "timing_username": {
-    "valid_ms": 104.1,
-    "invalid_ms": 102.9,
-    "ratio": 1.01
+    "valid_ms": 126.8,
+    "invalid_ms": 111.3,
+    "ratio": 1.14
   },
   "timing_password": {
-    "correct_ms": 104.9,
-    "wrong_ms": 105.0,
-    "ratio": 1.0
+    "correct_ms": 120.0,
+    "wrong_ms": 130.9,
+    "ratio": 1.09
   },
   "passed": true
 }
