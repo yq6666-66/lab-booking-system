@@ -3,11 +3,36 @@
 [![CI](https://github.com/yq6666-66/lab-booking-system/actions/workflows/ci.yml/badge.svg)](https://github.com/yq6666-66/lab-booking-system/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/badge/release-v1.17.0-blue)](https://github.com/yq6666-66/lab-booking-system/releases/tag/v1.17.0)
 ![language](https://img.shields.io/badge/language-C11-blue)
+![http](https://img.shields.io/badge/HTTP-CivetWeb-teal)
+![db](https://img.shields.io/badge/DB-SQLite_3_WAL-003B57)
+![crypto](https://img.shields.io/badge/crypto-libsodium-orange)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 高校开放实验室的一站式资源管理平台——**预约、候补、签到、审批、信用、公平审计**全闭环，纯 C 实现。
 
 > **技术核心**：单写者事务保证并发零超卖 · 持久化回执实现幂等重试 · 故障注入验证崩溃恢复 · 三档候补策略（含老化加权）· Jain 公平指数量化治理
+
+---
+
+## 技术栈
+
+**后端为纯 C11 单体服务，前端为零依赖原生三件套，全部第三方源码 vendor 入库并 SHA256 锁定——克隆即构建，构建即可运行，部署三件套（exe + DLL + web/）即可迁移。**
+
+| 层 | 选型 | 要点 |
+|---|---|---|
+| 语言标准 | **C11**（约 6,600 行自研代码） | 纯 C 单体，无解释器、无 GC、无运行时依赖；`-Wall -Wextra` 零告警，`-fanalyzer` 静态分析门禁 |
+| HTTP 服务 | **CivetWeb**（嵌入式，commit 588860e） | 8 工作线程，静态资源与 API 同进程服务，仅监听回环地址；全响应下发五条安全头（CSP / nosniff / DENY / no-referrer / Permissions-Policy） |
+| 数据库 | **SQLite 3.53**（WAL + synchronous=FULL） | 单文件库、17 张表；容量/唯一性等业务不变量由局部唯一索引在库层兜底；schema v5 版本化幂等迁移（旧库无损升级，构造旧库实测验证） |
+| JSON | **cJSON 1.7** | 严格解析（重复键拒绝）；请求体 16 KB 上限，超限 413 |
+| 密码学 | **libsodium 1.0** | Argon2id 口令哈希（哑哈希将账号枚举时序差压至约 3%）；CSPRNG 生成会话令牌/盐；服务端仅存哈希 |
+| 并发正确性 | 自研**单写者事务协议** | 全部业务写走 `BEGIN IMMEDIATE` 短事务 + 持久化请求回执（同编号幂等重放）；720 并发争抢零超卖、30 次故障注入恢复全部正确——均为可复现实验实证 |
+| 前端 | **原生 HTML / CSS / JavaScript**（约 800 行） | 无框架、无构建步骤、无 CDN；严格 CSP `default-src 'self'` 下全站零内联脚本/样式；ui.js 共用基座 + theme.js 深色主题（View Transitions 过渡） |
+| 可观测性 | 自研 metrics 模块 | Prometheus 文本格式 `/metrics`（请求计数器 + 延迟直方图累积 bucket），标准运维生态直接抓取 |
+| 测试 | **Unity** + Python 标准库 + **Playwright** | 25 单元（链接业务层直调，不经 HTTP）/ 79 集成断言组 / 56 端点契约 / 8 E2E 浏览器用例；测试客户端仅用 Python 标准库，零第三方依赖 |
+| CI/CD | **GitHub Actions 四通道** | 构建与集成测试 / 契约与文档一致性 / gcc `-fanalyzer` 静态分析 / llvm-mingw AddressSanitizer 内存安全（Windows） |
+| 供应链安全 | vendor 源码入库 + SHA256 锁定 | [dependencies.lock.json](docs/dependencies.lock.json) 固定版本与哈希；依赖获取脚本仅访问白名单域名并核对校验和 |
+
+各组件的版本、许可证与仓库链接明细见文末[第三方组件](#第三方组件)表。
 
 ---
 
