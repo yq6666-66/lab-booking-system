@@ -120,8 +120,8 @@ para("系统以单写者事务（BEGIN IMMEDIATE）配合容量不变量保证�
      "运行日志与资源清单）、限时签到、场次开始提醒、自动备份轮转、爽约信用约束与时间重叠检测等运营能力，并延伸出预约审批流、可执行 FIFO"
      " 候补策略与限时保留（HELD）、高优先级抢占与信用账户、资源维护工单与可用时段窗、资源使用资格授权、API 访问令牌等深化机制，"
      "以全局安全响应头（CSP 等）收紧浏览器攻击面。")
-para("系统通过五层自动化验证：24 个单元测试、79 项集成断言组（含 720 次并发争抢实验——实验样本内未出现超卖、30 次进程中断恢复全部正确、"
-     "五组跨规则组合验证、凭据生命周期与约束感知建议评估）、52 个端点的契约测试与灰盒/文档测试、模糊稳健性与浸泡稳定性实验，以及持续集成三通道门禁（构建与测试、"
+para("系统通过五层自动化验证：25 个单元测试、79 项集成断言组（含 720 次并发争抢实验——实验样本内未出现超卖、30 次进程中断恢复全部正确、"
+     "五组跨规则组合验证、凭据生命周期与约束感知建议评估）、56 个端点的契约测试与灰盒/文档测试、模糊稳健性与浸泡稳定性实验，以及持续集成三通道门禁（构建与测试、"
      "静态分析、AddressSanitizer 内存安全）。计时旁路实验表明登录路径对有效与无效账号的响应时间比仅为 1.07，账号枚举的可观测时间差被"
      "显著压平。连接复用与语句缓存优化使读路径吞吐提升最高 541%（约 6.4 倍），p50 延迟下降 87%。")
 para("结果表明，在不引入重型运行时的前提下，以规范的事务设计、持久化去重与自动化实验体系，C 语言同样能够构建出具备工业级可靠性论证的"
@@ -140,9 +140,9 @@ para("The system guarantees concurrent correctness with single-writer transactio
      "asset maintenance work orders with availability windows and qualification grants, self-managed API access tokens, a standalone admin "
      "console (slot adjustment, user management, announcements and runtime logs), time-windowed check-in, session start reminders, automatic "
      "backup rotation, a no-show credit constraint, time-overlap detection, and hardened browser attack surface via global security headers.", font="Times New Roman")
-para("The system passes five layers of automated verification: 24 unit tests, 79 integration assertion groups (including a 720-request "
-     "concurrent-contention experiment with no overbooking observed across all trials, 30 crash-recovery trials all correct, and five "
-     "cross-rule combination checks), contract tests over 52 endpoints, gray-box/documentation tests, fuzz and soak stability experiments, "
+para("The system passes five layers of automated verification: 25 unit tests, 79 integration assertion groups (including a 720-request "
+     "concurrent-contention experiment with no overbooking observed across all trials, 30 crash-recovery trials all correct, five "
+     "cross-rule combination checks, differential property tests and admin operation assertions), contract tests over 56 endpoints, gray-box/documentation tests, fuzz and soak stability experiments, "
      "and a four-channel continuous integration gate (build and test, contract/documentation consistency, static analysis, AddressSanitizer memory safety). A timing "
      "side-channel experiment shows the login path responds to valid and invalid accounts within a 1.07x ratio, substantially flattening the "
      "observable timing difference available for account enumeration. Connection reuse and statement caching raise read throughput by up to "
@@ -180,7 +180,7 @@ li("（2）设计并实现了两项关键机制：基于持久化请求回执的
 li("（3）设计并实现了面向真实运营的管理能力：独立管理员控制台（实验室与场次维护、场次开始前调整、用户停用/重置密码、全员通知发布、运行日志查看）、实验室资源（设备）清单与资源利用率统计、"
    "资源维护工单与可用时段窗、资源使用资格授权、场次开始提醒、自动备份轮转、爽约信用约束（近 7 天两次爽约暂停预约）、跨场次时间重叠检测、"
    "信用账户（补偿、发放与每周回补）、高优先级抢占与 API 访问令牌；")
-li("（4）构建了五层自动化验证体系：单元测试 24 个、集成断言组 79 项（T01–T78 与 CLI 检查，含 720 次并发争抢、30 次故障注入恢复、五组跨规则组合验证、凭据生命周期与约束感知建议评估）、52 个端点的契约测试与灰盒/文档测试、模糊与浸泡实验，"
+li("（4）构建了五层自动化验证体系：单元测试 25 个、集成断言组 79 项（T01–T78 与 CLI 检查，含 720 次并发争抢、30 次故障注入恢复、五组跨规则组合验证、凭据生命周期与约束感知建议评估）、56 个端点的契约测试与灰盒/文档测试、模糊与浸泡实验，"
    "并以持续集成三通道门禁（构建与测试、静态分析、AddressSanitizer 内存安全）保障每一次提交；")
 li("（5）完成性能与安全实验：每线程连接复用与语句缓存使读路径吞吐最高提升 541%；计时旁路实验将登录路径有效与无效账号的响应时间比压至 1.07，显著降低了账号枚举的可观测差异。")
 h2("1.4 主要创新点")
@@ -249,7 +249,7 @@ li("BR14 预约提前量：开始前不足提前量（--lead-time，默认关闭
 li("BR15 候补优先级与抢占：候补与抢占的优先级由服务端按角色裁定（普通用户 0、管理员 10，不接受客户端自报）；满员时高优先级用户可直接预约并抢占未签到、优先级更低的有效预约，被抢占者获得信用补偿并收到通知；")
 li("BR16 信用账户：用户持有信用余额（基准 5，上限 5），签到与被抢占补偿 +1、爽约额外 −1、管理员可发放；余额为零时拒绝新的预约与候补；每周回补至基准（只补不扣），全部变动记录流水；")
 li("BR17 资源可用时段窗：可为资源配置按星期与时刻的可用窗口，窗口外的资源声明被拒绝；")
-li("BR18 资源维护工单：开启工单即置资源为维修中（重复开启拒绝），关闭后恢复可用；维修中资源拒绝新的声明（既有声明不受影响）；工单开/关时自动通知该资源全部未来有效声明的持有者（响应附受影响计数）；")
+li("BR18 资源维护工单：开启工单即置资源为维修中（重复开启拒绝），关闭后恢复可用；维修中资源拒绝新的声明（既有声明不受影响）；工单开/关时自动通知该资源全部未来有效声明的持有者（按场次逐条站内通知，响应附受影响计数）；")
 li("BR19 候补递补三档策略：默认可执行 FIFO——按（优先级降序,编号升序）扫描队列，停用者跳过、临时时间冲突者暂跳并保留原序号，只递补第一个当前可执行的候选；strict 回退为队首阻塞语义；weighted（老化加权）按 score = 1000×优先级 + 200×(信用−5) + 60×log₂(1+等待小时数) 降序扫描——等待每翻倍 +60 分、同档 1 点信用差约需 8 小时等待追平、管理员不被老化越级，冲突暂跳语义与前两档一致；")
 li("BR20 限时保留（HELD）：--hold-window 启用后候补递补先落 HELD 态并写入保留截止（min(当前+窗口, 开场)），用户在截止前确认才转 CONFIRMED，超时由扫描器回收为 EXPIRED 并重新递补；占容口径为 CONFIRMED + HELD；")
 li("BR21 资格授权：开启资格要求的资源仅对持有效资格的用户开放声明，未持资格返回 QUALIFICATION_REQUIRED；资格由管理员授予与撤销。")
@@ -339,14 +339,14 @@ para("在以上规则之上，系统提供只读的约束感知建议端点：�
 h1("5 系统实现")
 h2("5.1 开发环境与构建")
 para("开发环境为 Windows x64 + MinGW-w64 GCC 15.2，核心代码约 1,600 行 C（不含第三方库）与 260 行前端脚本，自动化测试约 3,400 行。"
-     "构建脚本支持四个目标：正式版（自动运行 24 个单元测试）、TEST_FAULTS 测试版（内置三类故障注入点：提交前崩溃 86、提交后响应前崩溃 87、"
+     "构建脚本支持四个目标：正式版（自动运行 25 个单元测试）、TEST_FAULTS 测试版（内置三类故障注入点：提交前崩溃 86、提交后响应前崩溃 87、"
      "扫描事务中途崩溃 88）、加固版（FORTIFY、栈保护与自动变量零初始化）与覆盖率版（--coverage，配合优雅停机信号 SIGBREAK 刷写 gcov 数据）。"
      "命令行支持提醒窗口（--remind-sec）、备份间隔（--backup-interval）与演示数据（--demo-days）等运行参数，全部参数均有边界校验。")
 h2("5.2 HTTP 接入与会话安全")
 para("api() 处理器依次执行 Host 白名单、方法检查、健康探测、Origin 校验、请求体上限与 JSON 合法性检查（含重复键拒绝）、数据库连接获取、"
      "会话认证与 CSRF 校验后才进入业务分发。登录接口前置防爆破闸门：同一用户名连续失败达到阈值（默认 5 次）后锁定 900 秒，期间正确口令"
-     "同样返回 429；已登录用户的全部写操作经过每用户令牌桶（默认突发 30、每秒补充 1）限速。路由计数口径：分派器共 63 个路由分支"
-     "（其中 26 个带路径参数），另有 Prometheus 抓取端点 /metrics 为独立处理器；契约测试覆盖其中 52 个端点的响应封套与字段类型"
+     "同样返回 429；已登录用户的全部写操作经过每用户令牌桶（默认突发 30、每秒补充 1）限速。路由计数口径：分派器共 67 个路由分支"
+     "（其中 26 个带路径参数），另有 Prometheus 抓取端点 /metrics 为独立处理器；契约测试覆盖其中 56 个端点的响应封套与字段类型"
      "（计数以仓库 tests/contract_test.py 的 SCHEMAS 键数为准）。管理端点集中做角色断言，静态资源与 API 共享全局安全响应头。")
 h2("5.3 事务与去重核心")
 para("booking() 是全部写操作的汇聚点，其主干为：BEGIN IMMEDIATE → 用户可用性检查（含爽约信用受限与时间重叠检测）→ 回执查询（命中即重放/"
@@ -372,7 +372,7 @@ para("管理控制台为独立页面（admin.html + admin.js），以十二个�
      "通知发布（全员或指定用户）、通知历史与运行日志（尾部读取、级别与行数筛选）；资源管理页签覆盖维护工单、可用时段窗与资格授权；全员记录表内置管理员强制操作——「强制取消」（ADMIN 原因+递补+通知）与「代签退」（保实机时口径）。控制台概览如图 5-1 所示，用户管理如图 5-2 所示，"
      "统计图表如图 5-3 所示。资源管理页签维护实验室设备清单（名称/规格/数量/三态状态）；统计页的趋势图由前端以纯 DOM API 生成 SVG 双系列柱状图，不引入任何图表库。统计页还提供按实验室的资源利用率表与 CSV 导出。可观测性方面新增 Prometheus 标准文本抓取端点（/metrics，计数器与延迟直方图累积 bucket），运维生态可直接接入。运营侧实现了自动备份线程"
      "（Backup API 导出 + 按保留数量轮转）、30 天历史归档与演示数据生成器（固定随机种子，可复现地生成过去若干天的场次、预约、签到与"
-     "爽约历史，并内置结构性容量保护保证重复执行不破坏不变量）。")
+     "爽约历史，并内置结构性容量保护保证重复执行不破坏不变量）。v1.17.0 为运营侧进一步提供三个聚合端点：/api/admin/dashboard 一次调用返回今日统计、待审批数、候补热点与七日趋势（替代前端串行五次请求）；/api/admin/slots/conflicts 检测同日跨实验室场次的时间重叠（排课避撞）；/api/admin/credit-summary 汇总信用分布五档与受限用户名单。用户侧同步新增个人通知历史 CSV 导出（/api/me/notifications/export，带 BOM 的 Excel 兼容格式，上限 500 条）。")
 img("fig5-1-admin-overview.png", cap_text="图 5-1 管理控制台运行概览", width=14.5)
 img("fig5-2-admin-users.png", cap_text="图 5-2 用户管理（爽约计数与受限标记）", width=14.5)
 img("fig5-3-admin-stats.png", cap_text="图 5-3 逐日统计与 SVG 趋势图", width=14.5)
@@ -384,9 +384,9 @@ para("个人与全体记录支持 page/page_size/has_more 分页与状态筛选�
 # ---------- 第6章 ----------
 h1("6 系统测试")
 h2("6.1 测试策略与环境")
-para("测试体系分五层：（1）Unity 单元测试 24 个，不经 HTTP 直接链接业务层与数据层；（2）集成实验 79 项断言组（编号 T01–T78 另加 CLI 数据库"
+para("测试体系分五层：（1）Unity 单元测试 25 个，不经 HTTP 直接链接业务层与数据层；（2）集成实验 79 项断言组（编号 T01–T78 另加 CLI 数据库"
      "检查，以测试运行器 record() 调用数为准），以独立 Python 客户端"
-     "驱动真实服务进程，覆盖功能、安全、并发、故障恢复、运营能力与跨规则组合语义；（3）契约测试（52 个端点逐项校验响应封套与字段类型）与灰盒/文档一致性测试；"
+     "驱动真实服务进程，覆盖功能、安全、并发、故障恢复、运营能力与跨规则组合语义；（3）契约测试（56 个端点逐项校验响应封套与字段类型）与灰盒/文档一致性测试；"
      "（4）模糊稳健性实验与浸泡稳定性实验；（5）真实浏览器端到端验收。所有实验使用独立临时端口与全新数据库副本，原始证据（数据库、日志、"
      "结果 JSON）完整归档，失败样本不销毁。")
 para("持续集成设有四条并行门禁通道：构建与单元/集成测试、静态分析门禁（-fanalyzer 与绑定参数静态核查）、以及 AddressSanitizer + "
@@ -498,13 +498,13 @@ para("上述缺陷均由自动化测试或浏览器验收先行暴露，修复�
 h2("6.10 浏览器端到端验收")
 para("以真实 Chromium 浏览器完成八用例端到端验收（含 case8 管理端强制取消按钮 UI→DB 全链）：走通登录（含管理员入口）、查询、预约、候补、取消补位（两段式确认）、签到（含倒计时与"
      "状态机）、预约审批（PENDING 徽标与管理端批准）、资源声明、通知已读与分页、记录状态筛选、改密与会话下线、API 令牌面板、分页、统计图表与 CSV 下载、容量显示与替代时段改约（改期面板）、指标面板，以及管理控制台"
-     "全部十二个页签（场次调整、用户停用与受限标记、通知发布与送达、运行日志筛选等）。截图存证于 docs/evidence/ui-r3/、ui-r5/ 与后续轮次归档。")
+     "全部十二个页签（场次调整、待审批专页、批量审批、强制操作按钮、用户停用与受限标记、通知发布与送达、运行日志筛选等）。截图存证于 docs/evidence/ui-r3/、ui-r5/ 与后续轮次归档。")
 
 # ---------- 第7章 ----------
 h1("7 总结与展望")
 h2("7.1 工作总结")
 para("本课题面向高校开放实验室管理场景，完整经历了需求分析、架构设计、编码实现、自动化验证与性能优化五个阶段，交付了一个功能完备、"
-     "可靠性经过实测论证的 C 语言 Web 系统（v1.16.0，schema v5、17 张数据表、52 个契约端点、79 项集成断言组）。主要成果包括：容量制预约与"
+     "可靠性经过实测论证的 C 语言 Web 系统（v1.17.0，schema v5、17 张数据表、56 个契约端点、79 项集成断言组）。主要成果包括：容量制预约与"
      "候补补位的业务闭环，延伸至限时签到、场次提醒、爽约信用、时间重叠检测的完整运营规则，并深化出预约审批流、可执行 FIFO 与限时保留（HELD）"
      "的候补策略、优先级抢占与信用账户、资源维护工单/时段窗/资格授权等一体化机制；以单写者事务与持久化回执为核心的并发一致性与幂等设计；"
      "面向真实管理的独立控制台与自动备份、历史归档等运营能力；覆盖单元、集成、契约、并发、故障注入、模糊与浸泡的五层自动化验证体系，"
@@ -540,7 +540,7 @@ para("感谢指导教师在选题、系统设计与论文撰写过程中的悉�
 
 # ---------- 附录 ----------
 h1("附录 A  接口契约摘要")
-para("系统共 63 个路由分支，契约测试覆盖 52 个 REST 端点的响应封套与字段类型，统一封套 {code, message, data}，错误码包括 400/401/403/404/409/413/429/500/503。"
+para("系统共 67 个路由分支，契约测试覆盖 52 个 REST 端点的响应封套与字段类型，统一封套 {code, message, data}，错误码包括 400/401/403/404/409/413/429/500/503。"
      "完整契约见仓库 docs/CONTRACT.md，主要内容如下：")
 tbl(["类别", "端点示例", "说明"],
     [["查询", "GET /api/labs, /api/slots, /api/me/records", "场次/记录查询，支持分页与状态筛选"],
@@ -556,6 +556,8 @@ tbl(["类别", "端点示例", "说明"],
      ["管理", "GET /api/admin/users, POST …/disable|reset-password", "用户管理与一次性口令"],
      ["管理", "POST /api/admin/notifications, GET …/sent", "全员/定向公告与送达情况"],
      ["管理", "GET /api/admin/stats|metrics|export|logs", "统计、指标、导出与运行日志"],
+     ["管理", "GET /api/admin/dashboard|slots/conflicts|credit-summary", "聚合概览、跨实验室场次冲突检测与信用健康概览（v1.17.0）"],
+     ["通知", "GET /api/me/notifications/export", "个人通知历史 CSV 导出（带 BOM，Excel 兼容）"],
      ["资源", "GET /api/labs/{id}/assets; POST /api/admin/labs/{id}/assets", "资源清单与增改（一体化）"],
      ["资源", "POST /api/admin/assets/{id}/maintenance, /windows", "维护工单与可用时段窗"],
      ["资源", "GET/POST /api/admin/assets/{id}/qualifications", "资源使用资格授予/撤销"],

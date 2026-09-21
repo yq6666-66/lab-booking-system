@@ -15,6 +15,9 @@
 - GET /api/admin/records?date=YYYY-MM-DD&page=&page_size= -> 同上但所有用户；records 与 waitlist 均附 username，events 含 id/actor/action/entity_id/created_at/request_id。支持可选 `status` 参数（CONFIRMED/CANCELLED/NO_SHOW/PENDING，其他值 400）过滤预约列表，不传 `date` 时不按日期过滤（用于跨天场景，如待审批列表）。
 - GET /api/admin/stats?start_date=&end_date=（最多31个日期）-> data `{stats:[{date,slots,confirmed,cancelled,no_show,checked_in,waiting}],totals:{slots,confirmed,cancelled,no_show,checked_in,waiting}}`。按北京日聚合；仅返回有场次的日期。slots为开放场次数；confirmed为该日有效预约数；cancelled为其中用户主动取消数；no_show为签到超时释放数；checked_in为已签到数；waiting为有效候补人数。
 - GET /api/admin/stats/export?start_date=&end_date= -> data `{filename,content}`（最多31天）。content 为带 BOM 的 CSV 文本（日期/开放场次/有效预约/已取消/已爽约/已签到/候补人数，末行为合计），由页面下载为 .csv 文件。
+- GET /api/admin/dashboard -> data `{today,pending_approvals,top_waitlists,trend_7d,recent_events}`（v1.17.0）。管理台聚合概览：today 为今日统计、pending_approvals 为待审批数、top_waitlists 为候补热点（≤5）、trend_7d 为近七日趋势、recent_events 为最近运行日志（≤10）；一次调用替代前端串行五个请求。非管理员 403。
+- GET /api/admin/slots/conflicts?date=YYYY-MM-DD -> data `{conflicts,total}`（v1.17.0）。检测同日跨实验室场次的时间重叠（排课避撞——避免同一批学生被迫二选一），conflicts 每项含双方场次与起止时间及已约人数，最多 100 对；缺 date 或非法日期 400，非管理员 403。
+- GET /api/admin/credit-summary -> data `{distribution,total_users,restricted_users,recent_ledger}`（v1.17.0）。全站信用健康概览：distribution 为五档分布（0/1-2/3-4/5）、restricted_users 为近 7 天爽约 ≥2 的受限用户名单、recent_ledger 为最近信用流水（≤20）。非管理员 403。
 - POST /api/reservations `{slot_id,request_id}` -> data `{reservation_id,status}`（r43 补齐：status 为落库状态 PENDING/CONFIRMED，页面据此区分待审批与已确认；同编号重放按回执原样返回）。
 - POST /api/reservations/{id}/cancel `{request_id}` -> data `{reservation_id,promoted_reservation_id}`（无补位null）。
 - POST /api/waitlist `{slot_id,request_id}` -> data `{waitlist_id}`。
@@ -22,6 +25,7 @@
 - POST /api/reservations/{id}/checkin `{request_id}` -> data `{reservation_id,checked_in_at}`。仅限本人 CONFIRMED 预约，且须在场次开始后、签到窗口内。重复签到与同编号重放均返回首次签到时间；窗口过后返回 409 STATE_CONFLICT（不可补签）。
 - GET /api/me/notifications?unread=1&page=&page_size= -> data `{notifications:[{id,kind,title,body,slot_id,reservation_id,read_at,created_at}],unread_count,page,page_size,has_more}`。kind 为 PROMOTED 或 NO_SHOW。
 - POST /api/me/notifications/read `{ids?:[...],all?:true,request_id}` -> data `{updated}`。二选一：ids（单次最多 50 条）或 all=true 表示全部已读。
+- GET /api/me/notifications/export -> data `{filename,content}`（v1.17.0）。个人通知历史导出为带 BOM 的 CSV 文本（Excel 直开），最多 500 条，含逗号/引号转义；由页面下载为 .csv 文件。
 - GET /api/me/sessions -> data `{sessions:[{id,created_at,expires_at,current}]}`。id 为该会话令牌的摘要，不可反推令牌；current 标记发起请求的会话。
 - POST /api/me/sessions/{id}/revoke `{request_id}` -> OK。可下线自己的任意会话（含当前会话，等价于登出）；id 须为 64 位十六进制令牌摘要。
 - POST /api/me/password `{old_password,new_password,request_id}` -> data `{revoked_sessions}`。新密码 8..128 位且不得与原密码相同；校验旧密码；成功后当前会话保留、该用户其他会话立即失效。

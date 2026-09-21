@@ -2,5 +2,15 @@
   <rect width="64" height="64" rx="14" fill="#176d58"/>
   <path d="M20 14v18.5L13.4 43a5 5 0 0 0 4.2 7.6h28.8A5 5 0 0 0 50.6 43L44 32.5V14z" fill="none" stroke="#ffffff" stroke-width="4" stroke-linejoin="round"/>
   <path d="M17.5 14h29" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
-  <path d="M18.5 36h27" stroke="#d6a24f" stroke-width="4" stroke-linecap="round"/>
+  <path d="M18.5 36h27" stroke="#d6a24f" stroke-width="4" stroke-linecap="round">
+    <animate attributeName="opacity" values="1;.45;1" dur="2.4s" repeatCount="indefinite"/>
+  </path>
+  <circle cx="27" cy="41" r="1.7" fill="#d6a24f">
+    <animate attributeName="cy" values="42;34;42" dur="2.6s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;.9;0" dur="2.6s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="35" cy="41" r="1.3" fill="#d6a24f">
+    <animate attributeName="cy" values="43;35;43" dur="3.4s" begin=".8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;.8;0" dur="3.4s" begin=".8s" repeatCount="indefinite"/>
+  </circle>
 </svg>

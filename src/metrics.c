@@ -45,10 +45,10 @@ char *metrics_prometheus(void){
  for(int i=0;i<METRIC_BUCKETS;i++){
   cum+=g_buckets[i];
   char le[24];if(i<METRIC_BUCKETS-1)snprintf(le,sizeof le,"%g",bucket_max[i]);else snprintf(le,sizeof le,"+Inf");
-  if((size_t)n+160>=(size_t)cap){cap*=2;t=realloc(t,(size_t)cap);if(!t)return NULL;}
+  if((size_t)n+160>=(size_t)cap){char *t2=realloc(t,(size_t)cap*2);if(!t2){free(t);return NULL;}t=t2;cap*=2;}
   n+=snprintf(t+n,cap-(size_t)n,"lab_booking_request_latency_ms_bucket{le=\"%s\"} %lld\n",le,(long long)cum);
  }
- if((size_t)n+320>=(size_t)cap){cap*=2;t=realloc(t,(size_t)cap);if(!t)return NULL;}
+ if((size_t)n+320>=(size_t)cap){char *t2=realloc(t,(size_t)cap*2);if(!t2){free(t);return NULL;}t=t2;cap*=2;}
  n+=snprintf(t+n,cap-(size_t)n,
   "lab_booking_request_latency_ms_sum %lld\n"
   "lab_booking_request_latency_ms_count %lld\n",
