@@ -136,3 +136,22 @@ jobs:
           cp /c/llvm-mingw/llvm-mingw-*/bin/libclang_rt.asan_dynamic-x86_64.dll build/
           cp $TC/libwinpthread-1.dll $TC/libc++.dll $TC/libunwind.dll build/
           powershell -NoProfile -Command "\$env:ASAN_OPTIONS='detect_leaks=0'; \$env:UBSAN_OPTIONS='print_stacktrace=1'; & '.\\build\\asan-unit.exe'; exit \$LASTEXITCODE"
+
+  # 聚合门禁：分支保护要求的必需状态上下文名为「CI」（工作流名），
+  # 而检查按各 job 名上报——本 job 以工作流名义汇总四通道结果，
+  # 任一通道失败/取消则失败，全部成功时提供可供保护规则匹配的 CI 绿勾。
+  CI:
+    name: CI
+    needs: [build-test, contract-doc-gate, static-analysis, asan-memory]
+    if: always()
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: 聚合四通道结果
+        shell: bash
+        run: |
+          results="${{ join(needs.*.result, ' ') }}"
+          echo "四通道结果: $results"
+          if echo "$results" | grep -Eq 'failure|cancelled|skipped'; then
+            echo "存在未通过的通道"; exit 1
+          fi
