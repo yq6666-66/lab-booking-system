@@ -120,7 +120,7 @@ para("系统以单写者事务（BEGIN IMMEDIATE）配合容量不变量保证�
      "运行日志与资源清单）、限时签到、场次开始提醒、自动备份轮转、爽约信用约束与时间重叠检测等运营能力，并延伸出预约审批流、可执行 FIFO"
      " 候补策略与限时保留（HELD）、高优先级抢占与信用账户、资源维护工单与可用时段窗、资源使用资格授权、API 访问令牌等深化机制，"
      "以全局安全响应头（CSP 等）收紧浏览器攻击面。")
-para("系统通过五层自动化验证：24 个单元测试、79 项集成断言组（含 720 次并发争抢实验——实验样本内未出现超卖、30 次进程中断恢复全部正确、"
+para("系统通过五层自动化验证：25 个单元测试、79 项集成断言组（含 720 次并发争抢实验——实验样本内未出现超卖、30 次进程中断恢复全部正确、"
      "五组跨规则组合验证、凭据生命周期与约束感知建议评估）、56 个端点的契约测试与灰盒/文档测试、模糊稳健性与浸泡稳定性实验，以及持续集成三通道门禁（构建与测试、"
      "静态分析、AddressSanitizer 内存安全）。计时旁路实验表明登录路径对有效与无效账号的响应时间比仅为 1.07，账号枚举的可观测时间差被"
      "显著压平。连接复用与语句缓存优化使读路径吞吐提升最高 541%（约 6.4 倍），p50 延迟下降 87%。")
@@ -140,7 +140,7 @@ para("The system guarantees concurrent correctness with single-writer transactio
      "asset maintenance work orders with availability windows and qualification grants, self-managed API access tokens, a standalone admin "
      "console (slot adjustment, user management, announcements and runtime logs), time-windowed check-in, session start reminders, automatic "
      "backup rotation, a no-show credit constraint, time-overlap detection, and hardened browser attack surface via global security headers.", font="Times New Roman")
-para("The system passes five layers of automated verification: 24 unit tests, 79 integration assertion groups (including a 720-request "
+para("The system passes five layers of automated verification: 25 unit tests, 79 integration assertion groups (including a 720-request "
      "concurrent-contention experiment with no overbooking observed across all trials, 30 crash-recovery trials all correct, five "
      "cross-rule combination checks, differential property tests and admin operation assertions), contract tests over 56 endpoints, gray-box/documentation tests, fuzz and soak stability experiments, "
      "and a four-channel continuous integration gate (build and test, contract/documentation consistency, static analysis, AddressSanitizer memory safety). A timing "
@@ -180,7 +180,7 @@ li("（2）设计并实现了两项关键机制：基于持久化请求回执的
 li("（3）设计并实现了面向真实运营的管理能力：独立管理员控制台（实验室与场次维护、场次开始前调整、用户停用/重置密码、全员通知发布、运行日志查看）、实验室资源（设备）清单与资源利用率统计、"
    "资源维护工单与可用时段窗、资源使用资格授权、场次开始提醒、自动备份轮转、爽约信用约束（近 7 天两次爽约暂停预约）、跨场次时间重叠检测、"
    "信用账户（补偿、发放与每周回补）、高优先级抢占与 API 访问令牌；")
-li("（4）构建了五层自动化验证体系：单元测试 24 个、集成断言组 79 项（T01–T78 与 CLI 检查，含 720 次并发争抢、30 次故障注入恢复、五组跨规则组合验证、凭据生命周期与约束感知建议评估）、56 个端点的契约测试与灰盒/文档测试、模糊与浸泡实验，"
+li("（4）构建了五层自动化验证体系：单元测试 25 个、集成断言组 79 项（T01–T78 与 CLI 检查，含 720 次并发争抢、30 次故障注入恢复、五组跨规则组合验证、凭据生命周期与约束感知建议评估）、56 个端点的契约测试与灰盒/文档测试、模糊与浸泡实验，"
    "并以持续集成三通道门禁（构建与测试、静态分析、AddressSanitizer 内存安全）保障每一次提交；")
 li("（5）完成性能与安全实验：每线程连接复用与语句缓存使读路径吞吐最高提升 541%；计时旁路实验将登录路径有效与无效账号的响应时间比压至 1.07，显著降低了账号枚举的可观测差异。")
 h2("1.4 主要创新点")
@@ -339,7 +339,7 @@ para("在以上规则之上，系统提供只读的约束感知建议端点：�
 h1("5 系统实现")
 h2("5.1 开发环境与构建")
 para("开发环境为 Windows x64 + MinGW-w64 GCC 15.2，核心代码约 1,600 行 C（不含第三方库）与 260 行前端脚本，自动化测试约 3,400 行。"
-     "构建脚本支持四个目标：正式版（自动运行 24 个单元测试）、TEST_FAULTS 测试版（内置三类故障注入点：提交前崩溃 86、提交后响应前崩溃 87、"
+     "构建脚本支持四个目标：正式版（自动运行 25 个单元测试）、TEST_FAULTS 测试版（内置三类故障注入点：提交前崩溃 86、提交后响应前崩溃 87、"
      "扫描事务中途崩溃 88）、加固版（FORTIFY、栈保护与自动变量零初始化）与覆盖率版（--coverage，配合优雅停机信号 SIGBREAK 刷写 gcov 数据）。"
      "命令行支持提醒窗口（--remind-sec）、备份间隔（--backup-interval）与演示数据（--demo-days）等运行参数，全部参数均有边界校验。")
 h2("5.2 HTTP 接入与会话安全")
@@ -384,7 +384,7 @@ para("个人与全体记录支持 page/page_size/has_more 分页与状态筛选�
 # ---------- 第6章 ----------
 h1("6 系统测试")
 h2("6.1 测试策略与环境")
-para("测试体系分五层：（1）Unity 单元测试 24 个，不经 HTTP 直接链接业务层与数据层；（2）集成实验 79 项断言组（编号 T01–T78 另加 CLI 数据库"
+para("测试体系分五层：（1）Unity 单元测试 25 个，不经 HTTP 直接链接业务层与数据层；（2）集成实验 79 项断言组（编号 T01–T78 另加 CLI 数据库"
      "检查，以测试运行器 record() 调用数为准），以独立 Python 客户端"
      "驱动真实服务进程，覆盖功能、安全、并发、故障恢复、运营能力与跨规则组合语义；（3）契约测试（56 个端点逐项校验响应封套与字段类型）与灰盒/文档一致性测试；"
      "（4）模糊稳健性实验与浸泡稳定性实验；（5）真实浏览器端到端验收。所有实验使用独立临时端口与全新数据库副本，原始证据（数据库、日志、"

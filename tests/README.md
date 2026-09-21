@@ -17,7 +17,7 @@ python tests/integration.py --full --exe build/lab-booking-harden.exe --test-exe
 
 `--exe`、`--test-exe` 可以指定不同的已构建程序。输出目录请每次采用新的名字以保留既有实验；默认 `tests/results`。测试口令不入库：运行前设置环境变量 `LAB_TEST_PASSWORD`（至少 8 位，脚本启动时校验），该口令经 `LAB_SEED_PASSWORD` 传给初始化子进程。脚本不会把测试登录口令写入证据。`scripts/fetch_dependencies.py` 仅允许访问 `docs/dependencies.lock.json` 固定域名的 HTTPS 地址（下载前校验 scheme 与主机白名单，并核对 SHA256）。
 
-单元测试（`build/unit-tests.exe`，随 `build.ps1` 自动构建运行）基于 Unity 框架，覆盖纯函数（ID/UUID/日期/哈希/十六进制令牌/分页参数）、数据库唯一索引与启动检查，以及不经 HTTP 直接调用业务层 `booking()`、`notify()`、`sessions_list()`、`session_revoke()`、`password_change()`、`sweep_once()` 的 16 个用例；证据输出在 `docs/evidence/unit-tests.txt`。本 MinGW 工具链不含 libasan/libubsan 运行库，动态内存检查不可用，改以 `-fanalyzer` 静态分析加 `_FORTIFY_SOURCE=3`、栈保护、自动变量零初始化的加固构建跑全量实验替代，并在报告中如实说明。
+单元测试（`build/unit-tests.exe`，随 `build.ps1` 自动构建运行）基于 Unity 框架，覆盖纯函数（ID/UUID/日期/哈希/十六进制令牌/分页参数）、数据库唯一索引与启动检查，以及不经 HTTP 直接调用业务层 `booking()`、`notify()`、`sessions_list()`、`session_revoke()`、`password_change()`、`sweep_once()`、语句缓存与线程连接复用、看门狗、outbox 渠道派发等共 25 个用例；证据输出在 `docs/evidence/unit-tests.txt`。本 MinGW 工具链不含 libasan/libubsan 运行库，动态内存检查不可用，改以 `-fanalyzer` 静态分析加 `_FORTIFY_SOURCE=3`、栈保护、自动变量零初始化的加固构建跑全量实验替代，并在报告中如实说明。
 
 `--quick`：每个并发档位一轮，每种故障一轮；`--full`：1、5、10、20 个并发用户各 20 轮，共 720 次预约请求；两个故障点各 10 轮，共 20 次中断恢复实验。所有实验使用固定请求数量而非固定时间压测。每轮并发使用一个未预约场次；每次故障采用全新数据库。签到、通知、会话、分页与导出（T16–T22）在独立服务器实例上执行：签到与爽约实验使用 `--checkin-window 1 --sweep-interval 1` 以获得确定性，其余使用默认窗口。
 
