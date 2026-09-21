@@ -20,13 +20,13 @@
 
 | 层 | 选型 | 要点 |
 |---|---|---|
-| 语言标准 | **C11**（约 6,600 行自研代码） | 纯 C 单体，无解释器、无 GC、无运行时依赖；`-Wall -Wextra` 零告警，`-fanalyzer` 静态分析门禁 |
+| 语言标准 | **C11**（约 3,300 行自研代码） | 纯 C 单体，无解释器、无 GC、无运行时依赖；`-Wall -Wextra` 零告警，`-fanalyzer` 静态分析门禁 |
 | HTTP 服务 | **CivetWeb**（嵌入式，commit 588860e） | 8 工作线程，静态资源与 API 同进程服务，仅监听回环地址；全响应下发五条安全头（CSP / nosniff / DENY / no-referrer / Permissions-Policy） |
 | 数据库 | **SQLite 3.53**（WAL + synchronous=FULL） | 单文件库、17 张表；容量/唯一性等业务不变量由局部唯一索引在库层兜底；schema v5 版本化幂等迁移（旧库无损升级，构造旧库实测验证） |
 | JSON | **cJSON 1.7** | 严格解析（重复键拒绝）；请求体 16 KB 上限，超限 413 |
 | 密码学 | **libsodium 1.0** | Argon2id 口令哈希（哑哈希将账号枚举时序差压至约 3%）；CSPRNG 生成会话令牌/盐；服务端仅存哈希 |
 | 并发正确性 | 自研**单写者事务协议** | 全部业务写走 `BEGIN IMMEDIATE` 短事务 + 持久化请求回执（同编号幂等重放）；720 并发争抢零超卖、30 次故障注入恢复全部正确——均为可复现实验实证 |
-| 前端 | **原生 HTML / CSS / JavaScript**（约 800 行） | 无框架、无构建步骤、无 CDN；严格 CSP `default-src 'self'` 下全站零内联脚本/样式；ui.js 共用基座 + theme.js 深色主题（View Transitions 过渡） |
+| 前端 | **原生 HTML / CSS / JavaScript**（约 800 行脚本 + 850 行样式） | 无框架、无构建步骤、无 CDN；严格 CSP `default-src 'self'` 下全站零内联脚本/样式；ui.js 共用基座 + theme.js 深色主题（View Transitions 过渡） |
 | 可观测性 | 自研 metrics 模块 | Prometheus 文本格式 `/metrics`（请求计数器 + 延迟直方图累积 bucket），标准运维生态直接抓取 |
 | 测试 | **Unity** + Python 标准库 + **Playwright** | 25 单元（链接业务层直调，不经 HTTP）/ 79 集成断言组 / 56 端点契约 / 8 E2E 浏览器用例；测试客户端仅用 Python 标准库，零第三方依赖 |
 | CI/CD | **GitHub Actions 四通道** | 构建与集成测试 / 契约与文档一致性 / gcc `-fanalyzer` 静态分析 / llvm-mingw AddressSanitizer 内存安全（Windows） |
@@ -257,11 +257,15 @@ SQLite（WAL · synchronous=FULL · 外键 · 17 表 · 容量不变量）
 
 | 文档 | 内容 |
 |---|---|
+| [毕业论文初稿](docs/thesis/毕业论文初稿.docx) | 程序化生成（thesis_gen.py）· 七章 · 全部实验数据入文 |
+| [答辩演示](docs/thesis/答辩演示.pptx) | 15 页 PPT + [演示脚本](docs/thesis/答辩演示脚本.md)（9 分钟走查） |
 | [答辩技术手册](docs/答辩技术手册.md) | 架构深挖 · 代码导航 · 实验数据 · 高频问题预答 |
+| [竞品对比分析](docs/COMPETITIVE_ANALYSIS.md) | GitHub 20+ 同类项目六维对标 |
+| [优化蓝图](docs/plans/opt-blueprints-r2/README.md) | Phase 1/2 设计（outbox/OpenAPI/QR/TOTP）与实证参考 |
 | [接口契约](docs/CONTRACT.md) | 56 端点 · 数据模型 · 事务规则 · 组合语义基准 |
 | [测试报告](docs/TEST_REPORT.md) | 实验设计 · 数据 · 结论 |
 | [UAT 验收](docs/UAT.md) | 六路径走查 · 发布回归清单 |
-| [变更日志](docs/CHANGELOG.md) | 16 个版本 · 42 轮迭代 |
+| [变更日志](docs/CHANGELOG.md) | 16 个语义化版本 · 116 次提交 |
 | [断言清单](tests/README.md) | T01–T78 全量描述 |
 | [证据归档](docs/evidence/) | 基准结果 · 验收截图 · 实验数据 |
 
@@ -301,4 +305,4 @@ data/         运行数据库（.gitignore）
 
 ---
 
-*本项目为软件工程毕业设计，42 轮迭代全部由自动化测试驱动。*
+*本项目为软件工程毕业设计：116 次提交 · 16 个语义化版本，全部结论由 16 通道自动化测试与可复现实验支撑。*

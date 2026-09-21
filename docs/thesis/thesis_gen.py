@@ -137,7 +137,8 @@ para("The system guarantees concurrent correctness with single-writer transactio
      "(occupied capacity counts CONFIRMED and HELD); achieves idempotency through persisted request receipts; and completes no-show "
      "reclamation and promotion inside one transaction in a server-side sweeper. Beyond the core loop it provides an approval workflow for "
      "reservations, an executable-FIFO waitlist strategy with time-limited HELD holds, priority-based preemption with credit compensation, "
-     "asset maintenance work orders with availability windows and qualification grants, self-managed API access tokens, a standalone admin "
+     "asset maintenance work orders with availability windows and qualification grants, self-managed API access tokens, an outbox-based reliable "
+     "notification dispatch channel, a standalone admin "
      "console (slot adjustment, user management, announcements and runtime logs), time-windowed check-in, session start reminders, automatic "
      "backup rotation, a no-show credit constraint, time-overlap detection, and hardened browser attack surface via global security headers.", font="Times New Roman")
 para("The system passes five layers of automated verification: 25 unit tests, 79 integration assertion groups (including a 720-request "
@@ -213,7 +214,9 @@ para("cJSON 提供标准 C 的 JSON 解析与序列化，其解析深度限制�
      "口令哈希（crypto_pwhash），避免自研密码学带来的风险。")
 h2("2.5 前端技术")
 para("前端采用无框架的原生 HTML/CSS/JavaScript 单页实现（v1.16.0 引入共用基座 ui.js 与深色主题 theme.js），与嵌入式后端在依赖哲学上保持一致：全部资源本地静态服务，无构建步骤、"
-     "无第三方运行时，页面总量不足 60 KB。")
+     "无第三方运行时，页面总量约 180 KB（含样式表与图标）。v1.17.0 又以七轮迭代完成体验打磨：主题切换升级为 View Transitions 圆形扩散过渡（特性检测降级为瞬时切换）；"
+     "顶栏吸附式毛玻璃、表单聚焦联动、表格与角标等宽数字（消除数字跳动）等信息层级优化；移动端适配（窄屏页签条吸顶、输入框 16px 防 iOS 聚焦缩放、触摸目标加高、全面屏安全区）；"
+     "危险操作的 3 秒倒计时二次确认；以及 favicon 的 SMIL 冒泡动画。全部视觉效果经设计令牌统一管理，并在 prefers-reduced-motion 与打印介质下整体关停，保证无障碍与可用性优先。")
 
 # ---------- 第3章 ----------
 h1("3 需求分析")
@@ -265,11 +268,13 @@ para("并发正确性（争抢下不超卖）、可用性（进程异常退出�
 h1("4 系统设计")
 h2("4.1 总体架构")
 para("系统采用五层架构，如图 4-1 所示：浏览器层负责交互；接入层由 CivetWeb 提供 HTTP 解析与多线程调度，并完成会话认证与请求伪造防护；"
-     "业务层以单写者事务组织全部写路径；数据访问层封装参数绑定、语句缓存、连接复用与 schema 迁移；存储层为启用 WAL 的 SQLite。"
-     "横切模块包括限流防爆破、运行指标与结构化日志。")
+     "业务层以单写者事务组织全部写路径，并按域划分为五个模块——预约与候补（booking）、资源与维护（asset）、统计与导出（stats）、令牌与信用（token）"
+     "及平台域（service，覆盖通知、会话、用户、后台扫描与审计），各模块经内部共享头协作；数据访问层封装参数绑定、语句缓存、连接复用与 schema 迁移；"
+     "存储层为启用 WAL 的 SQLite。横切模块包括限流防爆破、运行指标与结构化日志。")
 img("fig4-1-architecture.png", cap_text="图 4-1 系统总体架构")
-para("安全边界方面，服务仅监听 127.0.0.1 回环地址，供本机浏览器访问；全部响应携带统一安全响应头（X-Frame-Options: DENY、"
-     "Content-Security-Policy: default-src 'self'、Referrer-Policy: no-referrer）；请求体上限 16 KB 且拒绝重复键。")
+para("安全边界方面，服务仅监听 127.0.0.1 回环地址，供本机浏览器访问；全部响应携带五条统一安全响应头（Content-Security-Policy: default-src 'self'、"
+     "X-Content-Type-Options: nosniff、X-Frame-Options: DENY、Referrer-Policy: no-referrer、Permissions-Policy: camera/microphone/geolocation 禁用——"
+     "静态页经服务器全局配置、API 与指标响应经处理器内共享常量双通道下发，二者内容一致）；请求体上限 16 KB 且拒绝重复键。")
 h2("4.2 数据库设计")
 para("数据模型共 17 张表（当前 schema user_version=5），如图 4-2 所示，其中核心 11 张承载预约主流程：reservations（预约）与 waitlist（候补）是核心业务表；request_receipts（请求回执）支撑幂等去重；"
      "operation_events（操作事件）提供审计；notifications（通知）承载补位、爽约、公告与提醒四类站内消息；assets（r13 引入）承载各实验室的"
@@ -338,10 +343,13 @@ para("在以上规则之上，系统提供只读的约束感知建议端点：�
 # ---------- 第5章 ----------
 h1("5 系统实现")
 h2("5.1 开发环境与构建")
-para("开发环境为 Windows x64 + MinGW-w64 GCC 15.2，核心代码约 1,600 行 C（不含第三方库）与 260 行前端脚本，自动化测试约 3,400 行。"
-     "构建脚本支持四个目标：正式版（自动运行 25 个单元测试）、TEST_FAULTS 测试版（内置三类故障注入点：提交前崩溃 86、提交后响应前崩溃 87、"
+para("开发环境为 Windows x64 + MinGW-w64 GCC 15.2，自研核心代码约 3,300 行 C（不含第三方库），前端约 800 行脚本与 850 行样式表，"
+     "自动化测试约 7,200 行。业务代码按域组织为 booking/asset/stats/token/service 五个模块（另有 http/db/util/ratelimit/metrics/log 六个基础模块）——"
+     "v1.17.0 将早期单体的 service.c 按域拆分而来：函数体逐行移动，以\u201c行多重集审计\u201d（拆分前后全部代码行的多重集比对）证明除六个跨模块助手去 static 外零语义改动，"
+     "并以构建、覆盖率与前端·文档门禁的源码读取点同步更新保障工具链不漂移。")
+para("构建脚本支持四个目标：正式版（自动运行 25 个单元测试）、TEST_FAULTS 测试版（内置三类故障注入点：提交前崩溃 86、提交后响应前崩溃 87、"
      "扫描事务中途崩溃 88）、加固版（FORTIFY、栈保护与自动变量零初始化）与覆盖率版（--coverage，配合优雅停机信号 SIGBREAK 刷写 gcov 数据）。"
-     "命令行支持提醒窗口（--remind-sec）、备份间隔（--backup-interval）与演示数据（--demo-days）等运行参数，全部参数均有边界校验。")
+     "命令行支持提醒窗口（--remind-sec）、备份间隔（--backup-interval）、通知外发文件（--notify-file）与演示数据（--demo-days）等运行参数，全部参数均有边界校验。")
 h2("5.2 HTTP 接入与会话安全")
 para("api() 处理器依次执行 Host 白名单、方法检查、健康探测、Origin 校验、请求体上限与 JSON 合法性检查（含重复键拒绝）、数据库连接获取、"
      "会话认证与 CSRF 校验后才进入业务分发。登录接口前置防爆破闸门：同一用户名连续失败达到阈值（默认 5 次）后锁定 900 秒，期间正确口令"
@@ -380,6 +388,10 @@ h2("5.7 分页、统计导出与其他")
 para("个人与全体记录支持 page/page_size/has_more 分页与状态筛选；统计按北京日聚合七项计数，CSV 导出带 BOM 与合计行以兼容 Excel 直接打开；"
      "前端以上一轮请求编号持久化（sessionStorage）实现跨刷新的重试提示，全部状态变更按钮在确认结果前保持锁定，取消等不可逆操作采用"
      "两段式页内确认，避免重复提交与误操作。")
+para("通知外发采用 outbox 模式保障可靠性：notify() 首先落站内收件箱（行为与既有通知完全一致），当启用 --notify-file 时业务事务内同写一条 outbox 快照；"
+     "后台扫描线程在自动提交模式下按渠道派发（渠道以函数指针表组织，内置 JSONL 追加的文件渠道），失败仅记 attempts 与 last_error 供下轮重试，"
+     "派发错误绝不回传到业务事务。该设计把\u201c业务成功\u201d与\u201c外发成功\u201d解耦：即使外发目标不可写，预约/补位等业务结果与站内通知也不受影响，"
+     "恢复后自动补发。渠道派发含独立单元用例（关闭零行为、同事务登记、目标不可写失败记账、恢复后补发成功）。")
 
 # ---------- 第6章 ----------
 h1("6 系统测试")
@@ -494,7 +506,11 @@ li("（9）SQL 绑定格式串与占位符数量错位（两例）：聚合查�
 li("（10）整型实参经变参按 8 字节读取（未定义行为）：转正概率的星期参数以 32 位整型传入，而绑定辅助层按 64 位整型读取变参——"
    "高 32 位为调用现场残留，绑定的星期值随机错误，历史统计查询间歇性返回空集。该缺陷在两轮全量回归中偶现后被最小复现定位，"
    "修复为调用处显式宽化。这是项目第 11 例参数传递缺陷，也是\u201c未定义行为不等于立刻崩溃\u201d的真实样本。")
-para("上述缺陷均由自动化测试或浏览器验收先行暴露，修复后以新增回归用例固化，验证了\u201c测试驱动发现—最小复现—修复—回归固化\u201d流程的有效性。")
+li("（11）realloc 失败路径的原块泄漏（CWE-401）：Prometheus 指标文本构造函数在缓冲区扩容处直接以原指针接收 realloc 返回值——"
+   "当扩容失败返回 NULL 时原缓冲区指针被覆盖、内存泄漏且调用方无法感知。该缺陷从未被任何运行时测试暴露（扩容失败仅在内存耗尽路径触发），"
+   "由 gcc -fanalyzer 静态分析通道确定性报出，修复为临时指针接收、失败时先释放原块再返回。这印证了静态分析门禁与运行时测试的互补性："
+   "低频故障路径的成本必须由工具链而非运气兜底，也说明\u201crealloc 结果必须经临时指针接收\u201d应作为 C 项目的编码规约。")
+para("上述缺陷均由自动化测试或静态分析先行暴露，修复后以新增回归用例或编码规约固化，验证了\u201c测试驱动发现—最小复现—修复—回归固化\u201d流程的有效性。")
 h2("6.10 浏览器端到端验收")
 para("以真实 Chromium 浏览器完成八用例端到端验收（含 case8 管理端强制取消按钮 UI→DB 全链）：走通登录（含管理员入口）、查询、预约、候补、取消补位（两段式确认）、签到（含倒计时与"
      "状态机）、预约审批（PENDING 徽标与管理端批准）、资源声明、通知已读与分页、记录状态筛选、改密与会话下线、API 令牌面板、分页、统计图表与 CSV 下载、容量显示与替代时段改约（改期面板）、指标面板，以及管理控制台"
