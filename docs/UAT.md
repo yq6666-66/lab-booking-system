@@ -84,8 +84,8 @@
 
 - [ ] `powershell -File scripts/build.ps1`：构建通过且 25 个单元测试全绿
 - [ ] `python tests/integration.py --quick`：79 项断言组全绿（T01–T78 及 CLI 检查）
-- [ ] `python tests/contract_test.py`：52 端点契约 + 14 错误场景全绿
+- [ ] `python tests/contract_test.py`：56 端点契约 + 14 错误场景全绿
 - [ ] `python scripts/mixed_load.py --duration 30`：混合负载无 5xx、无请求错误，WAL 增长收敛，p99 在本机基线内
-- [ ] CI 三通道（构建与测试 / -fanalyzer 静态分析 / llvm-mingw ASan）绿
+- [ ] CI 四通道（构建与测试 / 契约与文档一致性 / -fanalyzer 静态分析 / llvm-mingw ASan）绿
 - [ ] 上述 UAT 六路径 + 凭据抽查走通
 - [ ] `docs/CHANGELOG.md` 与版本号（`src/app.h` LAB_VERSION）一致
