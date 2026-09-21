@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-09-20T20:18:26.910122+00:00",
+  "timestamp_utc": "2026-09-21T10:16:04.684858+00:00",
   "target": "web/",
   "checks_total": 36,
   "checks_passed": 36,
@@ -73,7 +73,7 @@
     {
       "name": "check_css_tokens",
       "passed": true,
-      "detail": "41 个令牌引用全部可解析，暗色块覆盖 38/44 个令牌，无漂移"
+      "detail": "51 个令牌引用全部可解析，暗色块覆盖 39/53 个令牌，无漂移"
     },
     {
       "name": "check_no_hardcoded_colors_in_components",

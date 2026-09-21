@@ -105,7 +105,6 @@ Result slot_conflicts(DB *d,Id date_start){
  cJSON *out=cJSON_CreateArray();
  cJSON *it;cJSON_ArrayForEach(it,rows){
   cJSON *item=cJSON_CreateObject();
-  cJSON *sa=cJSON_GetObjectItemCaseSensitive(it,"slot_a"),*sb=cJSON_GetObjectItemCaseSensitive(it,"slot_b");
   Id a=0,b=0;parse_id(jstr(it,"slot_a"),&a);parse_id(jstr(it,"slot_b"),&b);
   jid(item,"slot_a",a);jid(item,"slot_b",b);
   cJSON_AddStringToObject(item,"lab_a",jstr(it,"lab_a"));

@@ -1,8 +1,8 @@
 {
-  "timestamp_utc": "2026-09-20T20:18:23.255422+00:00",
+  "timestamp_utc": "2026-09-21T10:22:31.951243+00:00",
   "executable": "C:\\Users\\admin\\Desktop\\毕业设计\\build\\lab-booking.exe",
-  "endpoints_total": 53,
-  "endpoints_passed": 53,
+  "endpoints_total": 56,
+  "endpoints_passed": 56,
   "error_cases_total": 14,
   "error_cases_passed": 14,
   "all_passed": true,
@@ -52,6 +52,21 @@
       "name": "GET /api/admin/dashboard",
       "passed": true,
       "detail": "data 字段 ['pending_approvals', 'recent_events', 'today', 'top_waitlists', 'trend_7d']"
+    },
+    {
+      "name": "GET /api/me/notifications/export",
+      "passed": true,
+      "detail": "data 字段 ['content', 'filename']"
+    },
+    {
+      "name": "GET /api/admin/slots/conflicts?date={today}",
+      "passed": true,
+      "detail": "data 字段 ['conflicts', 'total']"
+    },
+    {
+      "name": "GET /api/admin/credit-summary",
+      "passed": true,
+      "detail": "data 字段 ['distribution', 'recent_ledger', 'restricted_users', 'total_users']"
     },
     {
       "name": "GET /api/me/records?page=1&page_size=5",
