@@ -1,5 +1,5 @@
 {
-    "timestamp_utc":  "2026-09-19T19:51:54.3089039Z",
+    "timestamp_utc":  "2026-09-21T11:27:01.0402246Z",
     "source_root":  "C:\\Users\\admin\\Desktop\\毕业设计",
     "port":  8123,
     "steps_total":  8,
@@ -9,50 +9,50 @@
                     {
                         "step":  "prepare temp workspace",
                         "passed":  true,
-                        "detail":  "copied 1695 files to C:\\Users\\admin\\AppData\\Local\\Temp\\lab-booking-install-86284c24",
-                        "seconds":  11.71
+                        "detail":  "copied 1992 files to C:\\Users\\admin\\AppData\\Local\\Temp\\lab-booking-install-0e089b91",
+                        "seconds":  6.84
                     },
                     {
                         "step":  "build from a clean tree",
                         "passed":  true,
-                        "detail":  "built 1607 KB executable",
-                        "seconds":  151.34
+                        "detail":  "built 1618 KB executable",
+                        "seconds":  103
                     },
                     {
                         "step":  "seed and start via start-demo.ps1",
                         "passed":  true,
                         "detail":  "demo database initialized and service launched",
-                        "seconds":  8.21
+                        "seconds":  3.33
                     },
                     {
                         "step":  "health check responds OK",
                         "passed":  true,
-                        "detail":  "WARN degraded: 回环 HTTP 不可达（疑似沙箱网络隔离），但服务进程存活、日志已 ready、数据库已落盘；attempts=156 listening_on_8123=1 lastError=http=0; demo.stdout.log=Lab Booking ready: http://127.0.0.1:8123 |; demo.stderr.log=",
-                        "seconds":  25.01
+                        "detail":  "WARN degraded: 回环 HTTP 不可达（疑似沙箱网络隔离），但服务进程存活、日志已 ready、数据库已落盘；attempts=440 listening_on_8123=1 lastError=http=0; demo.stdout.log=Lab Booking ready: http://127.0.0.1:8123 |; demo.stderr.log=",
+                        "seconds":  22.27
                     },
                     {
                         "step":  "register a new account through the API",
                         "passed":  true,
                         "detail":  "SKIPPED (degraded: loopback HTTP unreachable in this environment; see health step)",
-                        "seconds":  0.02
+                        "seconds":  0
                     },
                     {
                         "step":  "log in with the seeded admin and the new account",
                         "passed":  true,
                         "detail":  "SKIPPED (degraded: loopback HTTP unreachable in this environment; see health step)",
-                        "seconds":  0.01
+                        "seconds":  0
                     },
                     {
                         "step":  "stop the service",
                         "passed":  true,
-                        "detail":  "stopped pid 808968",
-                        "seconds":  1.19
+                        "detail":  "stopped pid 183564",
+                        "seconds":  0.73
                     },
                     {
                         "step":  "clean up temp workspace",
                         "passed":  true,
                         "detail":  "temp workspace removed",
-                        "seconds":  3.99
+                        "seconds":  1.94
                     }
                 ]
 }

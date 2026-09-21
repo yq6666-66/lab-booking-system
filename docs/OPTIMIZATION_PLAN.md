@@ -14,7 +14,7 @@
 
 - **动机**：对比 D2——安全头矩阵仅缺 Permissions-Policy 一项；落地验证中进一步发现既有缺陷：CivetWeb `additional_header` 仅覆盖静态文件回复，**全部 `/api/*` 与 `/metrics` 响应实际从未携带 CSP/nosniff/XFO/Referrer-Policy**，与契约文档"对全部响应下发"的声明不符。
 - **方案**：`src/http.c` 新增共享常量 `SEC_HEADERS`（五头含新增 `Permissions-Policy: camera=(), microphone=(), geolocation=()`），在 API JSON 单点发送路径与 `/metrics` 两处下发；静态页继续走 `additional_header`，两处内容一致；`docs/CONTRACT.md` 安全头条目改为如实描述双通道机制。
-- **验收**：构建+24 单元+快速集成全绿；`curl -i` 在 /api/health、/metrics、静态页三处均可见五头；契约文档一致性通过。
+- **验收**：构建+25 单元+快速集成全绿；`curl -i` 在 /api/health、/metrics、静态页三处均可见五头；契约文档一致性通过。
 
 ---
 
@@ -120,4 +120,4 @@ Phase 2.2 iCal 订阅 ────┴─→ Phase 3.3 容器化 ─→ Phase 3.2
 
 **排序依据**：价值/成本比（outbox 表已预留、OpenAPI 零运行时风险）→ 答辩加分密度（QR 签到、TOTP 可写进论文创新点）→ 架构演进（依赖前序稳定）。
 
-**守护性约束（贯穿全部阶段）**：任何一项合并前须通过——构建+24 单元、快速集成、契约+文档一致性、`--full` 全量（并发+故障注入）、性能基准不回退；ASan 通道在改 C 源码的项上必跑。
+**守护性约束（贯穿全部阶段）**：任何一项合并前须通过——构建+25 单元、快速集成、契约+文档一致性、`--full` 全量（并发+故障注入）、性能基准不回退；ASan 通道在改 C 源码的项上必跑。
