@@ -5,6 +5,7 @@ from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
+import re
 from docx.oxml import OxmlElement
 import pathlib
 
@@ -41,15 +42,39 @@ def h1(t):
     return p
 def h2(t): return doc.add_heading(t, level=2)
 def h3(t): return doc.add_heading(t, level=3)
+CIT_RE = re.compile(r"\[\[(\d+(?:[,\-]\d+)*)\]\]")
 def para(t, indent=True, align=None, size=12, bold=False, font=None):
-    p = doc.add_paragraph(); run = p.add_run(t); run.font.size = Pt(size); run.font.bold = bold
-    fname = font or STYLE["body_font"]
-    run.font.name = fname; run._element.rPr.rFonts.set(qn("w:eastAsia"), STYLE["body_font"])
+    """正文段落：西文 Times New Roman、中文宋体；[[n]] 标记渲染为上标参考文献引用。"""
+    p = doc.add_paragraph()
+    fname = font or "Times New Roman"
+    pos = 0
+    for m in CIT_RE.finditer(t):
+        if m.start() > pos:
+            r = p.add_run(t[pos:m.start()]); r.font.size = Pt(size); r.font.bold = bold
+            r.font.name = fname; r._element.rPr.rFonts.set(qn("w:eastAsia"), STYLE["body_font"])
+        rc = p.add_run("[" + m.group(1) + "]"); rc.font.size = Pt(size); rc.font.bold = bold
+        rc.font.superscript = True; rc.font.name = fname
+        rc._element.rPr.rFonts.set(qn("w:eastAsia"), STYLE["body_font"])
+        pos = m.end()
+    if pos < len(t):
+        r = p.add_run(t[pos:]); r.font.size = Pt(size); r.font.bold = bold
+        r.font.name = fname; r._element.rPr.rFonts.set(qn("w:eastAsia"), STYLE["body_font"])
     if indent: p.paragraph_format.first_line_indent = Pt(STYLE["indent_chars"])
     if align: p.alignment = align
     return p
 def li(t):
     p = para(t, indent=False); p.paragraph_format.left_indent = Cm(0.74); return p
+def code(t):
+    """代码/伪代码块：Consolas 9pt、单倍行距、左右缩进、浅灰底纹。"""
+    p = doc.add_paragraph()
+    run = p.add_run(t); run.font.size = Pt(9); run.font.name = "Consolas"
+    run._element.rPr.rFonts.set(qn("w:eastAsia"), STYLE["body_font"])
+    pf = p.paragraph_format
+    pf.left_indent = Cm(0.74); pf.right_indent = Cm(0.74)
+    pf.space_before = Pt(3); pf.space_after = Pt(3); pf.line_spacing = 1.0
+    shd = OxmlElement("w:shd"); shd.set(qn("w:val"), "clear"); shd.set(qn("w:fill"), "F5F5F0")
+    p._p.get_or_add_pPr().append(shd)
+    return p
 def cap(t):
     p = doc.add_paragraph(); r = p.add_run(t); r.font.size = Pt(10.5); r.font.bold = True
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -57,19 +82,35 @@ def img(name, width=14.5, cap_text=None):
     doc.add_picture(str(FIG / name), width=Cm(width))
     doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
     if cap_text: cap(cap_text)
+def _cell_border(cell, edge, sz, val="single"):
+    tcPr = cell._tc.get_or_add_tcPr()
+    borders = tcPr.find(qn("w:tcBorders"))
+    if borders is None:
+        borders = OxmlElement("w:tcBorders"); tcPr.append(borders)
+    el = borders.find(qn("w:" + edge))
+    if el is None:
+        el = OxmlElement("w:" + edge); borders.append(el)
+    el.set(qn("w:val"), val); el.set(qn("w:sz"), str(sz)); el.set(qn("w:color"), "000000")
 def tbl(headers, rows, widths=None):
-    t = doc.add_table(rows=1, cols=len(headers)); t.style = "Table Grid"; t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    """学位论文三线表：顶线/底线 12（1.5pt），表头下细线 6（0.75pt），无竖线。"""
+    t = doc.add_table(rows=1, cols=len(headers)); t.alignment = WD_TABLE_ALIGNMENT.CENTER
     for i, htxt in enumerate(headers):
         c = t.rows[0].cells[i]; c.text = ""
-        r = c.paragraphs[0].add_run(htxt); r.font.bold = True; r.font.size = Pt(10.5)
+        r = c.paragraphs[0].add_run(htxt); r.font.bold = True; r.font.size = Pt(10.5); r.font.name = "Times New Roman"
+        r._element.rPr.rFonts.set(qn("w:eastAsia"), STYLE["body_font"])
     for row in rows:
         cells = t.add_row().cells
         for i, v in enumerate(row):
             cells[i].text = ""
-            r = cells[i].paragraphs[0].add_run(str(v)); r.font.size = Pt(10.5)
+            r = cells[i].paragraphs[0].add_run(str(v)); r.font.size = Pt(10.5); r.font.name = "Times New Roman"
+            r._element.rPr.rFonts.set(qn("w:eastAsia"), STYLE["body_font"])
     if widths:
         for i, w in enumerate(widths):
             for row in t.rows: row.cells[i].width = Cm(w)
+    for i in range(len(headers)):
+        _cell_border(t.rows[0].cells[i], "top", 12)
+        _cell_border(t.rows[0].cells[i], "bottom", 6)
+        _cell_border(t.rows[-1].cells[i], "bottom", 12)
     return t
 
 def _field(run, instr, placeholder=""):
@@ -121,12 +162,12 @@ para("系统以单写者事务（BEGIN IMMEDIATE）配合容量不变量保证�
      " 候补策略与限时保留（HELD）、高优先级抢占与信用账户、资源维护工单与可用时段窗、资源使用资格授权、API 访问令牌等深化机制，"
      "以全局安全响应头（CSP 等）收紧浏览器攻击面。")
 para("系统通过五层自动化验证：25 个单元测试、79 项集成断言组（含 720 次并发争抢实验——实验样本内未出现超卖、30 次进程中断恢复全部正确、"
-     "五组跨规则组合验证、凭据生命周期与约束感知建议评估）、56 个端点的契约测试与灰盒/文档测试、模糊稳健性与浸泡稳定性实验，以及持续集成三通道门禁（构建与测试、"
-     "静态分析、AddressSanitizer 内存安全）。计时旁路实验表明登录路径对有效与无效账号的响应时间比仅为 1.07，账号枚举的可观测时间差被"
+     "五组跨规则组合验证、凭据生命周期与约束感知建议评估）、56 个端点的契约测试与灰盒/文档测试、模糊稳健性与浸泡稳定性实验，以及持续集成四通道门禁（构建与测试、"
+     "契约与文档一致性、静态分析、AddressSanitizer 内存安全）。计时旁路实验表明登录路径对有效与无效账号的响应时间比仅为 1.07，账号枚举的可观测时间差被"
      "显著压平。连接复用与语句缓存优化使读路径吞吐提升最高 541%（约 6.4 倍），p50 延迟下降 87%。")
 para("结果表明，在不引入重型运行时的前提下，以规范的事务设计、持久化去重与自动化实验体系，C 语言同样能够构建出具备工业级可靠性论证的"
      "中小型 Web 业务系统。")
-para("关键词：实验室预约；候补队列；事务一致性；幂等请求；故障注入；AddressSanitizer；C 语言", bold=True)
+para("关键词：实验室预约；候补队列；事务一致性；幂等请求；C 语言", bold=True)
 doc.add_paragraph()
 h1("Abstract")
 para("University laboratories commonly suffer from booking conflicts, no-shows and disordered waiting lists. This project designs and "
@@ -150,7 +191,7 @@ para("The system passes five layers of automated verification: 25 unit tests, 79
      "541% (about 6.4x) and cut p50 latency by 87%.", font="Times New Roman")
 para("The results show that, with disciplined transaction design, persisted deduplication and an automated experiment system, C can deliver "
      "a small-to-medium web application whose reliability is demonstrably verified without heavy runtimes.", font="Times New Roman")
-para("Key words: laboratory reservation; waitlist queue; transactional consistency; idempotent request; fault injection; AddressSanitizer; C language", bold=True, font="Times New Roman")
+para("Key words: laboratory reservation; waitlist queue; transactional consistency; idempotent request; C language", bold=True, font="Times New Roman")
 doc.add_page_break()
 
 # ---------- 目录 ----------
@@ -182,62 +223,77 @@ li("（3）设计并实现了面向真实运营的管理能力：独立管理员
    "资源维护工单与可用时段窗、资源使用资格授权、场次开始提醒、自动备份轮转、爽约信用约束（近 7 天两次爽约暂停预约）、跨场次时间重叠检测、"
    "信用账户（补偿、发放与每周回补）、高优先级抢占与 API 访问令牌；")
 li("（4）构建了五层自动化验证体系：单元测试 25 个、集成断言组 79 项（T01–T78 与 CLI 检查，含 720 次并发争抢、30 次故障注入恢复、五组跨规则组合验证、凭据生命周期与约束感知建议评估）、56 个端点的契约测试与灰盒/文档测试、模糊与浸泡实验，"
-   "并以持续集成三通道门禁（构建与测试、静态分析、AddressSanitizer 内存安全）保障每一次提交；")
+   "并以持续集成四通道门禁（构建与测试、契约与文档一致性、静态分析、AddressSanitizer 内存安全）保障每一次提交；")
 li("（5）完成性能与安全实验：每线程连接复用与语句缓存使读路径吞吐最高提升 541%；计时旁路实验将登录路径有效与无效账号的响应时间比压至 1.07，显著降低了账号枚举的可观测差异。")
 h2("1.4 主要创新点")
 para("结合同类系统的功能对比与本课题的实现约束，本工作的主要创新点归纳为三条：")
 li("（1）单写者事务下的规则组合语义工程化：将容量、审批、候补、抢占、信用、资源维护、周配额等多条业务规则的交叉作用显式归纳为五条组合语义基准（契约文档「语义澄清」节），并以五组跨规则组合断言钉死唯一正确答案——例如“待审批预约不占容量但批准时重校”“候补递补作为系统行为不经过审批”，解决了规则叠加场景下系统行为不可预期的工程难题；")
-li("（2）可执行候补策略与老化加权：突破传统 FIFO 的队首阻塞，递补事务按（优先级降序，编号升序）扫描并暂跳暂时不可执行的候选、保留其序号，配合限时保留（HELD）与优先级抢占/信用补偿闭环；进一步把操作系统调度的老化思想迁移为加权评分档（优先级 1000/信用 200/等待对数 60 的量纲设计），并以 Jain 公平指数与 SQL 口径等待时长构成三策略×四档负载的量化评估——对照实验显示严格 FIFO 在队首冲突时空置率为 100%，可执行与加权档均能满额递补，且加权档把名额交给高信用短等待者使平均等待时长减半；")
+li("（2）可执行候补策略与老化加权：突破传统 FIFO 的队首阻塞，递补事务按（优先级降序，编号升序）扫描并暂跳暂时不可执行的候选、保留其序号，配合限时保留（HELD）与优先级抢占/信用补偿闭环；进一步把操作系统调度的老化思想[[7]]迁移为加权评分档（优先级 1000/信用 200/等待对数 60 的量纲设计），并以 Jain 公平指数[[15]]与 SQL 口径等待时长构成三策略×四档负载的量化评估——对照实验显示严格 FIFO 在队首冲突时空置率为 100%，可执行与加权档均能满额递补，且加权档把名额交给高信用短等待者使平均等待时长减半；")
 li("（3）约束感知替代建议：以只读端点按申请人当前的配额、信用、时间冲突与场次余位，逐场次解释“可预约/可候补”及不可行原因（满员、配额、冲突等），将候补决策从盲目排队升级为知情选择，且评估与提交分离，不削弱事务内全量校验的正确性兜底。")
 h2("1.5 论文组织结构")
 para("第 1 章绪论；第 2 章介绍相关技术；第 3 章进行需求分析；第 4 章阐述系统设计；第 5 章说明系统实现；第 6 章给出测试与实验结果；"
      "第 7 章总结全文并展望后续工作。")
 
 # ---------- 第2章 ----------
+h2("1.6 本章小结")
+para("本章明确了课题背景与同类系统的现状差距，说明了本课题的主要工作与三条创新点，并给出论文的组织结构，为后续各章提供总纲。")
 h1("2 相关技术")
 h2("2.1 C11 与 MinGW-w64")
-para("系统采用 C11 标准与 MinGW-w64 GCC 15.2 工具链构建，使用 _Thread_local 线程局部存储实现每工作线程的数据库连接复用，"
+para("系统采用 C11 标准[[8]]与 MinGW-w64 GCC 15.2 工具链构建，使用 _Thread_local 线程局部存储实现每工作线程的数据库连接复用，"
      "并以 SRWLOCK（读写锁）保护进程内共享状态。构建脚本提供正式版、故障注入测试版（TEST_FAULTS 宏）、加固版（_FORTIFY_SOURCE=3、"
      "栈保护、自动变量零初始化）与覆盖率版四种目标。")
 h2("2.2 CivetWeb 嵌入式 HTTP 服务器")
-para("CivetWeb 是衍生自 Mongoose 的开源嵌入式 Web 服务器，以单线程库形态嵌入宿主程序，提供多工作线程、静态文件服务、Cookie 解析与"
+para("CivetWeb[[2]] 是衍生自 Mongoose 的开源嵌入式 Web 服务器，以单线程库形态嵌入宿主程序，提供多工作线程、静态文件服务、Cookie 解析与"
      "SSL 能力。系统以 NO_SSL 宏裁剪 TLS（传输安全留作后续扩展），固定 8 个工作线程并仅监听回环地址，符合校园单机部署场景。"
-     "全局安全响应头（Content-Security-Policy、X-Content-Type-Options、X-Frame-Options、Referrer-Policy）通过 CivetWeb 的 "
+     "全局安全响应头（Content-Security-Policy、X-Content-Type-Options、X-Frame-Options、Referrer-Policy、Permissions-Policy 五项）通过 CivetWeb 的 "
      "additional_header 配置统一下发至包括静态页在内的全部响应；静态文件缓存协商由 static_file_cache_control 选项控制，"
      "保证前端资源更新即时生效。")
 h2("2.3 SQLite 与事务模型")
-para("SQLite 是无服务器的嵌入式关系数据库。系统启用 WAL（写前日志）模式实现读写并行，synchronous=FULL 保证掉电持久性；"
+para("SQLite 是无服务器的嵌入式关系数据库[[1,14]]。系统启用 WAL（写前日志）模式实现读写并行，synchronous=FULL 保证掉电持久性；"
      "所有业务写操作置于 BEGIN IMMEDIATE 短事务中——该模式在事务开始时即获取写锁，将并发冲突转化为串行化排队，是本系统并发正确性的基石。"
      "局部唯一索引（部分索引）用于声明数据不变量；Online Backup API 用于在线备份。")
 h2("2.4 cJSON 与 libsodium")
-para("cJSON 提供标准 C 的 JSON 解析与序列化，其解析深度限制可抵御嵌套嵌套攻击；libsodium 提供密码学安全的随机数生成与 Argon2id"
-     "口令哈希（crypto_pwhash），避免自研密码学带来的风险。")
+para("cJSON[[4]] 提供标准 C 的 JSON 解析与序列化，其解析深度限制可抵御嵌套嵌套攻击；libsodium[[3]] 提供密码学安全的随机数生成与 Argon2id"
+     "口令哈希（crypto_pwhash，参数化标准见 RFC 9106[[13]]），避免自研密码学带来的风险。")
 h2("2.5 前端技术")
-para("前端采用无框架的原生 HTML/CSS/JavaScript 单页实现（v1.16.0 引入共用基座 ui.js 与深色主题 theme.js），与嵌入式后端在依赖哲学上保持一致：全部资源本地静态服务，无构建步骤、"
+para("前端采用无框架的原生 HTML/CSS/JavaScript 单页实现（v1.16.0 引入共用基座 ui.js 与深色主题 theme.js；内容安全策略遵循 OWASP CSP 指南[[16]]），与嵌入式后端在依赖哲学上保持一致：全部资源本地静态服务，无构建步骤、"
      "无第三方运行时，页面总量约 180 KB（含样式表与图标）。v1.17.0 又以七轮迭代完成体验打磨：主题切换升级为 View Transitions 圆形扩散过渡（特性检测降级为瞬时切换）；"
      "顶栏吸附式毛玻璃、表单聚焦联动、表格与角标等宽数字（消除数字跳动）等信息层级优化；移动端适配（窄屏页签条吸顶、输入框 16px 防 iOS 聚焦缩放、触摸目标加高、全面屏安全区）；"
      "危险操作的 3 秒倒计时二次确认；以及 favicon 的 SMIL 冒泡动画。全部视觉效果经设计令牌统一管理，并在 prefers-reduced-motion 与打印介质下整体关停，保证无障碍与可用性优先。")
 
 # ---------- 第3章 ----------
+h2("2.6 本章小结")
+para("本章介绍了实现所依赖的五项核心技术（C11、CivetWeb、SQLite、cJSON 与 libsodium）及原生前端路线的选型理由：轻量嵌入、零额外运行时、"
+     "各自经过长期工业或学术验证。它们与“纯 C 单体 + 严格自动化验证”的技术路线互为支撑，为后续设计与实现奠定基础。")
 h1("3 需求分析")
 h2("3.1 角色与用例")
-para("系统包含两类角色。普通用户：自助注册与登录、查询开放场次、预约与取消（含改期与备注）、加入/退出候补、确认限时保留名额、在签到窗口内签到与签退、"
+para("按照软件工程需求分析的通行方法[[10]]，系统包含两类角色，其职责边界与系统用例如图 3-1 所示。普通用户：自助注册与登录、查询开放场次、预约与取消（含改期与备注）、加入/退出候补、确认限时保留名额、在签到窗口内签到与签退、"
      "接收站内通知（补位、爽约、管理员公告、场次提醒）并批量已读、自助修改密码、管理本人在线会话与 API 访问令牌、查看信用余额与流水、按状态筛选与翻页查看本人记录；"
      "管理员：维护实验室及其资源（设备）清单、开启实验室预约审批并处理待审批申请、维护资源的维护工单与可用时段窗、授予/撤销资源使用资格、按日期区间与容量发布场次、"
      "对已发布场次在开始前调整时间与容量、查看全体记录（按动作与用户筛选）与操作日志、管理用户（停用/启用、重置密码、发放信用）、向全员或指定用户"
      "发布公告、查看通知送达与已读情况、查看逐日统计（图表与 CSV 导出）与运行指标、查看服务运行日志。管理员账号从登录页的管理员入口进入，"
      "认证通过后自动跳转独立管理控制台。普通用户可自助注册（角色恒为 USER），管理账号由系统预置。")
+img("fig3-1-usecase.png", cap_text="图 3-1 系统用例图（学生与管理员两类角色）")
 h2("3.2 功能需求")
-para("核心功能需求归纳为：场次查询（按实验室与日期，返回容量与实时占用）；预约（容量内即时生效；审批实验室落 PENDING 待批）；候补（满员排队，"
-     "可执行 FIFO 或 strict 策略排队与递补）；取消与自动补位（释放与补位原子完成）；替代时段提示（满员时返回同实验室 7 天内空闲场次）；限时签到与"
-     "爽约回收（超时自动释放并补位）；候补递补限时保留与确认（HELD + confirm）；高优先级抢占（未签到者，信用补偿）；预约改期（同实验室原子改期，旧槽自动补位）与预约备注；跨时段批量连场预约（原子）；预约时资源需求声明与同时段配额校验（BR12，资源随取消/爽约自动释放）；"
-     "场次开始提醒（开始前可配置时段内向有效预约者推送站内提醒）；站内通知（补位、爽约、公告、提醒四类，分页加载）；账号自助注册与管理、"
-     "API 访问令牌自助签发与吊销、信用余额与流水查询；管理员用户管理（停用立即下线、重置密码一次性展示、信用发放）与审批处理；记录分页与状态筛选；逐日统计图表与 CSV 导出；服务运行日志查看与级别筛选；实验室资源清单维护（名称/规格/数量/可用状态、维护工单、可用时段窗、资格授权）与按实验室的资源利用率与实机时统计导出、周期性场次发布、每周预约配额（BR13）、iCalendar 日历导出。")
+para("将 3.1 的用例归纳为编号功能需求（FR），作为第 4 章设计与第 6 章测试断言的追溯基准，见表 3-1。")
+cap("表 3-1 功能需求清单（FR）")
+tbl(["编号", "功能域", "功能描述"],
+    [["FR-01", "账号", "注册/登录（双入口）/改密/会话与 API 令牌自助管理"],
+     ["FR-02", "查询", "按实验室与日期查询场次，返回容量与实时占用"],
+     ["FR-03", "预约", "容量内即时生效；审批实验室落 PENDING 待批（支持批量审批）"],
+     ["FR-04", "候补", "满员排队（strict/executable/weighted 三档策略）与递补、每日上限"],
+     ["FR-05", "取消补位", "取消/爽约释放与 FIFO 补位原子完成；替代时段提示"],
+     ["FR-06", "签到", "窗口内签到/签退；超时自动爽约回收；实机时统计"],
+     ["FR-07", "改期连场", "同实验室原子改期（旧槽补位）；跨时段批量连场预约"],
+     ["FR-08", "资源", "预约声明设备（同时段配额）；维护工单/时段窗/资格授权"],
+     ["FR-09", "治理", "信用账户与流水；优先级抢占与补偿；公平性审计"],
+     ["FR-10", "运营", "通知/提醒/统计图表与 CSV/运行指标与日志/演示数据"]])
+para("其中每项功能均对应契约测试端点与集成断言组（如 FR-04 对应 T61/T62/T70/T73/T74），需求—设计—测试三者可追溯。")
 h2("3.3 业务规则")
 para("系统的业务不变量归纳为以下规则（BR）：")
 li("BR1 容量约束：任一场次同一时刻的有效预约数不超过其容量 capacity（1..200）；")
 li("BR2 唯一参与：同一用户对同一场次至多持有一条有效预约或一条有效候补；")
-li("BR3 FIFO 补位：名额释放与候补补位在同一事务内按候补编号递增顺序连续进行，直至满员或队列空；")
+li("BR3 FIFO 补位（队列基础[[5]]）：名额释放与候补补位在同一事务内按候补编号递增顺序连续进行，直至满员或队列空；")
 li("BR4 幂等去重：每次写操作携带全局唯一的请求编号；同编号同参数重放返回已保存原结果，同编号异参数返回冲突；失败（5xx）不落回执，可安全重试；")
 li("BR5 签到窗口：场次开始后进入签到窗口（可配置），仅本人可签到；窗口过后不可补签，由扫描线程自动爽约回收；")
 li("BR6 爽约语义：爽约回收与候补补位在同一事务内完成，并向预约人与候补人各写入一条通知；补位预约以其补位时刻为签到起点；")
@@ -260,11 +316,23 @@ para("多条规则交叉作用时的组合语义以实现契约的「语义澄�
      "批准事务内重校、满则 409）；抢占仅限未签到且优先级更低者；候补递补是系统行为、不经过审批（审批实验室的递补同样直接落 CONFIRMED/HELD）；"
      "资源转维修中后新声明被拒而既有声明保留；改期不重计每周配额（本周有效预约总数守恒）。第五章实现与第六章测试（T63–T67 组合验证）均以此为基准。", indent=True)
 h2("3.4 非功能需求")
-para("并发正确性（争抢下不超卖）、可用性（进程异常退出后数据一致、可恢复）、安全性（口令哈希、会话与请求伪造防护、防爆破、无账号枚举"
+para("非功能需求在定性约束之外给出可验证的量化指标（NFR），每项指标均在第 6 章有对应的实验通道与实测结论，见表 3-2。")
+cap("表 3-2 非功能需求量化指标（NFR）与验证通道")
+tbl(["编号", "质量属性", "量化指标", "验证通道（第 6 章）"],
+    [["NFR-1", "并发正确性", "任意并发争抢下有效占用 ≤ 容量（零超卖）", "720 次并发实验（6.4）"],
+     ["NFR-2", "容错可恢复", "进程中断后数据一致、终态可重放", "30 次故障注入（6.5）"],
+     ["NFR-3", "读性能", "20 并发读 p50 ≤ 10 ms", "基准对比（6.6：实测 8.2 ms）"],
+     ["NFR-4", "稳健性", "恶意输入零 5xx、长时运行零错误", "模糊 720 次（6.8）、浸泡（6.7 节内）"],
+     ["NFR-5", "安全", "账号枚举时序比 ≤ 1.1；口令仅存哈希", "计时旁路实验（实测 1.07）"],
+     ["NFR-6", "可测试性", "行覆盖率 ≥ 80%；契约端点全覆盖", "覆盖率（6.2）、契约测试（6.1）"]])
+para("其中并发正确性（争抢下不超卖）、可用性（进程异常退出后数据一致、可恢复）、安全性（口令哈希、会话与请求伪造防护、防爆破、无账号枚举"
      "侧信道、CSP 等安全响应头）、可观测性（分级日志、访问日志、运行指标、日志查看接口）、可维护性（接口契约文档、schema 幂等迁移、"
-     "五层自动化测试与三通道 CI 门禁）、可运营性（演示数据一键生成、自动备份与轮转）。")
+     "五层自动化测试与四通道 CI 门禁）、可运营性（演示数据一键生成、自动备份与轮转）共同构成本系统的质量目标。")
 
 # ---------- 第4章 ----------
+h2("3.5 本章小结")
+para("本章从角色用例出发，将系统需求归纳为 10 项功能需求（FR-01～FR-10）、21 条业务规则（BR1～BR21）与 6 项量化非功能指标（NFR）——"
+     "三张清单相互衔接，共同构成第 4 章设计与第 6 章测试断言的追溯基准；组合语义基准则把规则交叉处的唯一正确行为显式钉死。")
 h1("4 系统设计")
 h2("4.1 总体架构")
 para("系统采用五层架构，如图 4-1 所示：浏览器层负责交互；接入层由 CivetWeb 提供 HTTP 解析与多线程调度，并完成会话认证与请求伪造防护；"
@@ -276,7 +344,7 @@ para("安全边界方面，服务仅监听 127.0.0.1 回环地址，供本机浏
      "X-Content-Type-Options: nosniff、X-Frame-Options: DENY、Referrer-Policy: no-referrer、Permissions-Policy: camera/microphone/geolocation 禁用——"
      "静态页经服务器全局配置、API 与指标响应经处理器内共享常量双通道下发，二者内容一致）；请求体上限 16 KB 且拒绝重复键。")
 h2("4.2 数据库设计")
-para("数据模型共 17 张表（当前 schema user_version=5），如图 4-2 所示，其中核心 11 张承载预约主流程：reservations（预约）与 waitlist（候补）是核心业务表；request_receipts（请求回执）支撑幂等去重；"
+para("数据模型共 17 张表（关系建模遵循数据库设计方法学[[6]]，当前 schema user_version=5），如图 4-2 所示，其中核心 11 张承载预约主流程：reservations（预约）与 waitlist（候补）是核心业务表；request_receipts（请求回执）支撑幂等去重；"
      "operation_events（操作事件）提供审计；notifications（通知）承载补位、爽约、公告与提醒四类站内消息；assets（r13 引入）承载各实验室的"
      "资源（设备）清单，以（实验室,资源名）唯一约束与三态状态（可用/维修中/停用）支撑资源管理。r17–r24 以幂等迁移陆续扩展 6 张表："
      "asset_claims（资源声明，(预约,资源) 复合主键）、asset_windows（可用时段窗）、asset_maintenance（维护工单）、qualifications（资源资格）、"
@@ -298,15 +366,15 @@ para("v1 版本曾以部分唯一索引（每场次至多一条 CONFIRMED）作�
      "\u201c已约数 ≤ capacity\u201d在任意提交序列下均成立。该设计将正确性从\u201c数据库约束兜底\u201d演进为\u201c事务协议保证\u201d，"
      "并在第六章以 720 次并发争抢实验与超容量落库检查加以验证。")
 h3("4.4.2 请求去重：持久化回执")
-para("预约生命周期形成创建—改期—取消三件套：改期在单事务内完成新槽全量校验、原子迁移与旧槽候补补位（对标 Cal.com 的 reschedule 能力）。客户端为每个写操作生成一次 UUID 请求编号。服务端将（用户，编号）→（动作，参数摘要，HTTP 状态，结果 JSON）作为回执与业务变更在同一"
+para("预约生命周期形成创建—改期—取消三件套：改期在单事务内完成新槽全量校验、原子迁移与旧槽候补补位（对标 Cal.com 的 reschedule 能力，接口风格遵循 REST 表示性状态转移[[17]]）。客户端为每个写操作生成一次 UUID 请求编号。服务端将（用户，编号）→（动作，参数摘要，HTTP 状态，结果 JSON）作为回执与业务变更在同一"
      "事务内持久化；再次收到同编号请求时：同参数直接重放原结果（含 409 类失败结果），异参数返回 REQUEST_ID_CONFLICT。网络超时、503 等临时"
-     "失败不落回执，客户端可携带原编号安全重试，从而以\u201c至少一次提交 + 服务端幂等\u201d替代脆弱的\u201c恰好一次\u201d假设。判定流程如图 4-6。")
+     "失败不落回执，客户端可携带原编号安全重试，从而以\u201c至少一次提交 + 服务端幂等\u201d替代脆弱的\u201c恰好一次\u201d假设。判定流程如图 4-4。")
 img("fig4-6-dedup.png", cap_text="图 4-4 请求去重与回执重放流程", width=12.5)
 h3("4.4.3 取消补位与爽约回收")
 para("取消预约与候补补位在同一事务内完成：先将目标预约置为 CANCELLED，再由 promote_fill 循环按 FIFO 依次将队首有效候补转为 CONFIRMED，"
      "直至满员或队列空；禁用账号自动跳过。爽约回收由扫描线程执行：场次开始后超过签到窗口仍未签到的预约被批量标记为 NO_SHOW 并释放，"
-     "同一事务内完成补位与双向通知。补位预约以补位时刻作为签到起点，避免了\u201c刚补位即超时\u201d的死循环。取消时序与扫描时序分别如图 4-4、"
-     "图 4-5 所示。")
+     "同一事务内完成补位与双向通知。补位预约以补位时刻作为签到起点，避免了\u201c刚补位即超时\u201d的死循环。取消时序与扫描时序分别如图 4-5、"
+     "图 4-6 所示。")
 img("fig4-4-cancel-seq.png", cap_text="图 4-5 取消—补位时序图（标注事务边界）")
 img("fig4-5-sweep-seq.png", cap_text="图 4-6 签到—爽约扫描时序图")
 h3("4.4.4 会话与传输安全")
@@ -327,20 +395,22 @@ para("爽约信用：预约与候补入口在事务内统计申请人近 7 天�
      "命中即拒绝；该检查与容量检查同处单写者事务内，因此不会出现检查与写入之间的竞态窗口。两项约束均在数据库完整性检查中配备对应的"
      "脏数据发现语句，可被单元测试直接验证。")
 h3("4.4.7 候补策略、审批流与信用账户（r19–r24）")
-para("候补策略：三档可插拔——默认可执行 FIFO（递补事务按（优先级降序，编号升序）扫描队列，账号停用者置 SKIPPED，临时时间冲突者暂跳并保留原序号），"
-     "只递补第一个当前可执行的候选，避免队首暂时不可执行时阻塞整条队列；--waitlist-strategy=strict 可回退为队首阻塞语义；weighted 档把操作系统调度的老化（aging）思想迁移到候补队列——score = 1000×优先级 + 200×(信用−5) + 60×log₂(1+等待小时数)，等待时长按对数加速补偿以消除同档饿死，同时信用与角色优先级的量纲设计（1 点信用 ≈ 8 小时等待、管理员 1000 分不被越级）保证激励结构不被老化侵蚀。三档策略共用同一套可执行性扫描，实测对照见 6.7 节。"
-     "限时保留：--hold-window 启用后，递补先落 HELD 并写入保留截止（当前时刻+窗口与开场时刻取小），用户在截止前调用确认接口才转 "
-     "CONFIRMED；扫描器将过期的 HELD 回收为 EXPIRED 并立即对同一场次重新递补，形成“超时即让位”的重试环。")
-para("预约审批流：实验室可开启 require_approval，此后用户主动预约先落 PENDING（不占容量）；管理员批准时在同一事务内重校容量与资源配额，"
-     "已满则 409 APPROVAL_CAPACITY，拒绝则 CANCELLED/REJECTED 并双向通知。候补递补被明确定义为系统行为、不经过审批——审批实验室的"
-     "递补同样直接落 CONFIRMED（或 HELD），保证名额不因审批流程空置。")
-para("抢占与信用账户：满员时高优先级角色（管理员）可直接预约，系统在同一事务内选择“未签到且优先级更低”的有效预约者（CONFIRMED/HELD 中 "
-     "priority 最低者）置 CANCELLED/PREEMPTED，补偿 1 点信用并通知；已签到者永不被抢占。信用账户以 credit_ledger 记录全部变动"
-     "（签到/补偿 +1、爽约额外 −1、管理员发放、每周回补至基准 5），余额钳制在 0..5，余额为零拒绝新的预约与候补。资源域配套提供维护工单"
-     "（开启即维修中、关闭恢复）、按星期与时刻的可用时段窗、以及按资源粒度的使用资格授权，三项校验均与资源声明同事务完成。")
+para("候补策略三档可插拔，规则基准见 BR19：设计要点在于三档共用同一套可执行性扫描器——strict 只是关闭“暂跳”分支的退化形态，weighted 仅"
+     "改变候选排序所用的评分函数（评分计算与排序的实现见 5.3 节代码摘录），因此策略切换不影响补位事务的边界与幂等语义。限时保留（BR20）"
+     "构成“超时即让位”的重试环：递补先落 HELD 并写入保留截止（当前时刻+窗口与开场时刻取小），用户在截止前确认才转 CONFIRMED，"
+     "扫描器将过期 HELD 回收为 EXPIRED 并立即对同一场次重新递补。三档策略的实测对照见 6.7 节。")
+para("预约审批流的完整规则与组合语义见 BR 与 3.3 节语义澄清基准；设计上的关键取舍是把“递补”定义为系统行为、不经过审批——审批实验室的"
+     "递补同样直接落 CONFIRMED（或 HELD），保证释放的名额不因审批流程而空置，而审批的容量安全由批准时的事务内重校（409 APPROVAL_CAPACITY）兜底。")
+para("抢占与信用账户（BR15/BR16）在同一事务内闭环：抢占选择“未签到且优先级更低”的有效预约者并补偿 1 点信用，已签到者永不被抢占；"
+     "信用变动全程记流水、每周回补至基准、余额钳制 0..5。资源域配套的维护工单、可用时段窗与资格授权（BR17/BR18/BR21）三项校验"
+     "均与资源声明同事务完成，规则明细见 3.3 对应条目，此处不再重述。")
+para("在以上规则之上，系统提供只读的约束感知建议端点：对每一场次按当前账号的配额、信用、时间冲突、提前量与余位状态评估“可预约/可候补”并给出原因解释（满员引导候补、周配额不阻塞候补等）；评估与提交之间允许竞态，提交仍由事务内全量校验兜底。", indent=True)
 para("在以上规则之上，系统提供只读的约束感知建议端点：对每一场次按当前账号的配额、信用、时间冲突、提前量与余位状态评估“可预约/可候补”并给出原因解释（满员引导候补、周配额不阻塞候补等）；评估与提交之间允许竞态，提交仍由事务内全量校验兜底。", indent=True)
 
 # ---------- 第5章 ----------
+h2("4.5 本章小结")
+para("本章给出五层架构与五模块划分、17 张表的数据模型、预约与候补双状态机，以及去重回执、取消补位、爽约回收、候补三档策略与会话安全等关键机制设计；"
+     "第 5 章实现与第 6 章测试（T63–T67 组合验证）均以本章设计为基准。")
 h1("5 系统实现")
 h2("5.1 开发环境与构建")
 para("开发环境为 Windows x64 + MinGW-w64 GCC 15.2，自研核心代码约 3,300 行 C（不含第三方库），前端约 800 行脚本与 850 行样式表，"
@@ -357,13 +427,35 @@ para("api() 处理器依次执行 Host 白名单、方法检查、健康探测�
      "（其中 26 个带路径参数），另有 Prometheus 抓取端点 /metrics 为独立处理器；契约测试覆盖其中 56 个端点的响应封套与字段类型"
      "（计数以仓库 tests/contract_test.py 的 SCHEMAS 键数为准）。管理端点集中做角色断言，静态资源与 API 共享全局安全响应头。")
 h2("5.3 事务与去重核心")
-para("booking() 是全部写操作的汇聚点，其主干为：BEGIN IMMEDIATE → 用户可用性检查（含爽约信用受限与时间重叠检测）→ 回执查询（命中即重放/"
-     "冲突）→ 目标与状态校验 → 容量校验 → 业务写入与补位 → 回执持久化 → COMMIT；任何一步出错则整体 ROLLBACK 并将临时错误映射为 503。"
-     "预约请求可携带资源声明，事务内完成“归属校验 → 同时段配额（BR12）→ 声明落库”，资源列表纳入请求摘要以保证同编号异参数冲突语义；"
+para("booking() 是全部写操作的汇聚点，其主干以伪代码呈现如下（省略错误映射与审计细节）：")
+code("txn booking(user, slot, request_id, ...):\n"
+     "    BEGIN IMMEDIATE                 // 单写者：取写锁，busy 则退避\n"
+     "    if user_limited_or_overlap():   ROLLBACK; return 409/423  // BR10/BR11\n"
+     "    rc = SELECT 回执 WHERE user, request_id\n"
+     "    if rc 存在:  ROLLBACK; return 重放(rc) 或 409 REQUEST_ID_CONFLICT\n"
+     "    validate(目标/状态/容量/资源配额)  // 失败则 ROLLBACK 并回执 409\n"
+     "    INSERT 预约; promote_fill(slot)  // 补位循环至满员或队空\n"
+     "    INSERT 回执(动作, 摘要, 状态, 结果)\n"
+     "    COMMIT                          // 业务与回执原子提交")
+para("该主干的关键性质是：业务结果、状态变更、通知与请求回执在同一事务内提交——网络中断后客户端重试同编号请求，服务端直接重放已保存的终态结果；"
+     "真实源码（src/booking.c）约 900 行，覆盖预约/改期/取消/候补/审批/抢占六类动作的分派与校验。")
+para("预约请求可携带资源声明，事务内完成“归属校验 → 同时段配额（BR12）→ 声明落库”，资源列表纳入请求摘要以保证同编号异参数冲突语义；"
      "候补场景下，promote_fill 循环先按可执行 FIFO 策略将队列补至满员，再处理请求者本人：若请求者恰为队首，其候补先行生效，本次直接预约返回"
      "409 并附替代时段，保证 FIFO 公平性不被绕过。审批实验室的主动预约在事务内先插 CONFIRMED 再改写为 PENDING；管理员批准接口在同一事务内"
      "重校容量（含资源声明配额）后转 CONFIRMED，拒绝则置 CANCELLED/REJECTED。满员时高优先级请求者的预约在同一事务内完成抢占选择"
      "（未签到、priority 最低的 CONFIRMED/HELD 记录）、补偿落账与双向通知，任何一步失败整体回滚。")
+para("幂等回执判定的核心 SQL 只有一条——同编号命中即按参数摘要分流：")
+code("SELECT action, payload_digest, http_status, result_json\n"
+     "  FROM request_receipts\n"
+     " WHERE user_id = ? AND request_id = ?;   -- (user, request_id) 唯一索引\n"
+     "-- digest 相同 → 重放 result_json；不同 → 409 REQUEST_ID_CONFLICT")
+para("weighted 档的老化加权评分在递补事务内联计算（摘自 src/booking.c 的 promote()，量纲见 4.4.7）：")
+code("double wait=(double)(now-ca)/3600.0;                 /* 等待小时数 */\n"
+     "double lg=log2(1.0+wait);if(lg<0)lg=0;\n"
+     "arr[m].score=1000.0*(double)pr                       /* 优先级项 */\n"
+     "             +200.0*((double)cr-5.0)                 /* 信用项：1 点 ≈ 8 小时 */\n"
+     "             +60.0*lg;                               /* 老化项：等待翻倍 +60 */\n"
+     "/* 候补按 score 插入排序（稳定，规模通常 < 百级），再顺次扫描第一个可执行者 */")
 h2("5.4 性能优化：连接复用与语句缓存")
 para("初版实现每个请求新建 SQLite 连接（open + 两条 PRAGMA + close），并对每条 SQL 重复 prepare。后将其优化为每工作线程复用连接"
      "（_Thread_local，致命错误自动重建）并引入按 SQL 文本的预处理语句 LRU 缓存（每连接上限 32 条，使用后 reset 复用、出错即淘汰）。"
@@ -394,20 +486,25 @@ para("通知外发采用 outbox 模式保障可靠性：notify() 首先落站内
      "恢复后自动补发。渠道派发含独立单元用例（关闭零行为、同事务登记、目标不可写失败记账、恢复后补发成功）。")
 
 # ---------- 第6章 ----------
+h2("5.8 本章小结")
+para("本章说明了开发环境与四个构建目标、HTTP 接入与会话安全的实现、事务与去重核心、性能优化（连接复用与语句缓存、N+1 消除）、签到爽约扫描、"
+     "管理控制台与运营功能以及 outbox 通知派发的关键实现；模块化拆分以行多重集审计保障零语义漂移。")
 h1("6 系统测试")
 h2("6.1 测试策略与环境")
-para("测试体系分五层：（1）Unity 单元测试 25 个，不经 HTTP 直接链接业务层与数据层；（2）集成实验 79 项断言组（编号 T01–T78 另加 CLI 数据库"
+para("测试体系分五层（关键实现遵循安全编码规则[[9]]）：（1）Unity 单元测试[[11]]25 个，不经 HTTP 直接链接业务层与数据层；（2）集成实验 79 项断言组（编号 T01–T78 另加 CLI 数据库"
      "检查，以测试运行器 record() 调用数为准），以独立 Python 客户端"
      "驱动真实服务进程，覆盖功能、安全、并发、故障恢复、运营能力与跨规则组合语义；（3）契约测试（56 个端点逐项校验响应封套与字段类型）与灰盒/文档一致性测试；"
      "（4）模糊稳健性实验与浸泡稳定性实验；（5）真实浏览器端到端验收。所有实验使用独立临时端口与全新数据库副本，原始证据（数据库、日志、"
      "结果 JSON）完整归档，失败样本不销毁。")
-para("持续集成设有四条并行门禁通道：构建与单元/集成测试、静态分析门禁（-fanalyzer 与绑定参数静态核查）、以及 AddressSanitizer + "
+para("持续集成设有四条并行门禁通道：构建与单元/集成测试、契约与文档一致性门禁（端点契约及错误码与源码逐项比对）、静态分析门禁（-fanalyzer 与绑定参数静态核查）、"
+     "以及 AddressSanitizer + "
      "UndefinedBehaviorSanitizer 内存安全通道。ASan 通道基于 llvm-mingw 工具链解决 MinGW 发行版缺少 sanitizer 运行库的问题，"
      "在真实服务进程上执行核心实验组，任一通道失败即阻断合并。")
 h2("6.2 单元测试与覆盖率")
 para("单元测试覆盖纯函数（编号/UUID/日期/令牌/分页参数）、数据库不变量（种子形状、超容量检测、脏数据发现、v2→v3 迁移实测、备份轮转）、"
      "业务层直调（预约冲突、替代时段对账、候补 FIFO、签到、通知、会话、改密、爽约信用、时间重叠）、限流纯函数（令牌桶边界与补充数学、"
-     "登录锁定到期）以及语句缓存（命中、LRU 淘汰、参数重绑、错误不污染）与线程连接复用（致命错误重建），共 24 个用例。")
+     "登录锁定到期）以及语句缓存（命中、LRU 淘汰、参数重绑、错误不污染）、线程连接复用（致命错误重建）与 outbox 渠道派发（关闭零行为、同事务登记、"
+     "目标不可写失败记账、恢复后补发），共 25 个用例。")
 para("以 --coverage 构建运行全部单元测试与接口走查后，各源文件行覆盖率见表 6-1（gcov 统计）。")
 cap("表 6-1 源文件行覆盖率（单元 + 接口与 CLI 走查，gcov 实测）")
 tbl(["源文件", "db.c", "http.c", "log.c", "main.c", "metrics.c", "ratelimit.c", "service.c", "util.c"],
@@ -455,8 +552,7 @@ para("故障注入覆盖三类中断点（各 10 轮，共 30 次）：事务提
      "以及扫描事务中途崩溃（exit 88）。三轮实验的结论一致：未提交事务整体回滚（预约保持 CONFIRMED、候补保持 WAITING）；已提交事务完整"
      "保留（补位与通知不丢失）；重启后以原请求编号重试，首次重试完成剩余业务，重复重放返回同一结果；每轮重启后数据库完整性检查通过。")
 h2("6.6 性能优化对比实验")
-para("以连接复用与语句缓存为唯一变量的前后对比实验结果见表 6-3：基线取自同一 v1.14.0 代码构建的对照变体（将 HTTP 层改回每请求新建数据库连接，因语句缓存随连接生存，该变体同时关闭两项优化），两臂在同日背靠背、同机同参下测得。读路径收益最大：20 并发吞吐由 304 rps 提升至 1948 rps"
-     "（+541%），p50 由 63.9ms 降至 8.2ms；写路径受限于写锁串行化，收益收窄但依然正向（+2%～+63%）。")
+para("以连接复用与语句缓存为唯一变量的前后对比实验结果见表 6-3：基线取自同一 v1.14.0 代码构建的对照变体（将 HTTP 层改回每请求新建数据库连接，因语句缓存随连接生存，该变体同时关闭两项优化），两臂在同日背靠背、同机同参下测得。读路径收益最大——20 并发下吞吐提升约 5.4 倍、p50 降至约 8ms（E1 行）；写路径受限于写锁串行化，收益收窄但依然正向。")
 cap("表 6-3 优化前后基准对比（v1.14.0 对照变体，同日背靠背，完整数据见 docs/evidence/benchmark/）")
 tbl(["实验", "场景", "并发", "基线 rps", "优化 rps", "吞吐提升", "p50 变化"],
     [["E1", "read", 10, 366.0, 1355.5, "+270%", "-80.7%"],
@@ -468,7 +564,7 @@ tbl(["实验", "场景", "并发", "基线 rps", "优化 rps", "吞吐提升", "
 para("在优化对比之外，另以混合负载实验考察写入密集场景的尾延迟与稳定性：6 个并发客户端在 20 秒内混发预约、取消、候补、审批、改期与读请求共 2,320 次，全程零请求错误、零 5xx（200/400/409 分别为 1,198/381/741，4xx 均为预期内的满员与冲突拒绝）；整体延迟 p50=14.5ms、p95=53.6ms、p99=91.8ms、最大 178.7ms。写前日志在实验窗口内由 0.12MB 增至 2.24MB，属写入集中期的正常表现，未见异常增长。该实验为本机回环环境的实测证据，脚本与报告见 scripts/mixed_load.py 与 docs/evidence/load/。", indent=True)
 para("在端点层面另做一次 N+1 查询消除：约束感知建议端点最初对 7 天窗口内每场次分别执行排位与概率查询（每请求约数百条 SQL），改为按（场次×优先级）分组计数与按星期分桶的历史释放两条预取查询后，在 104 场次、40 场满员带候补的负载下吞吐由 118 提升至 179 次/秒（+51%），且行为等价性由建议与概率的既有断言（T69/T71）逐值验证。公平审计端点同样消除了 N+1 查询（每用户 7 个相关子查询改为 6 条 GROUP BY 预聚合）。", indent=True)
 h2("6.7 候补策略与冲突检测算法对比实验")
-para("候补策略对比：以三档策略 × 四档负载（ρ = 预约请求数 / 总容量 = 0.7、1.0、1.3、1.6，过载递增）的真实服务矩阵实验评估递补效果（每格确定性场景：12 场次×容量 3、随机负载用户、结构化候补三角色——队首带跨场冲突者、低信用次早者、高信用第三者；释放由确定性取消触发）。结果见表 6-4：严格 FIFO 在队首冲突时空置全部释放名额（转正 0）；可执行与加权档均能完成递补，且二者把名额交给不同人——可执行档按入队序给出（等待约 7,200 秒），加权档按评分给出（等待约 3,600 秒，平均等待时长减半，归属高信用短等待者）。Jain 公平指数三档一致（0.73～0.82），表明单名额归属的差异在用户总量层面不放大不公平。")
+para("候补策略对比：以三档策略 × 四档负载（ρ = 预约请求数 / 总容量 = 0.7、1.0、1.3、1.6，过载递增）的真实服务矩阵实验评估递补效果（每格确定性场景：12 场次×容量 3、随机负载用户、结构化候补三角色——队首带跨场冲突者、低信用次早者、高信用第三者；释放由确定性取消触发）。结果见表 6-4 与图 6-1：严格 FIFO 在队首冲突时空置全部释放名额（转正 0）；可执行与加权档均能完成递补，且二者把名额交给不同人——可执行档按入队序给出（等待约 7,200 秒），加权档按评分给出（等待约 3,600 秒，平均等待时长减半，归属高信用短等待者）。Jain 公平指数三档一致（0.73～0.82），表明单名额归属的差异在用户总量层面不放大不公平。")
 cap("表 6-4 三策略×四档负载矩阵（节选；完整数据 docs/evidence/experiment/strategy_matrix.md）")
 tbl(["策略", "ρ", "释放", "入队", "转正", "平均等待(s)", "Jain"],
     [["strict", "0.7~1.6", "6~7", "3", "0", "—", "0.74~0.82"],
@@ -517,6 +613,9 @@ para("以真实 Chromium 浏览器完成八用例端到端验收（含 case8 管
      "全部十二个页签（场次调整、待审批专页、批量审批、强制操作按钮、用户停用与受限标记、通知发布与送达、运行日志筛选等）。截图存证于 docs/evidence/ui-r3/、ui-r5/ 与后续轮次归档。")
 
 # ---------- 第7章 ----------
+h2("6.11 本章小结")
+para("本章以五层测试策略组织了 16 类实验通道：单元、集成、契约、灰盒/文档、模糊、浸泡、并发争抢、故障注入、策略矩阵、计时旁路、端到端验收等，"
+     "全部量化结论均由可复现脚本产生并附原始证据归档——这既是第 7 章结论的依据，也是后续演进的安全网。")
 h1("7 总结与展望")
 h2("7.1 工作总结")
 para("本课题面向高校开放实验室管理场景，完整经历了需求分析、架构设计、编码实现、自动化验证与性能优化五个阶段，交付了一个功能完备、"
@@ -527,36 +626,45 @@ para("本课题面向高校开放实验室管理场景，完整经历了需求�
      "以及构建、静态分析与 AddressSanitizer 四通道持续集成门禁；从 720 次争抢实验、30 次崩溃恢复实验、跨规则组合验证、计时旁路实验到"
      "性能优化对比的完整实测证据链。")
 h2("7.2 不足与展望")
-para("系统当前为单机回环部署，尚未覆盖：传输加密（TLS 证书体系已预留）；跨校区多实例与集中部署；与门禁、一卡通系统的对接；"
-     "以及基于历史数据的机时利用率分析与推荐。性能方面，写入路径受 SQLite 单写者模型限制，如需更高写并发可评估分片或更换存储引擎。"
-     "管理能力方面，通知目前为站内信形态，后续可扩展邮件或即时消息推送。这些将作为后续迭代方向。")
+para("系统当前的边界与后续方向按实施难度分为三个层次。近期（工程补全）：其一，传输加密——当前仅面向本机回环部署，接入校园网需补 TLS 终止（可在 CivetWeb 启用 HTTPS 或前置反向代理，证书校验体系已在配置层预留）；其二，通知渠道扩展——站内信已具备 outbox 派发骨架，邮件/即时消息渠道只需在渠道函数指针表中注册新实现，失败重试与记账机制可直接复用。", indent=True)
+para("中期（架构演进）：其三，多实例与集中部署——SQLite 单写者模型在单机场景是正确性优势，跨校区集中部署时需引入中心服务与消息队列，预约事务边界与回执语义可原样保留，候补策略的评分计算需集中化以避免双主；其四，写并发上限——若单点写入成为瓶颈，可按实验室维度分库分片（分片键无交叉，跨实验室时间重叠检测需改为聚合查询），或评估更换嵌入式/服务器型存储引擎。", indent=True)
+para("远期（能力延伸）：其五，与门禁、一卡通系统对接，将签到从“软件确认”升级为“物理到场”，凭据生命周期机制（停用即吊销）已为其预留接口；其六，基于已积累的预约、签到与实机时历史，开展机时利用率分析与时段推荐——现有约束感知建议端点（含转正概率的经验分布估计）可平滑升级为数据驱动的推荐入口。上述方向中，近期两项不改变现有架构，中期两项已在本课题的组合语义与测试基线保护下可控演进。", indent=True)
 
 # ---------- 参考文献 ----------
 h1("参考文献")
+para("以下参考文献的著录格式遵循 GB/T 7714-2015[[12]]。", indent=False, size=10.5)
 refs = [
- "[1] SQLite Consortium. SQLite Documentation: WAL Mode, Transactions[EB/OL]. https://www.sqlite.org/docs.html, 2026.",
- "[2] CivetWeb Project. CivetWeb User Manual[EB/OL]. https://github.com/civetweb/civetweb, 2026.",
- "[3] denisbonvini J., et al. libsodium Documentation[EB/OL]. https://libsodium.org, 2026.",
- "[4] Dave Gamble. cJSON: Ultralightweight JSON parser in ANSI C[EB/OL]. https://github.com/DaveGamble/cJSON, 2026.",
+ "[1] SQLite Consortium. SQLite Documentation: WAL Mode, Transactions[EB/OL]. https://www.sqlite.org/docs.html, 2026-09-21 访问.",
+ "[2] CivetWeb Project. CivetWeb User Manual[EB/OL]. https://github.com/civetweb/civetweb, 2026-09-21 访问.",
+ "[3] Denis F. libsodium Documentation[EB/OL]. https://libsodium.org, 2026-09-21 访问.",
+ "[4] Dave Gamble. cJSON: Ultralightweight JSON parser in ANSI C[EB/OL]. https://github.com/DaveGamble/cJSON, 2026-09-21 访问.",
  "[5] 严蔚敏, 吴伟民. 数据结构（C 语言版）[M]. 北京: 清华大学出版社, 2007.",
  "[6] 萨师煊, 王珊. 数据库系统概论（第 5 版）[M]. 北京: 高等教育出版社, 2014.",
  "[7] Abraham Silberschatz. Operating System Concepts (10th Edition)[M]. Wiley, 2018.",
  "[8] ISO/IEC. ISO/IEC 9899:2018 Programming languages — C[S]. 2018.",
  "[9] Gerard J. Holzmann. The Power of Ten: Rules for Developing Safety-Critical Code[J]. Computer, 2006, 39(6): 95-99.",
  "[10] 张海藩. 软件工程导论（第 6 版）[M]. 北京: 清华大学出版社, 2013.",
- "[11] ThrowTheSwitch. Unity Test Framework[EB/OL]. https://github.com/ThrowTheSwitch/Unity, 2026.",
+ "[11] ThrowTheSwitch. Unity Test Framework[EB/OL]. https://github.com/ThrowTheSwitch/Unity, 2026-09-21 访问.",
  "[12] GB/T 7714-2015 信息与文献 参考文献著录规则[S]. 北京: 中国标准出版社, 2015.",
+ "[13] Internet Engineering Task Force. RFC 9106: Argon2 Memory-Hard Function for Password Hashing and Proof-of-Work[S]. 2021.",
+ "[14] Gaffney B, Prammer M, Brasfield L, et al. SQLite: Past, Present, and Future[J]. Proceedings of the VLDB Endowment, 2022, 15(12): 3535-3547.",
+ "[15] Jain R, Chiu D M, Hawe W. A Quantitative Measure of Fairness and Discrimination for Resource Allocation in Shared Computer Systems: TR-301[R]. Hudson: Digital Equipment Corporation, 1984.",
+ "[16] OWASP Foundation. Content Security Policy Cheat Sheet[EB/OL]. https://cheatsheetseries.owasp.org/, 2026-09-21 访问.",
+ "[17] Fielding R T. Architectural Styles and the Design of Network-based Software Architectures[D]. Irvine: University of California, Irvine, 2000.",
 ]
 for r in refs: para(r, indent=False, size=10.5)
 
 # ---------- 致谢 ----------
 h1("致  谢")
-para("感谢指导教师在选题、系统设计与论文撰写过程中的悉心指导；感谢实验室与同学们在需求调研与系统试用中提出的宝贵意见；"
-     "感谢开源社区提供的优秀组件（CivetWeb、SQLite、cJSON、libsodium、Unity），它们是本系统能够以轻量形态达成工程目标的坚实基础。")
+para("本课题从选题、需求梳理、系统设计到论文撰写，始终得到指导教师的悉心指导：课题方向的三次遴选斟酌、组合语义与候补策略的多次讨论，"
+     "使本系统在功能广度与工程深度之间找到了合适的落点，谨致谢忱。感谢实验室与同学们在需求调研与系统试用中提出的宝贵意见——"
+     "爽约信用、替代时段与知情候补等机制的雏形正是来源于一线使用者的真实痛点。感谢开源社区提供的优秀组件"
+     "（CivetWeb、SQLite、cJSON、libsodium、Unity），它们是本系统能够以轻量形态达成工程目标的坚实基础；"
+     "亦感谢软件测试社区沉淀的方法与工具实践，使\u201c结论必须可复现\u201d得以贯穿本课题始终。")
 
 # ---------- 附录 ----------
 h1("附录 A  接口契约摘要")
-para("系统共 67 个路由分支，契约测试覆盖 52 个 REST 端点的响应封套与字段类型，统一封套 {code, message, data}，错误码包括 400/401/403/404/409/413/429/500/503。"
+para("系统共 67 个路由分支，契约测试覆盖 56 个 REST 端点的响应封套与字段类型，统一封套 {code, message, data}，错误码包括 400/401/403/404/409/413/429/500/503。"
      "完整契约见仓库 docs/CONTRACT.md，主要内容如下：")
 tbl(["类别", "端点示例", "说明"],
     [["查询", "GET /api/labs, /api/slots, /api/me/records", "场次/记录查询，支持分页与状态筛选"],
