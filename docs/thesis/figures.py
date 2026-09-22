@@ -92,6 +92,27 @@ def save(fig, name):
     fig.savefig(OUT / name, dpi=200, bbox_inches="tight", facecolor="white")
     plt.close(fig); print("saved", name)
 
+# ---- 图3-1 系统用例图（学生 / 管理员双角色，系统边界内两列用例） ----
+fig, ax = canvas(10, 7.2)
+ax.add_patch(Rectangle((1.9, 0.35), 6.5, 6.5, fc="white", ec=BD, lw=1.6))
+note(ax, 5.15, 6.55, "实验室资源管理与预约候补一体化系统", ha="center", fontsize=10.5, fontweight="bold", color=G)
+box(ax, 0.15, 3.3, 1.35, 1.0, "学生\n（普通用户）", fc="#dbe9e2", bold=True, fs=9.5, name="3-1actorS")
+box(ax, 8.6, 3.3, 1.3, 1.0, "管理员", fc="#dbe9e2", bold=True, fs=9.5, name="3-1actorA")
+left_uc = ["注册 / 登录 / 改密", "查询场次与资源", "预约 / 改期 / 取消", "加入候补 / 退出",
+           "签到 / 签退", "查看记录与通知", "管理 API 令牌"]
+right_uc = ["发布 / 调整场次", "预约审批（含批量）", "用户与凭据管理", "强制取消 / 代签退",
+            "资源维护 / 资格授权", "统计 / 导出 / 监控", "通知发布 / 公告"]
+for i, t in enumerate(left_uc):
+    y = 5.5 - i * 0.75
+    box(ax, 2.15, y, 2.9, 0.6, t, fc="#f4f8f6", fs=8.5, name=f"3-1L{i}")
+    ax.plot([1.5, 2.15], [3.8, y + 0.3], color=BD, lw=0.9)
+for i, t in enumerate(right_uc):
+    y = 5.5 - i * 0.75
+    box(ax, 5.35, y, 2.9, 0.6, t, fc="#f4f8f6", fs=8.5, name=f"3-1R{i}")
+    ax.plot([8.25, 8.6], [y + 0.3, 3.8], color=BD, lw=0.9)
+note(ax, 5.15, 0.62, "管理员经用户入口亦可执行学生侧全部用例（role_hint 双入口，正文 5.2）", ha="center", fontsize=8.6, color=BD)
+save(fig, "fig3-1-usecase.png")
+
 # ---- 图4-1 系统总体架构（重排：子框两行化、横幅拆行、层距加大） ----
 fig, ax = canvas(10, 7.2)
 box(ax, 0.5, 8.75, 9, 0.95, "浏览器（原生 HTML/JS/CSS：用户端 + 管理控制台）", fc="#dbe9e2", bold=True, fs=11, name="4-1浏览器")
@@ -99,12 +120,12 @@ note(ax, 5, 8.45, "JSON over HTTP（仅 127.0.0.1 回环）", ha="center", fonts
 ax.add_patch(FancyArrowPatch((5, 8.72), (5, 8.22), arrowstyle="-|>", mutation_scale=14, color=BD))
 box(ax, 0.5, 6.55, 9, 1.45, "", fc=GB, ec=BD)
 ax.text(5, 7.78, "CivetWeb 接入层（8 工作线程 · 回环监听）", ha="center", fontsize=11, fontweight="bold", color=TX)
-for i, t in enumerate(["会话认证", "CSRF / Origin\n+ Host 校验", "请求体\n≤ 16 KB", "安全响应头\nCSP 等四项"]):
+for i, t in enumerate(["会话认证", "CSRF / Origin\n+ Host 校验", "请求体\n≤ 16 KB", "安全响应头\n五项（CSP 等）"]):
     box(ax, 0.75 + i * 2.2, 6.7, 2.0, 0.62, t, fc="white", fs=8.5, name=f"4-1接入{i}")
 box(ax, 0.5, 4.15, 9, 1.5, "", fc=GB, ec=BD)
-ax.text(5, 5.38, "业务层 service.c（BEGIN IMMEDIATE 单写者事务）", ha="center", fontsize=11, fontweight="bold", color=TX)
-for i, t in enumerate(["预约 / 取消", "容量校验\npromote_fill", "请求去重\n回执", "签到 / 爽约\n扫描", "通知 / 改密\n会话"]):
-    box(ax, 0.62 + i * 1.82, 4.32, 1.72, 0.68, t, fc="white", fs=8.5, name=f"4-1业务{i}")
+ax.text(5, 5.38, "业务层（BEGIN IMMEDIATE 单写者事务 · 五模块）", ha="center", fontsize=11, fontweight="bold", color=TX)
+for i, t in enumerate(["booking\n预约候补审批", "asset\n资源维护资格", "stats / token\n统计·令牌信用", "service\n通知会话扫描", "http / db\n接入与数据访问"]):
+    box(ax, 0.62 + i * 1.82, 4.32, 1.72, 0.68, t, fc="white", fs=7.8, name=f"4-1业务{i}")
 box(ax, 6.9, 2.55, 2.6, 0.85, "限流防爆破\n令牌桶 + 登录锁定", fc="#f6efdf", fs=8.5, name="4-1限流")
 box(ax, 6.9, 1.45, 2.6, 0.85, "运行指标\n原子计数 + 延迟直方图", fc="#f6efdf", fs=8.5, name="4-1指标")
 box(ax, 0.5, 2.55, 6.0, 0.85, "结构化日志（分级 · 轮转 · 访问日志 · 慢请求告警）", fc="#f6efdf", fs=9, name="4-1日志")
@@ -160,9 +181,9 @@ note(ax, 0.25, 1.15, "不变量：每场次占容（CONFIRMED+HELD）≤ capacit
      fontsize=8.2, color=G, ha="left", linespacing=1.5)
 save(fig, "fig4-2-er.png")
 
-# ---- 图4-3 状态转换图（v1.13.0 七态口径：预约 PENDING/CONFIRMED/HELD/CANCELLED/EXPIRED + 候补 WAITING/PROMOTED/WITHDRAWN/SKIPPED） ----
+# ---- 图4-3 状态转换图（预约五态：PENDING/CONFIRMED/HELD/CANCELLED/EXPIRED + 候补四态：WAITING/PROMOTED/WITHDRAWN/SKIPPED） ----
 fig, ax = canvas(10.5, 6.4, xr=10.5, yr=10.6)
-note(ax, 0.35, 10.15, "预约状态机（7 态）", fontsize=10.5, fontweight="bold", color=G)
+note(ax, 0.35, 10.15, "预约状态机（五态）", fontsize=10.5, fontweight="bold", color=G)
 box(ax, 0.6, 8.6, 2.0, 0.9, "PENDING\n待审批（不占容）", fc="#fdeecd", bold=True, fs=9.5, name="4-3PEND")
 box(ax, 4.0, 8.6, 2.3, 0.9, "CONFIRMED\n有效预约（占容）", fc="#cfe3d8", bold=True, fs=9.5, name="4-3CONF")
 box(ax, 8.0, 8.6, 2.1, 0.9, "HELD\n限时保留（占容）", fc="#dce8f5", bold=True, fs=9.5, name="4-3HELD")
@@ -178,14 +199,13 @@ arrow(ax, 6.3, 8.6, 4.9, 7.0)
 note(ax, 5.75, 7.7, "取消 USER / 爽约 NO_SHOW / 抢占 PREEMPTED", ha="center", fontsize=8.4, color=BD)
 arrow(ax, 9.05, 8.6, 9.05, 7.0)
 note(ax, 9.9, 7.8, "超时扫描\n(hold_deadline)", ha="center", fontsize=8.6, color=BD, linespacing=1.4)
-note(ax, 5.15, 5.7, "取消原因四分：USER / NO_SHOW / REJECTED / PREEMPTED；CONFIRMED 期间可签到—签退（不产生新状态）",
-     ha="center", fontsize=8.6, color=BD)
-note(ax, 0.35, 4.75, "候补状态机", fontsize=10.5, fontweight="bold", color=G)
+note(ax, 0.35, 2.3, "取消原因五分：USER / NO_SHOW /\nREJECTED / PREEMPTED / ADMIN\nCONFIRMED 期间可签到—签退", fontsize=8.2, color=BD, ha="left", linespacing=1.4)
+note(ax, 0.35, 4.75, "候补状态机（四态）", fontsize=10.5, fontweight="bold", color=G)
 box(ax, 0.6, 3.4, 2.0, 0.9, "WAITING\n候补排队", fc="#fdf3d8", bold=True, fs=9.5, name="4-3WAIT")
 box(ax, 4.0, 3.4, 2.3, 0.9, "PROMOTED\n已递补", fc="#dbe9e2", bold=True, fs=9.5, name="4-3PROM")
 box(ax, 7.2, 3.4, 1.9, 0.9, "WITHDRAWN\n已退出", fc="white", fs=9.5, name="4-3WD")
 arrow(ax, 2.6, 3.85, 4.0, 3.85)
-note(ax, 3.3, 4.95, "可执行 FIFO（默认）：priority DESC,id 扫描\n暂跳冲突者；strict：队首阻塞", ha="center", fontsize=8.4, color=BD, linespacing=1.4)
+note(ax, 3.35, 5.15, "可执行 FIFO（默认）：priority DESC,id 扫描\n暂跳冲突者；strict：队首阻塞", ha="center", fontsize=8.4, color=BD, linespacing=1.4)
 arrow(ax, 1.6, 4.42, 7.7, 4.42)
 note(ax, 3.4, 2.55, "用户主动退出", ha="center", fontsize=8.6, color=BD)
 box(ax, 7.0, 1.7, 1.9, 0.8, "SKIPPED\n已跳过", fc="white", fs=9.5, name="4-3SKIP")
